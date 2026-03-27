@@ -27,7 +27,7 @@
             </div>
           </template>
 
-          <div v-loading="store.productLoading">
+          <div v-loading="listLoading">
             <el-empty
               v-if="!store.shopifyProducts.length && !store.productLoading"
               description="暂无商品数据"
@@ -188,6 +188,8 @@ const saving = ref(false)
 const selectionList = computed(() => Object.values(selectionsMap.value))
 const totalSelected = computed(() => selectionList.value.length)
 const totalQuantity = computed(() => selectionList.value.reduce((sum, s) => sum + (s.quantity || 0), 0))
+// 仅在首次加载（暂无缓存数据）时显示整块骨架，避免已有数据被 loading 蒙层遮挡
+const listLoading = computed(() => store.productLoading && !store.shopifyProducts.length)
 
 function isExpanded(productId) {
   return !!expandedMap.value[productId]
