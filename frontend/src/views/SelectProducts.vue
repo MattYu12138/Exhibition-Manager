@@ -45,13 +45,13 @@
                 <div class="product-header" @click="toggleProduct(product.id)">
                   <div class="product-info">
                     <img
-                      v-if="product.main_image"
+                      v-if="product.main_image && !imgError[product.id]"
                       :src="product.main_image"
                       class="product-thumb"
-                      @error="(e) => e.target.style.display='none'"
+                      @error="imgError[product.id] = true"
                     />
-                    <div class="product-placeholder"><el-icon><Picture /></el-icon></div>
-                    <div>
+                    <div v-else class="product-placeholder"><el-icon><Picture /></el-icon></div>
+                    <div class="product-text">
                       <div class="product-name">{{ product.title }}</div>
                       <div class="product-meta">{{ product.variants ? product.variants.length : 0 }} 个变体</div>
                     </div>
@@ -167,7 +167,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useExhibitionStore } from '@/stores/exhibition'
@@ -183,6 +183,8 @@ const expandedMap = ref({})
 // 用普通对象替代 Map，key 为 `${productId}-${variantId}`
 const selectionsMap = ref({})
 const saving = ref(false)
+// 图片加载失败标记，key 为 productId
+const imgError = reactive({})
 
 // 计算属性：将 selectionsMap 转为数组，方便渲染
 const selectionList = computed(() => Object.values(selectionsMap.value))
@@ -321,10 +323,11 @@ onMounted(loadProducts)
 .product-header {
   display: flex; justify-content: space-between; align-items: center;
   padding: 12px 14px; cursor: pointer; background: #fafafa;
-  transition: background 0.15s;
+  transition: background 0.15s; min-height: 56px;
 }
 .product-header:hover { background: #f0f2f5; }
-.product-info { display: flex; align-items: center; gap: 12px; }
+.product-info { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+.product-text { flex: 1; min-width: 0; }
 .product-thumb {
   width: 48px; height: 48px; border-radius: 8px; object-fit: cover; flex-shrink: 0;
 }
@@ -333,7 +336,7 @@ onMounted(loadProducts)
   display: flex; align-items: center; justify-content: center; color: #c0c4cc; font-size: 20px;
   flex-shrink: 0;
 }
-.product-name { font-weight: 600; font-size: 14px; color: #303133; }
+.product-name { font-weight: 600; font-size: 14px; color: #303133; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .product-meta { font-size: 12px; color: #909399; margin-top: 2px; }
 .product-actions { display: flex; align-items: center; gap: 10px; }
 .expand-icon { transition: transform 0.2s; color: #909399; }
