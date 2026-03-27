@@ -3,6 +3,64 @@ import { ref, computed } from 'vue'
 import { exhibitionApi, shopifyApi, squareApi } from '@/api'
 import { ElMessage } from 'element-plus'
 
+
+function normalizeShopifyProducts(payload) {
+  let source = payload
+
+  // 兼容某些环境返回 JSON 字符串
+  if (typeof source === 'string') {
+    try {
+      source = JSON.parse(source)
+    } catch {
+      return []
+    }
+  }
+
+  let rawProducts = []
+  if (Array.isArray(source)) rawProducts = source
+  else if (Array.isArray(source?.data)) rawProducts = source.data
+  else if (Array.isArray(source?.products)) rawProducts = source.products
+  else if (Array.isArray(source?.data?.products)) rawProducts = source.data.products
+
+  return rawProducts
+    .filter((product) => product && typeof product === 'object')
+    .map((product) => {
+      const productImages = product.images || []
+      const mainImage = product.main_image || product.mainImage || product.image?.src || productImages[0]?.src || null
+
+      const variantEdges = Array.isArray(product?.variants?.edges)
+        ? product.variants.edges.map((edge) => edge?.node).filter(Boolean)
+        : null
+
+      const variantsSource = Array.isArray(product.variants)
+        ? product.variants
+        : variantEdges || []
+
+      const variants = variantsSource.map((variant) => ({
+        id: String(variant.id ?? variant.variant_id ?? ''),
+        title: variant.title || variant.name || '默认变体',
+        sku: variant.sku || '',
+        gtin: variant.gtin || variant.barcode || '',
+        price: variant.price,
+        inventory_quantity: variant.inventory_quantity ?? variant.inventoryQuantity ?? variant.available ?? 0,
+        inventory_item_id: variant.inventory_item_id ? String(variant.inventory_item_id) : '',
+        option1: variant.option1,
+        option2: variant.option2,
+        option3: variant.option3,
+        image_url: variant.image_url || variant.image?.src || mainImage,
+      }))
+
+      return {
+        id: String(product.id ?? product.product_id ?? ''),
+        title: product.title || product.name || '',
+        options: Array.isArray(product.options) ? product.options : [],
+        main_image: mainImage,
+        variants,
+      }
+    })
+    .filter((product) => product.id && product.title)
+}
+
 export const useExhibitionStore = defineStore('exhibition', () => {
   // ==================== 状态 ====================
   const exhibitions = ref([])
@@ -177,7 +235,7 @@ export const useExhibitionStore = defineStore('exhibition', () => {
     productLoading.value = true
     try {
       const res = await shopifyApi.getProducts(search)
-      shopifyProducts.value = res.data || []
+      shopifyProducts.value = normalizeShopifyProducts(res?.data ?? res)
     } catch (err) {
       ElMessage.error('获取 Shopify 商品失败: ' + err.message)
     } finally {
