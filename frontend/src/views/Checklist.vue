@@ -1,0 +1,221 @@
+<template>
+  <div class="checklist-page">
+    <div class="page-header">
+      <el-button text @click="$router.back()"><el-icon><ArrowLeft /></el-icon> 返回</el-button>
+      <div>
+        <h1 class="page-title">货品清点</h1>
+        <p class="page-desc">逐件清点展会货品，完成后打勾确认</p>
+      </div>
+    </div>
+
+    <!-- 进度条 -->
+    <el-card class="progress-card">
+      <div class="progress-header">
+        <div class="progress-info">
+          <span class="progress-label">清点进度</span>
+          <span class="progress-count">{{ store.checkedCount }} / {{ store.totalItems }}</span>
+        </div>
+        <div class="progress-actions">
+          <el-button size="small" @click="checkAll(true)" :disabled="store.checkedCount === store.totalItems">
+            全部打勾
+          </el-button>
+          <el-button size="small" @click="checkAll(false)" :disabled="store.checkedCount === 0">
+            全部取消
+          </el-button>
+        </div>
+      </div>
+      <el-progress
+        :percentage="store.checkProgress"
+        :status="store.checkProgress === 100 ? 'success' : ''"
+        :stroke-width="12"
+        striped
+        striped-flow
+        :duration="10"
+      />
+      <div v-if="store.checkProgress === 100" class="all-done">
+        <el-icon color="#67c23a"><CircleCheck /></el-icon>
+        所有货品已清点完成！
+      </div>
+    </el-card>
+
+    <!-- 按商品分组的清单 -->
+    <div v-loading="store.loading" class="product-groups">
+      <el-empty
+        v-if="!store.groupedItems.length && !store.loading"
+        description="清单为空，请先添加商品"
+      >
+        <el-button type="primary" @click="$router.push(`/exhibitions/${id}/select-products`)">
+          去选择商品
+        </el-button>
+      </el-empty>
+
+      <el-card
+        v-for="group in store.groupedItems"
+        :key="group.product_id"
+        class="product-group-card"
+        :class="{ 'all-checked': isProductAllChecked(group) }"
+      >
+        <!-- 商品标题行 -->
+        <div class="group-header">
+          <div class="group-title-area">
+            <el-image
+              v-if="group.image_url"
+              :src="group.image_url"
+              style="width: 52px; height: 52px; border-radius: 10px; flex-shrink: 0"
+              fit="cover"
+            />
+            <div v-else class="group-placeholder"><el-icon><Box /></el-icon></div>
+            <div>
+              <div class="group-title">{{ group.product_title }}</div>
+              <div class="group-meta">
+                {{ group.variants.filter((v) => v.checked).length }} / {{ group.variants.length }} 个尺码已清点
+              </div>
+            </div>
+          </div>
+
+          <!-- 整个商品一键打勾 -->
+          <div class="group-check-btn">
+            <el-tooltip :content="isProductAllChecked(group) ? '取消全部' : '整件商品全部打勾'" placement="top">
+              <el-button
+                :type="isProductAllChecked(group) ? 'success' : 'default'"
+                :icon="isProductAllChecked(group) ? 'CircleCheck' : 'Check'"
+                circle
+                size="large"
+                @click="toggleProductCheck(group)"
+              />
+            </el-tooltip>
+          </div>
+        </div>
+
+        <!-- 变体清单 -->
+        <div class="variant-checklist">
+          <div
+            v-for="variant in group.variants"
+            :key="variant.id"
+            class="variant-check-row"
+            :class="{ checked: variant.checked }"
+            @click="toggleVariantCheck(variant)"
+          >
+            <div class="check-icon-wrap">
+              <transition name="check-bounce">
+                <el-icon v-if="variant.checked" class="check-icon checked-icon" size="22" color="#67c23a">
+                  <CircleCheck />
+                </el-icon>
+                <el-icon v-else class="check-icon unchecked-icon" size="22" color="#dcdfe6">
+                  <CircleClose />
+                </el-icon>
+              </transition>
+            </div>
+
+            <div class="variant-detail">
+              <span class="variant-name">{{ variant.variant_title || '默认' }}</span>
+              <div class="variant-tags">
+                <el-tag v-if="variant.sku" size="small" type="info">{{ variant.sku }}</el-tag>
+                <el-tag v-if="variant.gtin" size="small" type="warning">{{ variant.gtin }}</el-tag>
+              </div>
+            </div>
+
+            <div class="variant-qty-info">
+              <div class="qty-label">计划</div>
+              <div class="qty-value">{{ variant.planned_quantity }}</div>
+            </div>
+
+            <el-button
+              size="small"
+              :type="variant.checked ? 'success' : 'default'"
+              @click.stop="toggleVariantCheck(variant)"
+              style="min-width: 72px"
+            >
+              {{ variant.checked ? '已清点 ✓' : '标记清点' }}
+            </el-button>
+          </div>
+        </div>
+      </el-card>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useExhibitionStore } from '@/stores/exhibition'
+
+const route = useRoute()
+const router = useRouter()
+const store = useExhibitionStore()
+const id = route.params.id
+
+function isProductAllChecked(group) {
+  return group.variants.every((v) => v.checked)
+}
+
+async function toggleVariantCheck(variant) {
+  await store.toggleItemCheck(id, variant.id, !variant.checked)
+}
+
+async function toggleProductCheck(group) {
+  const allChecked = isProductAllChecked(group)
+  await store.toggleProductCheck(id, group.product_id, !allChecked)
+}
+
+async function checkAll(checked) {
+  for (const group of store.groupedItems) {
+    await store.toggleProductCheck(id, group.product_id, checked)
+  }
+}
+
+onMounted(() => store.loadExhibition(id))
+</script>
+
+<style scoped>
+.page-header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 24px; }
+.page-title { font-size: 22px; font-weight: 700; }
+.page-desc { font-size: 14px; color: #909399; margin-top: 4px; }
+
+.progress-card { margin-bottom: 20px; }
+.progress-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.progress-info { display: flex; align-items: baseline; gap: 8px; }
+.progress-label { font-size: 15px; font-weight: 600; }
+.progress-count { font-size: 22px; font-weight: 700; color: #409eff; }
+.progress-actions { display: flex; gap: 8px; }
+.all-done { display: flex; align-items: center; gap: 6px; margin-top: 12px; color: #67c23a; font-weight: 600; font-size: 15px; }
+
+.product-groups { display: flex; flex-direction: column; gap: 16px; }
+
+.product-group-card { transition: all 0.3s; }
+.product-group-card.all-checked { border-color: #67c23a; background: linear-gradient(135deg, #f0f9eb 0%, #fff 100%); }
+
+.group-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.group-title-area { display: flex; align-items: center; gap: 14px; }
+.group-placeholder {
+  width: 52px; height: 52px; border-radius: 10px; background: #f5f7fa;
+  display: flex; align-items: center; justify-content: center; color: #c0c4cc; font-size: 24px;
+}
+.group-title { font-size: 16px; font-weight: 700; }
+.group-meta { font-size: 13px; color: #909399; margin-top: 4px; }
+
+.variant-checklist { display: flex; flex-direction: column; gap: 8px; }
+.variant-check-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px; border-radius: 10px; border: 2px solid #ebeef5;
+  cursor: pointer; transition: all 0.2s; background: #fff;
+}
+.variant-check-row:hover { border-color: #c6e2ff; background: #f5f9ff; }
+.variant-check-row.checked { border-color: #b3e19d; background: #f0f9eb; }
+
+.check-icon-wrap { width: 28px; display: flex; justify-content: center; }
+.check-bounce-enter-active { animation: checkBounce 0.3s ease; }
+@keyframes checkBounce {
+  0% { transform: scale(0.5); opacity: 0; }
+  70% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.variant-detail { flex: 1; }
+.variant-name { font-size: 14px; font-weight: 600; display: block; margin-bottom: 4px; }
+.variant-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.variant-qty-info { text-align: center; min-width: 50px; }
+.qty-label { font-size: 11px; color: #909399; }
+.qty-value { font-size: 18px; font-weight: 700; color: #303133; }
+</style>

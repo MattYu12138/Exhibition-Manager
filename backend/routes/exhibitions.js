@@ -1,0 +1,156 @@
+const express = require('express');
+const router = express.Router();
+const db = require('../db');
+
+// 获取所有展会
+router.get('/', (req, res) => {
+  try {
+    const exhibitions = db.prepare('SELECT * FROM exhibitions ORDER BY created_at DESC').all();
+    res.json({ success: true, data: exhibitions });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 获取单个展会详情
+router.get('/:id', (req, res) => {
+  try {
+    const exhibition = db.prepare('SELECT * FROM exhibitions WHERE id = ?').get(req.params.id);
+    if (!exhibition) return res.status(404).json({ success: false, message: '展会不存在' });
+
+    const items = db.prepare('SELECT * FROM exhibition_items WHERE exhibition_id = ?').all(req.params.id);
+    res.json({ success: true, data: { ...exhibition, items } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 创建展会
+router.post('/', (req, res) => {
+  try {
+    const { name, date, location } = req.body;
+    if (!name) return res.status(400).json({ success: false, message: '展会名称不能为空' });
+
+    const result = db.prepare(
+      'INSERT INTO exhibitions (name, date, location, status) VALUES (?, ?, ?, ?)'
+    ).run(name, date || null, location || null, 'preparing');
+
+    const exhibition = db.prepare('SELECT * FROM exhibitions WHERE id = ?').get(result.lastInsertRowid);
+    res.json({ success: true, data: exhibition });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 更新展会信息
+router.put('/:id', (req, res) => {
+  try {
+    const { name, date, location, status } = req.body;
+    db.prepare(
+      'UPDATE exhibitions SET name = COALESCE(?, name), date = COALESCE(?, date), location = COALESCE(?, location), status = COALESCE(?, status), updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    ).run(name || null, date || null, location || null, status || null, req.params.id);
+
+    const exhibition = db.prepare('SELECT * FROM exhibitions WHERE id = ?').get(req.params.id);
+    res.json({ success: true, data: exhibition });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 删除展会
+router.delete('/:id', (req, res) => {
+  try {
+    db.prepare('DELETE FROM exhibitions WHERE id = ?').run(req.params.id);
+    res.json({ success: true, message: '展会已删除' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 添加商品到展会清单
+router.post('/:id/items', (req, res) => {
+  try {
+    const { items } = req.body; // [{ shopify_product_id, shopify_variant_id, product_title, variant_title, sku, gtin, image_url, planned_quantity }]
+    if (!items || !Array.isArray(items)) {
+      return res.status(400).json({ success: false, message: '请提供商品列表' });
+    }
+
+    const insertItem = db.prepare(`
+      INSERT OR REPLACE INTO exhibition_items 
+      (exhibition_id, shopify_product_id, shopify_variant_id, product_title, variant_title, sku, gtin, image_url, planned_quantity, checked)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+    `);
+
+    const insertMany = db.transaction((itemList) => {
+      for (const item of itemList) {
+        insertItem.run(
+          req.params.id,
+          item.shopify_product_id,
+          item.shopify_variant_id,
+          item.product_title,
+          item.variant_title || '',
+          item.sku || '',
+          item.gtin || '',
+          item.image_url || '',
+          item.planned_quantity || 0
+        );
+      }
+    });
+
+    insertMany(items);
+    const savedItems = db.prepare('SELECT * FROM exhibition_items WHERE exhibition_id = ?').all(req.params.id);
+    res.json({ success: true, data: savedItems });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 更新单个商品的清点状态或数量
+router.put('/:id/items/:itemId', (req, res) => {
+  try {
+    const { checked, planned_quantity } = req.body;
+    db.prepare(
+      'UPDATE exhibition_items SET checked = COALESCE(?, checked), planned_quantity = COALESCE(?, planned_quantity) WHERE id = ? AND exhibition_id = ?'
+    ).run(
+      checked !== undefined ? (checked ? 1 : 0) : null,
+      planned_quantity !== undefined ? planned_quantity : null,
+      req.params.itemId,
+      req.params.id
+    );
+
+    const item = db.prepare('SELECT * FROM exhibition_items WHERE id = ?').get(req.params.itemId);
+    res.json({ success: true, data: item });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 批量更新清点状态（整个商品所有变体打勾）
+router.put('/:id/items/product/:productId/check', (req, res) => {
+  try {
+    const { checked } = req.body;
+    db.prepare(
+      'UPDATE exhibition_items SET checked = ? WHERE exhibition_id = ? AND shopify_product_id = ?'
+    ).run(checked ? 1 : 0, req.params.id, req.params.productId);
+
+    const items = db.prepare('SELECT * FROM exhibition_items WHERE exhibition_id = ?').all(req.params.id);
+    res.json({ success: true, data: items });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 删除展会中的商品
+router.delete('/:id/items/:itemId', (req, res) => {
+  try {
+    db.prepare('DELETE FROM exhibition_items WHERE id = ? AND exhibition_id = ?').run(
+      req.params.itemId,
+      req.params.id
+    );
+    res.json({ success: true, message: '商品已从清单中移除' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+module.exports = router;
