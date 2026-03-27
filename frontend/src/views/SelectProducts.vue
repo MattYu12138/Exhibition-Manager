@@ -37,7 +37,7 @@
 
             <div v-else class="product-list">
               <div
-                v-for="product in store.shopifyProducts"
+                v-for="product in pagedProducts"
                 :key="product.id"
                 class="product-item"
               >
@@ -101,6 +101,19 @@
                   </div>
                 </div>
               </div>
+            </div>
+
+            <!-- 分页 -->
+            <div class="pagination-wrap" v-if="filteredProducts.length > pageSize">
+              <el-pagination
+                v-model:current-page="currentPage"
+                :page-size="pageSize"
+                :total="filteredProducts.length"
+                layout="prev, pager, next, jumper"
+                background
+                small
+                @current-change="handlePageChange"
+              />
             </div>
           </div>
         </el-card>
@@ -186,10 +199,21 @@ const saving = ref(false)
 // 图片加载失败标记，key 为 productId
 const imgError = reactive({})
 
+// 分页
+const currentPage = ref(1)
+const pageSize = 20
+
 // 计算属性：将 selectionsMap 转为数组，方便渲染
 const selectionList = computed(() => Object.values(selectionsMap.value))
 const totalSelected = computed(() => selectionList.value.length)
 const totalQuantity = computed(() => selectionList.value.reduce((sum, s) => sum + (s.quantity || 0), 0))
+// 根据搜索过滤后的商品（用于分页计算）
+const filteredProducts = computed(() => store.shopifyProducts)
+// 当前页展示的商品
+const pagedProducts = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  return filteredProducts.value.slice(start, start + pageSize)
+})
 // 仅在首次加载（暂无缓存数据）时显示整块骨架，避免已有数据被 loading 蒙层遮挡
 const listLoading = computed(() => store.productLoading && !store.shopifyProducts.length)
 
@@ -273,14 +297,20 @@ function handleSearch() {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(async () => {
     await store.loadShopifyProducts(searchQuery.value)
+    currentPage.value = 1
     expandAll()
   }, 400)
 }
 
 function expandAll() {
   const map = {}
-  store.shopifyProducts.forEach((p) => { map[p.id] = true })
+  pagedProducts.value.forEach((p) => { map[p.id] = true })
   expandedMap.value = map
+}
+
+function handlePageChange() {
+  // 切页时展开当前页所有商品，并滚动到顶部
+  expandAll()
 }
 
 async function loadProducts() {
@@ -318,7 +348,8 @@ onMounted(loadProducts)
 .page-desc { font-size: 14px; color: #909399; margin-top: 4px; }
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 
-.product-list { display: flex; flex-direction: column; gap: 8px; max-height: 75vh; overflow-y: auto; padding-right: 4px; }
+.product-list { display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
+.pagination-wrap { display: flex; justify-content: center; margin-top: 16px; padding-bottom: 4px; }
 .product-item { border: 1px solid #ebeef5; border-radius: 10px; overflow: hidden; }
 .product-header {
   display: flex; justify-content: space-between; align-items: center;
