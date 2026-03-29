@@ -1,36 +1,36 @@
 <template>
   <div class="create-page">
     <div class="page-header">
-      <el-button text @click="$router.back()"><el-icon><ArrowLeft /></el-icon> 返回</el-button>
-      <h1 class="page-title">新建展会</h1>
+      <el-button text @click="$router.back()"><el-icon><ArrowLeft /></el-icon> {{ t('common.back') }}</el-button>
+      <h1 class="page-title">{{ t('exhibitionCreate.pageTitle') }}</h1>
     </div>
 
     <el-card class="form-card">
       <el-form :model="form" :rules="rules" ref="formRef" label-width="100px" size="large">
-        <el-form-item label="展会名称" prop="name">
-          <el-input v-model="form.name" placeholder="例如：2024 春季时装展" maxlength="100" show-word-limit />
+        <el-form-item :label="t('exhibitionCreate.fieldName')" prop="name">
+          <el-input v-model="form.name" :placeholder="t('exhibitionCreate.namePlaceholder')" maxlength="100" show-word-limit />
         </el-form-item>
-        <el-form-item label="展会日期" prop="dateRange">
+        <el-form-item :label="t('exhibitionCreate.fieldDate')" prop="dateRange">
           <el-date-picker
             v-model="form.dateRange"
             type="daterange"
             range-separator="至"
-            start-placeholder="开始日期"
-            end-placeholder="结束日期"
+            :start-placeholder="t('exhibitionCreate.dateStart')"
+            :end-placeholder="t('exhibitionCreate.dateEnd')"
             format="YYYY-MM-DD"
             value-format="YYYY-MM-DD"
             style="width: 100%"
           />
         </el-form-item>
-        <el-form-item label="展会地点" prop="location">
-          <el-input v-model="form.location" placeholder="例如：上海国家会展中心" />
+        <el-form-item :label="t('exhibitionCreate.fieldLocation')" prop="location">
+          <el-input v-model="form.location" :placeholder="t('exhibitionCreate.locationPlaceholder')" />
         </el-form-item>
 
         <el-form-item>
           <el-button type="primary" size="large" :loading="loading" @click="handleCreate">
-            创建展会
+            {{ t('exhibitionCreate.submit') }}
           </el-button>
-          <el-button size="large" @click="$router.back()">取消</el-button>
+          <el-button size="large" @click="$router.back()">{{ t('common.cancel') }}</el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -40,14 +40,15 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useExhibitionStore } from '@/stores/exhibition'
 
+const { t } = useI18n()
 const router = useRouter()
 const store = useExhibitionStore()
 const formRef = ref()
 const loading = ref(false)
 
-// 默认日期：今天 至 后天
 function getDefaultDateRange() {
   const today = new Date()
   const dayAfterTomorrow = new Date()
@@ -63,14 +64,13 @@ const form = ref({
 })
 
 const rules = {
-  name: [{ required: true, message: '请输入展会名称', trigger: 'blur' }],
+  name: [{ required: true, message: t('exhibitionCreate.namePlaceholder'), trigger: 'blur' }],
 }
 
 async function handleCreate() {
   await formRef.value.validate()
   loading.value = true
   try {
-    // 将日期范围拼接为字符串存入后端
     const dateStr = form.value.dateRange
       ? `${form.value.dateRange[0]} 至 ${form.value.dateRange[1]}`
       : ''

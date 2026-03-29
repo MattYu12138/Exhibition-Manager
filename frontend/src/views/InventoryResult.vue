@@ -1,18 +1,18 @@
 <template>
   <div class="inventory-page">
     <div class="page-header">
-      <el-button text @click="$router.back()"><el-icon><ArrowLeft /></el-icon> 返回</el-button>
+      <el-button text @click="$router.back()"><el-icon><ArrowLeft /></el-icon> {{ t('common.back') }}</el-button>
       <div>
-        <h1 class="page-title">展会库存管理</h1>
-        <p class="page-desc">同步库存到 Square &rarr; 展会销售 &rarr; 获取剩余量用于清点</p>
+        <h1 class="page-title">{{ t('inventoryResult.pageTitle') }}</h1>
+        <p class="page-desc">{{ t('inventoryResult.pageDesc') }}</p>
       </div>
     </div>
 
     <el-card class="steps-card">
       <el-steps :active="currentStep" align-center>
-        <el-step title="出发前同步" description="将带走数量写入 Square" />
-        <el-step title="展会进行中" description="在 Square POS 正常销售" />
-        <el-step title="展会结束" description="从 Square 读取剩余量" />
+        <el-step :title="t('inventoryResult.stepBefore')" :description="t('inventoryResult.stepBeforeDesc')" />
+        <el-step :title="t('inventoryResult.stepDuring')" :description="t('inventoryResult.stepDuringDesc')" />
+        <el-step :title="t('inventoryResult.stepAfter')" :description="t('inventoryResult.stepAfterDesc')" />
       </el-steps>
     </el-card>
 
@@ -20,15 +20,15 @@
       <el-row :gutter="16" justify="center">
         <el-col :span="10">
           <el-button type="warning" size="large" style="width: 100%" :loading="syncing === 'before'" @click="handleSyncBefore">
-            <el-icon><Upload /></el-icon> 出发前：同步数量到 Square
+            <el-icon><Upload /></el-icon> {{ t('inventoryResult.btnSyncBefore') }}
           </el-button>
-          <div class="btn-hint">清点打包完成后点击，将带走数量写入 Square 库存</div>
+          <div class="btn-hint">{{ t('inventoryResult.btnSyncBeforeHint') }}</div>
         </el-col>
         <el-col :span="10">
           <el-button type="primary" size="large" style="width: 100%" :loading="syncing === 'after'" @click="handleSyncAfter">
-            <el-icon><Download /></el-icon> 展会结束：获取剩余量
+            <el-icon><Download /></el-icon> {{ t('inventoryResult.btnSyncAfter') }}
           </el-button>
-          <div class="btn-hint">展会结束后点击，从 Square 获取剩余库存，计算卖出量</div>
+          <div class="btn-hint">{{ t('inventoryResult.btnSyncAfterHint') }}</div>
         </el-col>
       </el-row>
     </el-card>
@@ -36,42 +36,42 @@
     <el-card>
       <template #header>
         <div class="card-header">
-          <span style="font-weight: 600">清点对照表</span>
+          <span style="font-weight: 600">{{ t('inventoryResult.tableTitle') }}</span>
           <div class="header-right">
-            <el-tag v-if="snapshots.length" type="success" size="default">共 {{ snapshots.length }} 条记录</el-tag>
+            <el-tag v-if="snapshots.length" type="success" size="default">{{ t('common.total', { n: snapshots.length }) }}</el-tag>
             <el-button size="small" @click="loadSnapshotData" :loading="loadingSnap">
-              <el-icon><Refresh /></el-icon> 刷新
+              <el-icon><Refresh /></el-icon> {{ t('common.refresh') }}
             </el-button>
           </div>
         </div>
       </template>
 
-      <el-empty v-if="!snapshots.length && !loadingSnap" description="暂无数据，请先执行出发前同步" />
+      <el-empty v-if="!snapshots.length && !loadingSnap" :description="t('inventoryResult.emptyHint')" />
 
       <div v-else v-loading="loadingSnap">
         <el-row :gutter="16" class="summary-row" v-if="snapshots.length">
           <el-col :span="8">
             <div class="summary-item">
               <div class="summary-num blue">{{ totalPlanned }}</div>
-              <div class="summary-label">带走总件数</div>
+              <div class="summary-label">{{ t('inventoryResult.totalPlanned') }}</div>
             </div>
           </el-col>
           <el-col :span="8">
             <div class="summary-item">
               <div class="summary-num orange">{{ totalSold }}</div>
-              <div class="summary-label">卖出总件数</div>
+              <div class="summary-label">{{ t('inventoryResult.totalSold') }}</div>
             </div>
           </el-col>
           <el-col :span="8">
             <div class="summary-item">
               <div class="summary-num green">{{ totalRemaining }}</div>
-              <div class="summary-label">应剩余总件数（待清点）</div>
+              <div class="summary-label">{{ t('inventoryResult.totalRemaining') }}</div>
             </div>
           </el-col>
         </el-row>
 
         <el-table :data="snapshots" stripe border style="margin-top: 16px">
-          <el-table-column label="商品" min-width="200">
+          <el-table-column :label="t('inventoryResult.colProduct')" min-width="200">
             <template #default="{ row }">
               <div>
                 <div style="font-weight: 600; font-size: 14px">{{ row.product_title }}</div>
@@ -79,20 +79,20 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="带走数量" width="110" align="center">
+          <el-table-column :label="t('inventoryResult.colPlanned')" width="110" align="center">
             <template #default="{ row }">
               <el-tag type="info">{{ row.item_planned_qty ?? '-' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="Square 剩余" width="120" align="center">
+          <el-table-column :label="t('inventoryResult.colSquareRemaining')" width="120" align="center">
             <template #default="{ row }">
               <span v-if="row.square_quantity_after !== null && row.square_quantity_after !== undefined">
                 {{ row.square_quantity_after }}
               </span>
-              <span v-else style="color: #c0c4cc">待同步</span>
+              <span v-else style="color: #c0c4cc">{{ t('inventoryResult.pendingSync') }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="卖出数量" width="110" align="center">
+          <el-table-column :label="t('inventoryResult.colSold')" width="110" align="center">
             <template #default="{ row }">
               <el-tag type="warning" v-if="row.sold_quantity !== null && row.sold_quantity !== undefined && row.sold_quantity > 0">
                 {{ row.sold_quantity }}
@@ -101,7 +101,7 @@
               <span v-else style="color: #c0c4cc">-</span>
             </template>
           </el-table-column>
-          <el-table-column label="应剩余（待清点）" width="140" align="center">
+          <el-table-column :label="t('inventoryResult.colRemaining')" width="140" align="center">
             <template #default="{ row }">
               <el-tag
                 :type="row.remaining_quantity > 0 ? 'success' : 'danger'"
@@ -115,14 +115,14 @@
               <span v-else style="color: #c0c4cc">-</span>
             </template>
           </el-table-column>
-          <el-table-column label="Square 匹配" width="110" align="center">
+          <el-table-column :label="t('inventoryResult.colSquareMatch')" width="110" align="center">
             <template #default="{ row }">
               <el-tag :type="row.square_catalog_variation_id ? 'success' : 'danger'" size="small">
-                {{ row.square_catalog_variation_id ? '已匹配' : '未匹配' }}
+                {{ row.square_catalog_variation_id ? t('inventoryResult.matched') : t('inventoryResult.unmatched') }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="同步时间" width="160" align="center">
+          <el-table-column :label="t('inventoryResult.colSyncTime')" width="160" align="center">
             <template #default="{ row }">
               <span style="font-size: 12px; color: #909399">{{ formatDate(row.synced_at) }}</span>
             </template>
@@ -136,9 +136,11 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useExhibitionStore } from '@/stores/exhibition'
 
+const { t } = useI18n()
 const route = useRoute()
 const store = useExhibitionStore()
 const id = route.params.id
@@ -172,9 +174,9 @@ async function loadSnapshotData() {
 
 async function handleSyncBefore() {
   await ElMessageBox.confirm(
-    '确定要将带走数量同步到 Square 吗？这会将每个商品的计划带走数量写入 Square 库存。',
-    '确认同步',
-    { type: 'warning', confirmButtonText: '确认同步' }
+    t('inventoryResult.confirmSyncBefore'),
+    t('inventoryResult.confirmTitle'),
+    { type: 'warning', confirmButtonText: t('inventoryResult.confirmSyncBtn') }
   )
   syncing.value = 'before'
   try {
@@ -182,9 +184,9 @@ async function handleSyncBefore() {
     await loadSnapshotData()
     currentStep.value = 1
     const syncedCount = result?.data?.filter(r => r.status === 'synced').length || 0
-    ElMessage.success(`已将 ${syncedCount} 个商品的数量同步到 Square`)
+    ElMessage.success(t('inventoryResult.syncBeforeSuccess', { n: syncedCount }))
   } catch (err) {
-    ElMessage.error('同步失败: ' + (err.message || '未知错误'))
+    ElMessage.error(t('inventoryResult.syncFailed', { msg: err.message || '' }))
   } finally {
     syncing.value = null
   }
@@ -192,20 +194,19 @@ async function handleSyncBefore() {
 
 async function handleSyncAfter() {
   await ElMessageBox.confirm(
-    '确定要从 Square 获取展会后的剩余库存吗？将自动计算每个商品的卖出量和应剩余数量。',
-    '确认获取',
-    { type: 'info', confirmButtonText: '确认获取' }
+    t('inventoryResult.confirmSyncAfter'),
+    t('inventoryResult.confirmGetTitle'),
+    { type: 'info', confirmButtonText: t('inventoryResult.confirmGetBtn') }
   )
   syncing.value = 'after'
   try {
     await store.syncAfterExhibition(id)
     await loadSnapshotData()
     currentStep.value = 2
-    // 展会结束，自动将状态改为已完成
     await store.updateExhibition(id, { status: 'completed' })
-    ElMessage.success('已获取 Square 剩余库存，展会状态已更新为「已完成」')
+    ElMessage.success(t('inventoryResult.syncAfterSuccess'))
   } catch (err) {
-    ElMessage.error('获取失败: ' + (err.message || '未知错误'))
+    ElMessage.error(t('inventoryResult.getFailed', { msg: err.message || '' }))
   } finally {
     syncing.value = null
   }
@@ -213,7 +214,7 @@ async function handleSyncAfter() {
 
 function formatDate(dateStr) {
   if (!dateStr) return '-'
-  return new Date(dateStr).toLocaleString('zh-CN')
+  return new Date(dateStr).toLocaleString(t('common.all') === 'All' ? 'en-AU' : 'zh-CN')
 }
 
 onMounted(async () => {
