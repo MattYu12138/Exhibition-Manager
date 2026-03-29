@@ -53,18 +53,18 @@
           </el-card>
         </el-col>
         <el-col :xs="24" :sm="12" :md="6">
-          <el-card class="action-card" shadow="hover" @click="handleSyncBefore">
-            <div class="action-icon step2"><el-icon size="32"><Upload /></el-icon></div>
-            <div class="action-label">出发前同步</div>
-            <div class="action-desc">记录 Square 当前库存快照</div>
+          <el-card class="action-card" shadow="hover" @click="$router.push(`/exhibitions/${id}/checklist`)">
+            <div class="action-icon step2"><el-icon size="32"><Finished /></el-icon></div>
+            <div class="action-label">清点货品</div>
+            <div class="action-desc">逐件清点，打勾确认已收集</div>
             <el-tag size="small" type="warning">第 2 步</el-tag>
           </el-card>
         </el-col>
         <el-col :xs="24" :sm="12" :md="6">
-          <el-card class="action-card" shadow="hover" @click="$router.push(`/exhibitions/${id}/checklist`)">
-            <div class="action-icon step3"><el-icon size="32"><Finished /></el-icon></div>
-            <div class="action-label">清点货品</div>
-            <div class="action-desc">逐件清点，打勾确认已收集</div>
+          <el-card class="action-card" shadow="hover" @click="$router.push(`/exhibitions/${id}/inventory`)">
+            <div class="action-icon step3"><el-icon size="32"><Upload /></el-icon></div>
+            <div class="action-label">出发前同步</div>
+            <div class="action-desc">将带走数量同步到 Square</div>
             <el-tag size="small" type="primary">第 3 步</el-tag>
           </el-card>
         </el-col>
@@ -72,7 +72,7 @@
           <el-card class="action-card" shadow="hover" @click="$router.push(`/exhibitions/${id}/inventory`)">
             <div class="action-icon step4"><el-icon size="32"><DataAnalysis /></el-icon></div>
             <div class="action-label">展会结束盘点</div>
-            <div class="action-desc">计算剩余差值并同步回 Square</div>
+            <div class="action-desc">获取 Square 剩余量，计算卖出和剩余</div>
             <el-tag size="small" type="success">第 4 步</el-tag>
           </el-card>
         </el-col>
