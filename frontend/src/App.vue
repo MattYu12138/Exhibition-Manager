@@ -1,12 +1,12 @@
 <template>
-  <el-config-provider :locale="zhCn">
+  <el-config-provider :locale="elLocale">
     <div class="app-wrapper">
       <!-- 顶部导航 -->
       <el-header class="app-header">
         <div class="header-inner">
           <div class="logo" @click="$router.push('/')">
             <el-icon size="24" color="#fff"><Box /></el-icon>
-            <span>展会备货管理系统</span>
+            <span>{{ t('nav.appTitle') }}</span>
           </div>
           <div class="header-nav">
             <el-button
@@ -14,8 +14,9 @@
               :style="{ color: '#fff' }"
               @click="$router.push('/exhibitions')"
             >
-              <el-icon><List /></el-icon> 展会列表
+              <el-icon><List /></el-icon> {{ t('nav.exhibitions') }}
             </el-button>
+            <LangSwitch />
           </div>
         </div>
       </el-header>
@@ -33,7 +34,15 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
+import en from 'element-plus/es/locale/lang/en'
+import LangSwitch from '@/components/LangSwitch.vue'
+
+const { t, locale } = useI18n()
+
+const elLocale = computed(() => locale.value === 'zh' ? zhCn : en)
 </script>
 
 <style>

@@ -6,7 +6,6 @@
         <p class="page-desc">{{ t('exhibitionList.pageDesc') }}</p>
       </div>
       <div class="header-actions">
-        <LangSwitch />
         <el-button type="primary" size="large" @click="$router.push('/exhibitions/new')">
           <el-icon><Plus /></el-icon> {{ t('exhibitionList.newExhibition') }}
         </el-button>
@@ -89,7 +88,7 @@
           </div>
 
           <div class="ex-card-footer">
-            <!-- 左侧：复制模版按钮 -->
+            <!-- 上行：复制模版按钮 -->
             <el-button
               size="small"
               plain
@@ -100,12 +99,14 @@
               <el-icon><CopyDocument /></el-icon> {{ t('exhibitionList.copyTemplate') }}
             </el-button>
 
-            <!-- 右侧：原有按钮 -->
-            <div class="footer-right">
+            <!-- 下行：查看详情 + 清点按钮 -->
+            <div class="footer-bottom-row">
               <el-button size="small" @click="$router.push(`/exhibitions/${ex.id}`)">{{ t('exhibitionList.viewDetail') }}</el-button>
-              <el-button size="small" type="primary" @click="goChecklist(ex)">
-                {{ t('exhibitionList.checklist') }}
-              </el-button>
+              <div class="footer-right">
+                <el-button size="small" type="primary" @click="goChecklist(ex)">
+                  {{ t('exhibitionList.checklist') }}
+                </el-button>
+              </div>
             </div>
           </div>
         </el-card>
@@ -213,7 +214,6 @@ import { useI18n } from 'vue-i18n'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { useExhibitionStore } from '@/stores/exhibition'
 import { exhibitionApi } from '@/api'
-import LangSwitch from '@/components/LangSwitch.vue'
 
 const { t } = useI18n()
 const store = useExhibitionStore()
@@ -351,7 +351,7 @@ onMounted(() => store.loadExhibitions())
 
 .exhibition-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 16px;
 }
 
@@ -366,12 +366,17 @@ onMounted(() => store.loadExhibitions())
 
 .ex-card-footer {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.footer-bottom-row {
+  display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 8px;
 }
-.copy-template-btn { flex-shrink: 0; }
-.footer-right { display: flex; gap: 8px; }
+.copy-template-btn { align-self: flex-start; }
+.footer-right { display: flex; gap: 8px; flex-shrink: 0; }
 
 /* 复制弹窗样式 */
 .copy-dialog-body { display: flex; flex-direction: column; gap: 20px; }

@@ -18,6 +18,8 @@ export default {
 
   // 导航 / 顶部
   nav: {
+    appTitle: '展会备货管理系统',
+    exhibitions: '展会列表',
     title: '展会管理',
     lang: 'EN',
   },

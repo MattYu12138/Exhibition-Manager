@@ -18,6 +18,8 @@ export default {
 
   // Nav / Header
   nav: {
+    appTitle: 'Exhibition Manager',
+    exhibitions: 'Exhibitions',
     title: 'Exhibition Manager',
     lang: '中文',
   },
