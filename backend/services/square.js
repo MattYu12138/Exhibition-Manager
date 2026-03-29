@@ -191,6 +191,24 @@ class SquareService {
   }
 
   /**
+   * 在 Square 现有库存基础上累加数量
+   * 先读取当前库存，再用 PHYSICAL_COUNT 写入（当前 + 增量）
+   * 返回 { previousQty, addedQty, newTotalQty }
+   */
+  async adjustInventoryQuantity(catalogObjectId, addQty) {
+    const currentQty = await this.getInventoryCount(catalogObjectId);
+    const newTotal = currentQty + addQty;
+
+    await this.setInventoryQuantity(catalogObjectId, newTotal);
+
+    return {
+      previousQty: currentQty,
+      addedQty: addQty,
+      newTotalQty: newTotal,
+    };
+  }
+
+  /**
    * 批量同步库存到 Square
    * items: [{ catalogObjectId, quantity }]
    */

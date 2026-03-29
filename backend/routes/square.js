@@ -60,14 +60,14 @@ router.post('/sync', async (req, res) => {
 
       if (sync_type === 'before') {
         // ═══════════════════════════════════════════
-        // 出发前：把 planned_quantity 写入 Square
+        // 出发前：在 Square 现有库存基础上累加 planned_quantity
         // ═══════════════════════════════════════════
         const plannedQty = item.planned_quantity;
 
-        // 写入 Square 库存
-        await squareService.setInventoryQuantity(match.variationId, plannedQty);
+        // 累加到 Square 库存（现有 + 带走数量）
+        const { previousQty, newTotalQty } = await squareService.adjustInventoryQuantity(match.variationId, plannedQty);
 
-        // 记录快照
+        // 记录快照：square_quantity_before = 累加后的总量
         const existing = db.prepare(
           'SELECT id FROM inventory_snapshots WHERE exhibition_id = ? AND shopify_variant_id = ?'
         ).get(exhibition_id, item.shopify_variant_id);
@@ -75,11 +75,11 @@ router.post('/sync', async (req, res) => {
         if (existing) {
           db.prepare(
             'UPDATE inventory_snapshots SET square_catalog_variation_id = ?, square_quantity_before = ?, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
-          ).run(match.variationId, plannedQty, existing.id);
+          ).run(match.variationId, newTotalQty, existing.id);
         } else {
           db.prepare(
             'INSERT INTO inventory_snapshots (exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before) VALUES (?, ?, ?, ?)'
-          ).run(exhibition_id, item.shopify_variant_id, match.variationId, plannedQty);
+          ).run(exhibition_id, item.shopify_variant_id, match.variationId, newTotalQty);
         }
 
         results.push({
@@ -89,9 +89,10 @@ router.post('/sync', async (req, res) => {
           square_variation_id: match.variationId,
           match_type: match.matchType,
           planned_quantity: plannedQty,
-          square_synced_quantity: plannedQty,
+          square_previous_quantity: previousQty,
+          square_synced_quantity: newTotalQty,
           status: 'synced',
-          message: `已将 ${plannedQty} 件写入 Square`,
+          message: `Square 原有 ${previousQty} 件，累加 ${plannedQty} 件，现有 ${newTotalQty} 件`,
         });
 
       } else if (sync_type === 'after') {
