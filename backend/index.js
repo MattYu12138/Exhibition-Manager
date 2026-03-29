@@ -12,7 +12,18 @@ const PORT = process.env.PORT || 3001;
 
 // 中间件
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: function(origin, callback) {
+    // 允许 Shopify Admin iframe、本地开发、以及无 origin 的请求（同源）
+    const allowed = [
+      process.env.FRONTEND_URL || 'http://localhost:5173',
+      'https://admin.shopify.com',
+    ];
+    if (!origin || allowed.some(o => origin.startsWith(o))) {
+      callback(null, true);
+    } else {
+      callback(null, true); // 私有应用，允许所有来源
+    }
+  },
   credentials: true,
 }));
 app.use(express.json());
@@ -33,11 +44,16 @@ app.use('/api/exhibitions', exhibitionsRouter);
 app.use('/api/shopify', shopifyRouter);
 app.use('/api/square', squareRouter);
 
-// 生产环境：提供前端静态文件
-if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../frontend/dist')));
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+// 提供前端静态文件（当 dist 目录存在时）
+const fs = require('fs');
+const distPath = path.resolve(__dirname, '../frontend/dist');
+console.log('[Static] dist path:', distPath, 'exists:', fs.existsSync(distPath));
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  // SPA fallback: 非 /api 路由都返回 index.html
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
+    res.sendFile(path.join(distPath, 'index.html'));
   });
 }
 

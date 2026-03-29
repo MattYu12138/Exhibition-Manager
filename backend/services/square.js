@@ -1,4 +1,4 @@
-const { Client, Environment } = require('square');
+const { SquareClient, SquareEnvironment } = require('square');
 
 class SquareService {
   constructor() {
@@ -7,12 +7,12 @@ class SquareService {
 
   get client() {
     if (!this._client) {
-      this._client = new Client({
-        accessToken: process.env.SQUARE_ACCESS_TOKEN,
+      this._client = new SquareClient({
+        token: process.env.SQUARE_ACCESS_TOKEN,
         environment:
           process.env.SQUARE_ENVIRONMENT === 'production'
-            ? Environment.Production
-            : Environment.Sandbox,
+            ? SquareEnvironment.Production
+            : SquareEnvironment.Sandbox,
       });
     }
     return this._client;
@@ -24,29 +24,22 @@ class SquareService {
 
   /**
    * 获取 Square 所有商品目录（含变体和 GTIN）
+   * Square SDK v44 使用 async iterator 分页
    */
   async getAllCatalogItems() {
-    const items = [];
-    let cursor = null;
+    const objects = [];
 
-    do {
-      const params = {
-        types: ['ITEM', 'ITEM_VARIATION'],
-        cursor: cursor || undefined,
-      };
-
-      const response = await this.client.catalogApi.listCatalog(
-        cursor || undefined,
-        'ITEM,ITEM_VARIATION'
-      );
-
-      if (response.result.objects) {
-        items.push(...response.result.objects);
+    try {
+      const iterator = await this.client.catalog.list({ types: 'ITEM,ITEM_VARIATION' });
+      for await (const obj of iterator) {
+        objects.push(obj);
       }
-      cursor = response.result.cursor || null;
-    } while (cursor);
+    } catch (err) {
+      console.error('获取 Square 目录失败:', err.message);
+      throw err;
+    }
 
-    return this._formatCatalog(items);
+    return this._formatCatalog(objects);
   }
 
   /**
@@ -74,7 +67,9 @@ class SquareService {
           name: variation.itemVariationData?.name || '',
           sku: variation.itemVariationData?.sku || '',
           gtin: variation.itemVariationData?.upc || '',
-          price: variation.itemVariationData?.priceMoney?.amount || 0,
+          price: variation.itemVariationData?.priceMoney?.amount
+            ? Number(variation.itemVariationData.priceMoney.amount)
+            : 0,
         };
       });
 
@@ -124,15 +119,15 @@ class SquareService {
 
   /**
    * 获取指定变体的当前库存数量
+   * SDK v44: client.inventory.get(catalogObjectId, { locationIds })
    */
   async getInventoryCount(catalogObjectId) {
     try {
-      const response = await this.client.inventoryApi.retrieveInventoryCount(
-        catalogObjectId,
-        this.locationId
-      );
+      const response = await this.client.inventory.get(catalogObjectId, {
+        locationIds: this.locationId,
+      });
 
-      const counts = response.result.counts || [];
+      const counts = response.counts || [];
       const inStock = counts.find((c) => c.state === 'IN_STOCK');
       return inStock ? parseInt(inStock.quantity, 10) : 0;
     } catch (err) {
@@ -143,19 +138,20 @@ class SquareService {
 
   /**
    * 批量获取多个变体的库存数量
+   * SDK v44: client.inventory.batchGetCounts({ catalogObjectIds, locationIds, states })
    */
   async batchGetInventoryCounts(catalogObjectIds) {
     try {
-      const response = await this.client.inventoryApi.batchRetrieveInventoryCounts({
+      const result = {};
+      const iterator = await this.client.inventory.batchGetCounts({
         catalogObjectIds,
         locationIds: [this.locationId],
         states: ['IN_STOCK'],
       });
 
-      const result = {};
-      (response.result.counts || []).forEach((count) => {
+      for await (const count of iterator) {
         result[count.catalogObjectId] = parseInt(count.quantity, 10);
-      });
+      }
 
       // 补充未找到的为 0
       catalogObjectIds.forEach((id) => {
@@ -170,12 +166,13 @@ class SquareService {
   }
 
   /**
-   * 调整 Square 库存数量（设置为指定值）
+   * 批量创建库存变更（物理盘点）
+   * SDK v44: client.inventory.batchCreateChanges({ idempotencyKey, changes })
    */
   async setInventoryQuantity(catalogObjectId, quantity, reason = 'RECOUNT') {
     const idempotencyKey = `exhibition-sync-${catalogObjectId}-${Date.now()}`;
 
-    const response = await this.client.inventoryApi.batchChangeInventory({
+    const response = await this.client.inventory.batchCreateChanges({
       idempotencyKey,
       changes: [
         {
@@ -191,7 +188,7 @@ class SquareService {
       ],
     });
 
-    return response.result;
+    return response;
   }
 
   /**
@@ -211,12 +208,12 @@ class SquareService {
       },
     }));
 
-    const response = await this.client.inventoryApi.batchChangeInventory({
+    const response = await this.client.inventory.batchCreateChanges({
       idempotencyKey,
       changes,
     });
 
-    return response.result;
+    return response;
   }
 }
 
