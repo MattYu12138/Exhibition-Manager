@@ -10,8 +10,17 @@
         <el-form-item label="展会名称" prop="name">
           <el-input v-model="form.name" placeholder="例如：2024 春季时装展" maxlength="100" show-word-limit />
         </el-form-item>
-        <el-form-item label="展会日期" prop="date">
-          <el-input v-model="form.date" placeholder="例如：2024-03-15 至 2024-03-17" />
+        <el-form-item label="展会日期" prop="dateRange">
+          <el-date-picker
+            v-model="form.dateRange"
+            type="daterange"
+            range-separator="至"
+            start-placeholder="开始日期"
+            end-placeholder="结束日期"
+            format="YYYY-MM-DD"
+            value-format="YYYY-MM-DD"
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item label="展会地点" prop="location">
           <el-input v-model="form.location" placeholder="例如：上海国家会展中心" />
@@ -38,7 +47,21 @@ const store = useExhibitionStore()
 const formRef = ref()
 const loading = ref(false)
 
-const form = ref({ name: '', date: '', location: '' })
+// 默认日期：今天 至 后天
+function getDefaultDateRange() {
+  const today = new Date()
+  const dayAfterTomorrow = new Date()
+  dayAfterTomorrow.setDate(today.getDate() + 2)
+  const fmt = (d) => d.toISOString().slice(0, 10)
+  return [fmt(today), fmt(dayAfterTomorrow)]
+}
+
+const form = ref({
+  name: '',
+  dateRange: getDefaultDateRange(),
+  location: '',
+})
+
 const rules = {
   name: [{ required: true, message: '请输入展会名称', trigger: 'blur' }],
 }
@@ -47,7 +70,16 @@ async function handleCreate() {
   await formRef.value.validate()
   loading.value = true
   try {
-    const ex = await store.createExhibition(form.value)
+    // 将日期范围拼接为字符串存入后端
+    const dateStr = form.value.dateRange
+      ? `${form.value.dateRange[0]} 至 ${form.value.dateRange[1]}`
+      : ''
+    const payload = {
+      name: form.value.name,
+      date: dateStr,
+      location: form.value.location,
+    }
+    const ex = await store.createExhibition(payload)
     router.push(`/exhibitions/${ex.id}`)
   } finally {
     loading.value = false
