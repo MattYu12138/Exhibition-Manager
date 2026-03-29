@@ -3,76 +3,42 @@
     <div class="page-header">
       <el-button text @click="$router.back()"><el-icon><ArrowLeft /></el-icon> 返回</el-button>
       <div>
-        <h1 class="page-title">展会结束盘点</h1>
-        <p class="page-desc">通过 Square 库存变动计算剩余货品数量</p>
+        <h1 class="page-title">展会库存管理</h1>
+        <p class="page-desc">同步库存到 Square &rarr; 展会销售 &rarr; 获取剩余量用于清点</p>
       </div>
     </div>
 
-    <!-- 操作步骤 -->
     <el-card class="steps-card">
       <el-steps :active="currentStep" align-center>
-        <el-step title="出发前同步" description="记录 Square 当前库存" />
+        <el-step title="出发前同步" description="将带走数量写入 Square" />
         <el-step title="展会进行中" description="在 Square POS 正常销售" />
-        <el-step title="展会结束同步" description="获取 Square 最新库存" />
-        <el-step title="更新剩余库存" description="将剩余数量写回 Square" />
+        <el-step title="展会结束" description="从 Square 读取剩余量" />
       </el-steps>
     </el-card>
 
-    <!-- 操作按钮区 -->
     <el-card class="action-card">
-      <el-row :gutter="16">
-        <el-col :span="8">
-          <el-button
-            type="warning"
-            size="large"
-            style="width: 100%"
-            :loading="syncing === 'before'"
-            @click="handleSyncBefore"
-          >
-            <el-icon><Upload /></el-icon>
-            出发前：记录库存快照
+      <el-row :gutter="16" justify="center">
+        <el-col :span="10">
+          <el-button type="warning" size="large" style="width: 100%" :loading="syncing === 'before'" @click="handleSyncBefore">
+            <el-icon><Upload /></el-icon> 出发前：同步数量到 Square
           </el-button>
-          <div class="btn-hint">在出发去展会前点击，记录 Square 当前库存</div>
+          <div class="btn-hint">清点打包完成后点击，将带走数量写入 Square 库存</div>
         </el-col>
-        <el-col :span="8">
-          <el-button
-            type="primary"
-            size="large"
-            style="width: 100%"
-            :loading="syncing === 'after'"
-            @click="handleSyncAfter"
-          >
-            <el-icon><Download /></el-icon>
-            展会结束：计算差值
+        <el-col :span="10">
+          <el-button type="primary" size="large" style="width: 100%" :loading="syncing === 'after'" @click="handleSyncAfter">
+            <el-icon><Download /></el-icon> 展会结束：获取剩余量
           </el-button>
-          <div class="btn-hint">展会结束后点击，自动计算剩余货品数量</div>
-        </el-col>
-        <el-col :span="8">
-          <el-button
-            type="success"
-            size="large"
-            style="width: 100%"
-            :loading="syncing === 'update'"
-            :disabled="!snapshots.length"
-            @click="handleUpdateRemaining"
-          >
-            <el-icon><Refresh /></el-icon>
-            将剩余数量同步至 Square
-          </el-button>
-          <div class="btn-hint">确认剩余数量无误后，更新回 Square 库存</div>
+          <div class="btn-hint">展会结束后点击，从 Square 获取剩余库存，计算卖出量</div>
         </el-col>
       </el-row>
     </el-card>
 
-    <!-- 差值结果表格 -->
     <el-card>
       <template #header>
         <div class="card-header">
-          <span style="font-weight: 600">库存差值明细</span>
+          <span style="font-weight: 600">清点对照表</span>
           <div class="header-right">
-            <el-tag v-if="snapshots.length" type="success" size="default">
-              共 {{ snapshots.length }} 条记录
-            </el-tag>
+            <el-tag v-if="snapshots.length" type="success" size="default">共 {{ snapshots.length }} 条记录</el-tag>
             <el-button size="small" @click="loadSnapshotData" :loading="loadingSnap">
               <el-icon><Refresh /></el-icon> 刷新
             </el-button>
@@ -80,81 +46,73 @@
         </div>
       </template>
 
-      <el-empty v-if="!snapshots.length && !loadingSnap" description="暂无数据，请先执行同步操作" />
+      <el-empty v-if="!snapshots.length && !loadingSnap" description="暂无数据，请先执行出发前同步" />
 
       <div v-else v-loading="loadingSnap">
-        <!-- 汇总统计 -->
         <el-row :gutter="16" class="summary-row" v-if="snapshots.length">
-          <el-col :span="6">
+          <el-col :span="8">
             <div class="summary-item">
               <div class="summary-num blue">{{ totalPlanned }}</div>
-              <div class="summary-label">计划带走总件数</div>
+              <div class="summary-label">带走总件数</div>
             </div>
           </el-col>
-          <el-col :span="6">
+          <el-col :span="8">
             <div class="summary-item">
               <div class="summary-num orange">{{ totalSold }}</div>
-              <div class="summary-label">展会销售总件数</div>
+              <div class="summary-label">卖出总件数</div>
             </div>
           </el-col>
-          <el-col :span="6">
+          <el-col :span="8">
             <div class="summary-item">
               <div class="summary-num green">{{ totalRemaining }}</div>
-              <div class="summary-label">剩余货品总件数</div>
-            </div>
-          </el-col>
-          <el-col :span="6">
-            <div class="summary-item">
-              <div class="summary-num" :class="matchRate === 100 ? 'green' : 'red'">
-                {{ matchRate }}%
-              </div>
-              <div class="summary-label">Square 匹配率</div>
+              <div class="summary-label">应剩余总件数（待清点）</div>
             </div>
           </el-col>
         </el-row>
 
         <el-table :data="snapshots" stripe border style="margin-top: 16px">
-          <el-table-column label="商品" min-width="180">
+          <el-table-column label="商品" min-width="200">
             <template #default="{ row }">
               <div>
-                <div style="font-weight: 600; font-size: 14px">{{ row.product_title || row.item_planned_qty }}</div>
+                <div style="font-weight: 600; font-size: 14px">{{ row.product_title }}</div>
                 <div style="font-size: 12px; color: #909399">{{ row.variant_title }}</div>
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="计划带走" prop="planned_quantity" width="100" align="center">
+          <el-table-column label="带走数量" width="110" align="center">
             <template #default="{ row }">
-              <el-tag type="info">{{ row.item_planned_qty || row.planned_quantity || '-' }}</el-tag>
+              <el-tag type="info">{{ row.square_quantity_before ?? row.item_planned_qty ?? '-' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="出发前 Square 库存" width="140" align="center">
+          <el-table-column label="Square 剩余" width="120" align="center">
             <template #default="{ row }">
-              <span>{{ row.square_quantity_before ?? '-' }}</span>
+              <span v-if="row.square_quantity_after !== null && row.square_quantity_after !== undefined">
+                {{ row.square_quantity_after }}
+              </span>
+              <span v-else style="color: #c0c4cc">待同步</span>
             </template>
           </el-table-column>
-          <el-table-column label="展会后 Square 库存" width="140" align="center">
+          <el-table-column label="卖出数量" width="110" align="center">
             <template #default="{ row }">
-              <span>{{ row.square_quantity_after ?? '-' }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="展会销售量" width="110" align="center">
-            <template #default="{ row }">
-              <el-tag type="warning" v-if="row.sold_quantity !== null && row.sold_quantity !== undefined">
-                -{{ row.sold_quantity }}
+              <el-tag type="warning" v-if="row.sold_quantity !== null && row.sold_quantity !== undefined && row.sold_quantity > 0">
+                {{ row.sold_quantity }}
               </el-tag>
-              <span v-else>-</span>
+              <span v-else-if="row.sold_quantity === 0" style="color: #909399">0</span>
+              <span v-else style="color: #c0c4cc">-</span>
             </template>
           </el-table-column>
-          <el-table-column label="剩余数量" width="110" align="center">
+          <el-table-column label="应剩余（待清点）" width="140" align="center">
             <template #default="{ row }">
               <el-tag
                 :type="row.remaining_quantity > 0 ? 'success' : 'danger'"
-                size="default"
-                v-if="row.remaining_quantity !== null && row.remaining_quantity !== undefined"
+                size="large"
+                effect="dark"
+                v-if="row.remaining_quantity !== null && row.remaining_quantity !== undefined && row.square_quantity_after !== null"
+                style="font-size: 16px; font-weight: 700"
               >
                 {{ row.remaining_quantity }}
               </el-tag>
-              <span v-else>-</span>
+              <span v-else style="color: #c0c4cc">-</span>
             </template>
           </el-table-column>
           <el-table-column label="Square 匹配" width="110" align="center">
@@ -191,7 +149,7 @@ const loadingSnap = ref(false)
 const currentStep = ref(0)
 
 const totalPlanned = computed(() =>
-  snapshots.value.reduce((s, r) => s + (r.item_planned_qty || 0), 0)
+  snapshots.value.reduce((s, r) => s + (r.square_quantity_before || r.item_planned_qty || 0), 0)
 )
 const totalSold = computed(() =>
   snapshots.value.reduce((s, r) => s + (r.sold_quantity || 0), 0)
@@ -199,56 +157,53 @@ const totalSold = computed(() =>
 const totalRemaining = computed(() =>
   snapshots.value.reduce((s, r) => s + (r.remaining_quantity || 0), 0)
 )
-const matchRate = computed(() => {
-  if (!snapshots.value.length) return 0
-  const matched = snapshots.value.filter((r) => r.square_catalog_variation_id).length
-  return Math.round((matched / snapshots.value.length) * 100)
-})
 
 async function loadSnapshotData() {
   loadingSnap.value = true
   try {
     const data = await store.loadSnapshots(id)
     snapshots.value = data || []
-    if (snapshots.value.some((s) => s.square_quantity_before !== null)) currentStep.value = 1
-    if (snapshots.value.some((s) => s.square_quantity_after !== null)) currentStep.value = 2
+    if (snapshots.value.some((s) => s.square_quantity_before > 0)) currentStep.value = 1
+    if (snapshots.value.some((s) => s.square_quantity_after !== null && s.square_quantity_after !== undefined)) currentStep.value = 2
   } finally {
     loadingSnap.value = false
   }
 }
 
 async function handleSyncBefore() {
+  await ElMessageBox.confirm(
+    '确定要将带走数量同步到 Square 吗？这会将每个商品的计划带走数量写入 Square 库存。',
+    '确认同步',
+    { type: 'warning', confirmButtonText: '确认同步' }
+  )
   syncing.value = 'before'
   try {
-    await store.syncBeforeExhibition(id)
+    const result = await store.syncBeforeExhibition(id)
     await loadSnapshotData()
     currentStep.value = 1
+    const syncedCount = result?.data?.filter(r => r.status === 'synced').length || 0
+    ElMessage.success(`已将 ${syncedCount} 个商品的数量同步到 Square`)
+  } catch (err) {
+    ElMessage.error('同步失败: ' + (err.message || '未知错误'))
   } finally {
     syncing.value = null
   }
 }
 
 async function handleSyncAfter() {
+  await ElMessageBox.confirm(
+    '确定要从 Square 获取展会后的剩余库存吗？将自动计算每个商品的卖出量和应剩余数量。',
+    '确认获取',
+    { type: 'info', confirmButtonText: '确认获取' }
+  )
   syncing.value = 'after'
   try {
     await store.syncAfterExhibition(id)
     await loadSnapshotData()
     currentStep.value = 2
-  } finally {
-    syncing.value = null
-  }
-}
-
-async function handleUpdateRemaining() {
-  await ElMessageBox.confirm(
-    '确定要将剩余数量更新至 Square 库存吗？此操作将覆盖 Square 中对应商品的库存数量。',
-    '确认更新',
-    { type: 'warning', confirmButtonText: '确认更新' }
-  )
-  syncing.value = 'update'
-  try {
-    await store.updateRemainingToSquare(id)
-    currentStep.value = 3
+    ElMessage.success('已获取 Square 剩余库存，请核对清点对照表')
+  } catch (err) {
+    ElMessage.error('获取失败: ' + (err.message || '未知错误'))
   } finally {
     syncing.value = null
   }

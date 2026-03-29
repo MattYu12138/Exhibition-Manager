@@ -248,7 +248,7 @@ export const useExhibitionStore = defineStore('exhibition', () => {
     loading.value = true
     try {
       const res = await squareApi.syncBefore(exhibitionId)
-      ElMessage.success('出发前库存快照已记录')
+      ElMessage.success('带走数量已同步到 Square')
       return res.data
     } catch (err) {
       ElMessage.error('同步失败: ' + err.message)
@@ -262,7 +262,7 @@ export const useExhibitionStore = defineStore('exhibition', () => {
     loading.value = true
     try {
       const res = await squareApi.syncAfter(exhibitionId)
-      ElMessage.success('展会结束库存差值计算完成')
+      ElMessage.success('已获取 Square 剩余库存')
       return res.data
     } catch (err) {
       ElMessage.error('同步失败: ' + err.message)
