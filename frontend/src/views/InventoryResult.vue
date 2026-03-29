@@ -81,7 +81,7 @@
           </el-table-column>
           <el-table-column label="带走数量" width="110" align="center">
             <template #default="{ row }">
-              <el-tag type="info">{{ row.square_quantity_before ?? row.item_planned_qty ?? '-' }}</el-tag>
+              <el-tag type="info">{{ row.item_planned_qty ?? '-' }}</el-tag>
             </template>
           </el-table-column>
           <el-table-column label="Square 剩余" width="120" align="center">
@@ -149,7 +149,7 @@ const loadingSnap = ref(false)
 const currentStep = ref(0)
 
 const totalPlanned = computed(() =>
-  snapshots.value.reduce((s, r) => s + (r.square_quantity_before || r.item_planned_qty || 0), 0)
+  snapshots.value.reduce((s, r) => s + (r.item_planned_qty || 0), 0)
 )
 const totalSold = computed(() =>
   snapshots.value.reduce((s, r) => s + (r.sold_quantity || 0), 0)

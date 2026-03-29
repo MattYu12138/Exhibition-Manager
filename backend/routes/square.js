@@ -105,8 +105,10 @@ router.post('/sync', async (req, res) => {
         ).get(exhibition_id, item.shopify_variant_id);
 
         const qtyBefore = snapshot ? snapshot.square_quantity_before : item.planned_quantity;
+        // 卖出量 = Square出发前同步数量 - Square展会后剩余
         const soldQty = Math.max(0, qtyBefore - squareRemaining);
-        const remainingQty = Math.max(0, squareRemaining);
+        // 剩余待清点 = 带走数量(planned_quantity) - 卖出量
+        const remainingQty = Math.max(0, item.planned_quantity - soldQty);
 
         // 更新快照
         if (snapshot) {
