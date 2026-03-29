@@ -201,7 +201,9 @@ async function handleSyncAfter() {
     await store.syncAfterExhibition(id)
     await loadSnapshotData()
     currentStep.value = 2
-    ElMessage.success('已获取 Square 剩余库存，请核对清点对照表')
+    // 展会结束，自动将状态改为已完成
+    await store.updateExhibition(id, { status: 'completed' })
+    ElMessage.success('已获取 Square 剩余库存，展会状态已更新为「已完成」')
   } catch (err) {
     ElMessage.error('获取失败: ' + (err.message || '未知错误'))
   } finally {

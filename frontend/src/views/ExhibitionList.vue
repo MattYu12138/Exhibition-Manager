@@ -100,7 +100,7 @@
             <!-- 右侧：原有按钮 -->
             <div class="footer-right">
               <el-button size="small" @click="$router.push(`/exhibitions/${ex.id}`)">查看详情</el-button>
-              <el-button size="small" type="primary" @click="$router.push(`/exhibitions/${ex.id}/checklist`)">
+              <el-button size="small" type="primary" @click="goChecklist(ex)">
                 清点
               </el-button>
             </div>
@@ -205,11 +205,13 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { useExhibitionStore } from '@/stores/exhibition'
 import { exhibitionApi } from '@/api'
 
 const store = useExhibitionStore()
+const router = useRouter()
 const editDialog = ref(false)
 const editForm = ref({})
 const editTarget = ref(null)
@@ -305,6 +307,14 @@ async function confirmCopy() {
   } finally {
     copyLoading.value = false
   }
+}
+
+// 点击清点：状态改为进行中后跳转
+async function goChecklist(ex) {
+  if (ex.status === 'preparing') {
+    await store.updateExhibition(ex.id, { status: 'active' })
+  }
+  router.push(`/exhibitions/${ex.id}/checklist`)
 }
 
 onMounted(() => store.loadExhibitions())
