@@ -44,8 +44,8 @@ router.post('/sync', async (req, res) => {
     const results = [];
 
     for (const item of items) {
-      // 通过 GTIN 或商品名称匹配 Square 变体
-      const match = await squareService.findVariationByGtinOrName(item.gtin, item.product_title);
+      // 通过 GTIN 或 SKU 匹配 Square 变体
+      const match = await squareService.findVariationByGtinOrSku(item.gtin, item.sku);
 
       if (!match) {
         results.push({

@@ -85,9 +85,10 @@ class SquareService {
   }
 
   /**
-   * 通过 GTIN 或商品名称匹配 Square 变体 ID
+   * 通过 GTIN 或 SKU 匹配 Square 变体 ID
+   * 优先级：GTIN 精确匹配 → SKU 精确匹配
    */
-  async findVariationByGtinOrName(gtin, productTitle) {
+  async findVariationByGtinOrSku(gtin, sku) {
     const catalog = await this.getAllCatalogItems();
 
     // 优先通过 GTIN 匹配
@@ -101,14 +102,12 @@ class SquareService {
       }
     }
 
-    // 其次通过商品名称模糊匹配
-    if (productTitle) {
-      const titleLower = productTitle.toLowerCase();
+    // 其次通过 SKU 精确匹配
+    if (sku) {
       for (const item of catalog) {
-        if (item.name.toLowerCase().includes(titleLower) || titleLower.includes(item.name.toLowerCase())) {
-          const variation = item.variations[0];
-          if (variation) {
-            return { itemId: item.id, variationId: variation.id, matchType: 'name' };
+        for (const variation of item.variations) {
+          if (variation.sku && variation.sku === sku) {
+            return { itemId: item.id, variationId: variation.id, matchType: 'sku' };
           }
         }
       }
