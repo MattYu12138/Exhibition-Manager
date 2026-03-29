@@ -118,17 +118,12 @@ class SquareService {
 
   /**
    * 获取指定变体的当前库存数量
-   * SDK v44: client.inventory.get(catalogObjectId, { locationIds })
+   * 注意：SDK v44 的 inventory.get 存在 URL 拼接 bug，改用 batchGetCounts 实现
    */
   async getInventoryCount(catalogObjectId) {
     try {
-      const response = await this.client.inventory.get(catalogObjectId, {
-        locationIds: this.locationId,
-      });
-
-      const counts = response.counts || [];
-      const inStock = counts.find((c) => c.state === 'IN_STOCK');
-      return inStock ? parseInt(inStock.quantity, 10) : 0;
+      const counts = await this.batchGetInventoryCounts([catalogObjectId]);
+      return counts[catalogObjectId] ?? 0;
     } catch (err) {
       console.error(`获取 Square 库存失败 [${catalogObjectId}]:`, err.message);
       return 0;
