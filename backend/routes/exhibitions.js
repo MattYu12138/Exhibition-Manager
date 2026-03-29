@@ -153,4 +153,62 @@ router.delete('/:id/items/:itemId', (req, res) => {
   }
 });
 
+// 复制展会商品清单为模版到新展会
+// POST /api/exhibitions/:id/copy-to/:targetId
+// 将源展会的商品清单（商品+计划数量）复制到目标展会，跳过已存在的变体
+router.post('/:id/copy-to/:targetId', (req, res) => {
+  try {
+    const sourceId = req.params.id;
+    const targetId = req.params.targetId;
+
+    // 检查源展会和目标展会是否存在
+    const source = db.prepare('SELECT * FROM exhibitions WHERE id = ?').get(sourceId);
+    if (!source) return res.status(404).json({ success: false, message: '源展会不存在' });
+
+    const target = db.prepare('SELECT * FROM exhibitions WHERE id = ?').get(targetId);
+    if (!target) return res.status(404).json({ success: false, message: '目标展会不存在' });
+
+    // 获取源展会的所有商品
+    const sourceItems = db.prepare('SELECT * FROM exhibition_items WHERE exhibition_id = ?').all(sourceId);
+    if (!sourceItems.length) {
+      return res.status(400).json({ success: false, message: '源展会没有商品清单' });
+    }
+
+    // 批量插入到目标展会（已存在的变体用 INSERT OR IGNORE 跳过）
+    const insertItem = db.prepare(`
+      INSERT OR IGNORE INTO exhibition_items
+      (exhibition_id, shopify_product_id, shopify_variant_id, product_title, variant_title, sku, gtin, image_url, planned_quantity, checked)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+    `);
+
+    const copyMany = db.transaction((items) => {
+      for (const item of items) {
+        insertItem.run(
+          targetId,
+          item.shopify_product_id,
+          item.shopify_variant_id,
+          item.product_title,
+          item.variant_title || '',
+          item.sku || '',
+          item.gtin || '',
+          item.image_url || '',
+          item.planned_quantity || 0
+        );
+      }
+    });
+
+    copyMany(sourceItems);
+
+    const savedItems = db.prepare('SELECT * FROM exhibition_items WHERE exhibition_id = ?').all(targetId);
+    res.json({
+      success: true,
+      message: `已从「${source.name}」复制 ${sourceItems.length} 件商品到「${target.name}」`,
+      data: savedItems,
+      copied_count: sourceItems.length,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;

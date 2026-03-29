@@ -86,10 +86,24 @@
           </div>
 
           <div class="ex-card-footer">
-            <el-button size="small" @click="$router.push(`/exhibitions/${ex.id}`)">查看详情</el-button>
-            <el-button size="small" type="primary" @click="$router.push(`/exhibitions/${ex.id}/checklist`)">
-              清点
+            <!-- 左侧：复制模版按钮 -->
+            <el-button
+              size="small"
+              plain
+              type="warning"
+              class="copy-template-btn"
+              @click.stop="openCopyDialog(ex)"
+            >
+              <el-icon><CopyDocument /></el-icon> 复制模版
             </el-button>
+
+            <!-- 右侧：原有按钮 -->
+            <div class="footer-right">
+              <el-button size="small" @click="$router.push(`/exhibitions/${ex.id}`)">查看详情</el-button>
+              <el-button size="small" type="primary" @click="$router.push(`/exhibitions/${ex.id}/checklist`)">
+                清点
+              </el-button>
+            </div>
           </div>
         </el-card>
       </div>
@@ -120,24 +134,104 @@
         <el-button type="primary" @click="saveEdit">保存</el-button>
       </template>
     </el-dialog>
+
+    <!-- 复制模版对话框 -->
+    <el-dialog v-model="copyDialog" title="复制商品清单为模版" width="500px">
+      <div class="copy-dialog-body">
+        <div class="copy-source-info">
+          <el-icon color="#e6a23c"><CopyDocument /></el-icon>
+          <span>将 <strong>「{{ copySourceEx?.name }}」</strong> 的商品清单复制到：</span>
+        </div>
+
+        <div class="copy-mode-tabs">
+          <el-radio-group v-model="copyMode" size="large">
+            <el-radio-button value="existing">选择已有展会</el-radio-button>
+            <el-radio-button value="new">新建展会并复制</el-radio-button>
+          </el-radio-group>
+        </div>
+
+        <!-- 选择已有展会 -->
+        <div v-if="copyMode === 'existing'" class="copy-target-select">
+          <el-select
+            v-model="copyTargetId"
+            placeholder="请选择目标展会"
+            style="width: 100%"
+            size="large"
+          >
+            <el-option
+              v-for="ex in otherExhibitions"
+              :key="ex.id"
+              :label="`${ex.name}${ex.date ? '（' + ex.date + '）' : ''}`"
+              :value="ex.id"
+            />
+          </el-select>
+          <p class="copy-hint">已有商品的变体将被跳过，不会重复添加</p>
+        </div>
+
+        <!-- 新建展会 -->
+        <div v-else class="copy-new-form">
+          <el-form :model="copyNewForm" label-width="80px">
+            <el-form-item label="展会名称" required>
+              <el-input v-model="copyNewForm.name" placeholder="请输入新展会名称" />
+            </el-form-item>
+            <el-form-item label="展会日期">
+              <el-date-picker
+                v-model="copyNewForm.dateRange"
+                type="daterange"
+                range-separator="至"
+                start-placeholder="开始日期"
+                end-placeholder="结束日期"
+                format="YYYY-MM-DD"
+                value-format="YYYY-MM-DD"
+                style="width: 100%"
+              />
+            </el-form-item>
+            <el-form-item label="展会地点">
+              <el-input v-model="copyNewForm.location" placeholder="展会地点（可选）" />
+            </el-form-item>
+          </el-form>
+        </div>
+      </div>
+
+      <template #footer>
+        <el-button @click="copyDialog = false">取消</el-button>
+        <el-button type="primary" :loading="copyLoading" @click="confirmCopy">
+          确认复制
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { ElMessageBox } from 'element-plus'
+import { ElMessageBox, ElMessage } from 'element-plus'
 import { useExhibitionStore } from '@/stores/exhibition'
+import { exhibitionApi } from '@/api'
 
 const store = useExhibitionStore()
 const editDialog = ref(false)
 const editForm = ref({})
 const editTarget = ref(null)
 
+// 复制模版相关状态
+const copyDialog = ref(false)
+const copySourceEx = ref(null)
+const copyMode = ref('existing')
+const copyTargetId = ref(null)
+const copyLoading = ref(false)
+const copyNewForm = ref({ name: '', dateRange: null, location: '' })
+
 const stats = computed(() => ({
   preparing: store.exhibitions.filter((e) => e.status === 'preparing').length,
   active: store.exhibitions.filter((e) => e.status === 'active').length,
   completed: store.exhibitions.filter((e) => e.status === 'completed').length,
 }))
+
+// 排除当前源展会的其他展会列表
+const otherExhibitions = computed(() =>
+  store.exhibitions.filter((e) => e.id !== copySourceEx.value?.id)
+)
 
 const statusType = (s) => ({ preparing: 'info', active: 'warning', completed: 'success' }[s] || 'info')
 const statusLabel = (s) => ({ preparing: '准备中', active: '进行中', completed: '已完成' }[s] || s)
@@ -160,6 +254,57 @@ async function saveEdit() {
   if (!editForm.value.name) return
   await store.updateExhibition(editTarget.value.id, editForm.value)
   editDialog.value = false
+}
+
+// 打开复制模版弹窗
+function openCopyDialog(ex) {
+  copySourceEx.value = ex
+  copyMode.value = 'existing'
+  copyTargetId.value = null
+  copyNewForm.value = { name: `${ex.name}（副本）`, dateRange: null, location: ex.location || '' }
+  copyDialog.value = true
+}
+
+// 确认复制
+async function confirmCopy() {
+  copyLoading.value = true
+  try {
+    let targetId
+
+    if (copyMode.value === 'existing') {
+      // 复制到已有展会
+      if (!copyTargetId.value) {
+        ElMessage.warning('请选择目标展会')
+        return
+      }
+      targetId = copyTargetId.value
+    } else {
+      // 先创建新展会
+      if (!copyNewForm.value.name) {
+        ElMessage.warning('请输入展会名称')
+        return
+      }
+      const dateStr = copyNewForm.value.dateRange
+        ? `${copyNewForm.value.dateRange[0]} 至 ${copyNewForm.value.dateRange[1]}`
+        : null
+      const res = await exhibitionApi.create({
+        name: copyNewForm.value.name,
+        date: dateStr,
+        location: copyNewForm.value.location || null,
+      })
+      targetId = res.data.id
+      await store.loadExhibitions()
+    }
+
+    // 执行复制
+    const result = await exhibitionApi.copyTemplate(copySourceEx.value.id, targetId)
+    ElMessage.success(result.message || '复制成功')
+    copyDialog.value = false
+  } catch (err) {
+    ElMessage.error(err.message || '复制失败')
+  } finally {
+    copyLoading.value = false
+  }
 }
 
 onMounted(() => store.loadExhibitions())
@@ -199,5 +344,30 @@ onMounted(() => store.loadExhibitions())
 .ex-name { font-size: 16px; font-weight: 600; color: #303133; margin-bottom: 8px; }
 .ex-meta { display: flex; gap: 12px; font-size: 13px; color: #909399; flex-wrap: wrap; }
 .ex-meta span { display: flex; align-items: center; gap: 4px; }
-.ex-card-footer { display: flex; gap: 8px; justify-content: flex-end; }
+
+.ex-card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.copy-template-btn { flex-shrink: 0; }
+.footer-right { display: flex; gap: 8px; }
+
+/* 复制弹窗样式 */
+.copy-dialog-body { display: flex; flex-direction: column; gap: 20px; }
+.copy-source-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: #fdf6ec;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #606266;
+}
+.copy-mode-tabs { display: flex; justify-content: center; }
+.copy-target-select { display: flex; flex-direction: column; gap: 8px; }
+.copy-hint { font-size: 12px; color: #909399; margin: 0; }
+.copy-new-form { padding: 4px 0; }
 </style>
