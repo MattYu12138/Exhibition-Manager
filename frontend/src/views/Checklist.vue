@@ -158,16 +158,24 @@
               >{{ store.checkedCount }}/{{ store.totalItems }} 已清点</el-tag>
             </div>
           </div>
-          <el-button
-            type="primary"
-            size="large"
-            :loading="syncing"
-            :disabled="store.groupedItems.length === 0"
-            @click="syncToSquare"
+          <el-tooltip
+            :content="store.checkProgress < 100 ? `还有 ${store.totalItems - store.checkedCount} 件未清点，请先完成全部清点` : ''"
+            :disabled="store.checkProgress === 100"
+            placement="top"
           >
-            <el-icon><Upload /></el-icon>
-            同步数量到 Square
-          </el-button>
+            <span>
+              <el-button
+                type="primary"
+                size="large"
+                :loading="syncing"
+                :disabled="store.checkProgress < 100"
+                @click="syncToSquare"
+              >
+                <el-icon><Upload /></el-icon>
+                同步数量到 Square
+              </el-button>
+            </span>
+          </el-tooltip>
         </div>
       </el-card>
     </div>
@@ -206,21 +214,10 @@ async function checkAll(checked) {
 }
 
 async function syncToSquare() {
-  // 未全部清点时弹出确认
+  // 未全部清点时直接拦截（按钮已禁用，此处为双重保护）
   if (store.checkProgress < 100) {
-    try {
-      await ElMessageBox.confirm(
-        `还有 ${store.totalItems - store.checkedCount} 件货品未清点，确定要继续同步吗？`,
-        '确认同步',
-        {
-          confirmButtonText: '继续同步',
-          cancelButtonText: '返回清点',
-          type: 'warning',
-        }
-      )
-    } catch {
-      return
-    }
+    ElMessage.warning(`还有 ${store.totalItems - store.checkedCount} 件货品未清点，请先完成全部清点`)
+    return
   }
 
   syncing.value = true

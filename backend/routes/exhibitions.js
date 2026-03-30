@@ -147,6 +147,10 @@ router.post('/:id/items', (req, res) => {
     const updateQty = db.prepare(
       'UPDATE exhibition_items SET planned_quantity = ?, product_title = ?, variant_title = ?, sku = ?, gtin = ?, image_url = ? WHERE id = ?'
     );
+    // 数量变动时，重置清点状态和同步快照
+    const resetChecked = db.prepare(
+      'UPDATE exhibition_items SET checked = 0, last_synced_quantity = NULL WHERE id = ?'
+    );
     const deleteItem = db.prepare(
       'DELETE FROM exhibition_items WHERE id = ?'
     );
@@ -160,10 +164,11 @@ router.post('/:id/items', (req, res) => {
           // 删除变体
           if (existing) deleteItem.run(existing.id);
         } else if (action === 'update') {
-          // 更新数量（覆盖绝对值）
+          // 更新数量（覆盖绝对値）
           if (existing) {
+            const newQty = item.planned_quantity || 0;
             updateQty.run(
-              item.planned_quantity || 0,
+              newQty,
               item.product_title,
               item.variant_title || '',
               item.sku || '',
@@ -171,6 +176,10 @@ router.post('/:id/items', (req, res) => {
               item.image_url || '',
               existing.id
             );
+            // 若数量发生变动，重置清点状态和同步快照
+            if (existing.planned_quantity !== newQty) {
+              resetChecked.run(existing.id);
+            }
           }
         } else {
           // action='add'：只在不存在时新增，已存在则忽略（防止重复提交）

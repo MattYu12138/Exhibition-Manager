@@ -33,6 +33,7 @@ db.exec(`
     image_url TEXT,
     planned_quantity INTEGER DEFAULT 0,   -- 计划带走数量
     checked INTEGER DEFAULT 0,            -- 是否已清点（0/1）
+    last_synced_quantity INTEGER DEFAULT NULL, -- 上次同步到 Square 时的数量
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (exhibition_id) REFERENCES exhibitions(id) ON DELETE CASCADE
   );
@@ -51,5 +52,12 @@ db.exec(`
     FOREIGN KEY (exhibition_id) REFERENCES exhibitions(id) ON DELETE CASCADE
   );
 `);
+
+// 迁移：为已有数据库添加新字段（若字段已存在则忽略）
+try {
+  db.exec('ALTER TABLE exhibition_items ADD COLUMN last_synced_quantity INTEGER DEFAULT NULL');
+} catch (e) {
+  // 字段已存在，忽略错误
+}
 
 module.exports = db;
