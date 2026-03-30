@@ -207,16 +207,22 @@ const pageSize = 20
 const selectionList = computed(() => Object.values(selectionsMap.value))
 const totalSelected = computed(() => selectionList.value.length)
 const totalQuantity = computed(() => selectionList.value.reduce((sum, s) => sum + (s.quantity || 0), 0))
-// 根据搜索关键词在前端本地过滤（不调用后端 API，避免 Shopify title 精确匹配限制）
+// 多关键词跳字模糊搜索：按空格分割输入，每个词必须匹配到商品名称、SKU 或 GTIN
+// 例：输入 "waffle leggings pink" 可匹配 "Organic Cotton Waffle Leggings - Blush Pink"
 const filteredProducts = computed(() => {
-  const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return store.shopifyProducts
-  return store.shopifyProducts.filter((p) =>
-    p.title.toLowerCase().includes(q) ||
-    (p.variants || []).some(
-      (v) => (v.sku || '').toLowerCase().includes(q) || (v.gtin || '').includes(q)
-    )
-  )
+  const raw = searchQuery.value.trim().toLowerCase()
+  if (!raw) return store.shopifyProducts
+  // 按空格分割，过滤空字符串
+  const keywords = raw.split(/\s+/).filter(Boolean)
+  return store.shopifyProducts.filter((p) => {
+    const titleLower = p.title.toLowerCase()
+    const variantTexts = (p.variants || []).map(
+      (v) => `${v.sku || ''} ${v.gtin || ''} ${v.title || ''}`.toLowerCase()
+    ).join(' ')
+    const searchTarget = `${titleLower} ${variantTexts}`
+    // 每个关键词都必须在 searchTarget 中出现
+    return keywords.every((kw) => searchTarget.includes(kw))
+  })
 })
 // 当前页展示的商品
 const pagedProducts = computed(() => {
