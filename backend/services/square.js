@@ -186,19 +186,21 @@ class SquareService {
   }
 
   /**
-   * 在 Square 现有库存基础上累加数量
-   * 先读取当前库存，再用 PHYSICAL_COUNT 写入（当前 + 增量）
-   * 返回 { previousQty, addedQty, newTotalQty }
+   * 在 Square 现有库存基础上调整数量（支持正负差量）
+   * 先读取当前库存，再用 PHYSICAL_COUNT 写入（当前 + 差量）
+   * deltaQty > 0 时增加库存，deltaQty < 0 时减少库存
+   * 返回 { previousQty, deltaQty, newTotalQty }
    */
-  async adjustInventoryQuantity(catalogObjectId, addQty) {
+  async adjustInventoryQuantity(catalogObjectId, deltaQty) {
     const currentQty = await this.getInventoryCount(catalogObjectId);
-    const newTotal = currentQty + addQty;
+    // 防止库存出现负数（Square 不允许负库存）
+    const newTotal = Math.max(0, currentQty + deltaQty);
 
     await this.setInventoryQuantity(catalogObjectId, newTotal);
 
     return {
       previousQty: currentQty,
-      addedQty: addQty,
+      deltaQty,
       newTotalQty: newTotal,
     };
   }
