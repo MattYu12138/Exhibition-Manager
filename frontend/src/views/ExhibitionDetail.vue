@@ -42,6 +42,15 @@
         </div>
       </el-card>
 
+      <!-- 展会流程进度条 -->
+      <el-card class="steps-card">
+        <el-steps :active="workflowStep" align-center finish-status="success">
+          <el-step :title="t('exhibitionDetail.step1Title')" :description="t('exhibitionDetail.step1Desc')" />
+          <el-step :title="t('exhibitionDetail.step2Title')" :description="t('exhibitionDetail.step2Desc')" />
+          <el-step :title="t('exhibitionDetail.step4Title')" :description="t('exhibitionDetail.step4Desc')" />
+        </el-steps>
+      </el-card>
+
       <!-- 功能入口卡片 -->
       <el-row :gutter="16" class="action-row">
         <el-col :xs="24" :sm="12" :md="8">
@@ -133,6 +142,18 @@ const store = useExhibitionStore()
 const id = route.params.id
 const currentStatus = ref('preparing')
 
+// 根据展会状态计算当前步骤：0=准备中, 1=已选品/清点, 2=已完成
+const workflowStep = computed(() => {
+  const exhibition = store.currentExhibition
+  if (!exhibition) return 0
+  if (exhibition.status === 'completed') return 3
+  const items = exhibition.items || []
+  if (items.length === 0) return 0
+  const allChecked = items.every((i) => i.checked)
+  if (allChecked) return 2
+  return 1
+})
+
 const statusType = computed(() => {
   const map = { preparing: 'info', active: 'warning', completed: 'success' }
   return map[store.currentExhibition?.status] || 'info'
@@ -163,6 +184,7 @@ onMounted(async () => {
 .info-meta { display: flex; gap: 16px; font-size: 14px; color: #606266; flex-wrap: wrap; }
 .info-meta span { display: flex; align-items: center; gap: 6px; }
 
+.steps-card { margin-bottom: 20px; }
 .action-row { margin-bottom: 20px; }
 .action-card { cursor: pointer; text-align: center; padding: 8px; transition: transform 0.2s; }
 .action-card:hover { transform: translateY(-4px); }

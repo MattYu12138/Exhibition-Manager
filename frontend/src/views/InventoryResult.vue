@@ -8,23 +8,9 @@
       </div>
     </div>
 
-    <el-card class="steps-card">
-      <el-steps :active="currentStep" align-center>
-        <el-step :title="t('inventoryResult.stepBefore')" :description="t('inventoryResult.stepBeforeDesc')" />
-        <el-step :title="t('inventoryResult.stepDuring')" :description="t('inventoryResult.stepDuringDesc')" />
-        <el-step :title="t('inventoryResult.stepAfter')" :description="t('inventoryResult.stepAfterDesc')" />
-      </el-steps>
-    </el-card>
-
     <el-card class="action-card">
-      <el-row :gutter="16" justify="center">
-        <el-col :span="10">
-          <el-button type="warning" size="large" style="width: 100%" :loading="syncing === 'before'" @click="handleSyncBefore">
-            <el-icon><Upload /></el-icon> {{ t('inventoryResult.btnSyncBefore') }}
-          </el-button>
-          <div class="btn-hint">{{ t('inventoryResult.btnSyncBeforeHint') }}</div>
-        </el-col>
-        <el-col :span="10">
+      <el-row justify="center">
+        <el-col :xs="24" :sm="16" :md="12">
           <el-button type="primary" size="large" style="width: 100%" :loading="syncing === 'after'" @click="handleSyncAfter">
             <el-icon><Download /></el-icon> {{ t('inventoryResult.btnSyncAfter') }}
           </el-button>
@@ -228,7 +214,6 @@ onMounted(async () => {
 .page-title { font-size: 22px; font-weight: 700; }
 .page-desc { font-size: 14px; color: #909399; margin-top: 4px; }
 
-.steps-card { margin-bottom: 20px; }
 .action-card { margin-bottom: 20px; }
 .btn-hint { font-size: 12px; color: #909399; margin-top: 6px; text-align: center; line-height: 1.4; }
 
