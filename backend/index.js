@@ -6,6 +6,7 @@ const path = require('path');
 const exhibitionsRouter = require('./routes/exhibitions');
 const shopifyRouter = require('./routes/shopify');
 const squareRouter = require('./routes/square');
+const authRouter = require('./routes/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -38,6 +39,9 @@ app.get('/api/health', (req, res) => {
     square_configured: !!(process.env.SQUARE_ACCESS_TOKEN && process.env.SQUARE_LOCATION_ID),
   });
 });
+
+// OAuth 授权路由（用于获取主商店 Access Token，一次性使用）
+app.use('/', authRouter);
 
 // API 路由
 app.use('/api/exhibitions', exhibitionsRouter);
