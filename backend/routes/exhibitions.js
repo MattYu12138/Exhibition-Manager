@@ -124,7 +124,7 @@ router.post('/:id/copy-to/:targetId', (req, res) => {
   }
 });
 
-// 添加商品到展会清单
+// 添加商品到展会清单（相同 variant_id 自动合并，数量累加）
 router.post('/:id/items', (req, res) => {
   try {
     const { items } = req.body;
@@ -132,29 +132,50 @@ router.post('/:id/items', (req, res) => {
       return res.status(400).json({ success: false, message: '请提供商品列表' });
     }
 
+    const findExisting = db.prepare(
+      'SELECT * FROM exhibition_items WHERE exhibition_id = ? AND shopify_variant_id = ?'
+    );
+    const updateQty = db.prepare(
+      'UPDATE exhibition_items SET planned_quantity = planned_quantity + ?, product_title = ?, variant_title = ?, sku = ?, gtin = ?, image_url = ? WHERE id = ?'
+    );
     const insertItem = db.prepare(`
-      INSERT OR REPLACE INTO exhibition_items 
+      INSERT INTO exhibition_items 
       (exhibition_id, shopify_product_id, shopify_variant_id, product_title, variant_title, sku, gtin, image_url, planned_quantity, checked)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
     `);
 
-    const insertMany = db.transaction((itemList) => {
+    const upsertMany = db.transaction((itemList) => {
       for (const item of itemList) {
-        insertItem.run(
-          req.params.id,
-          item.shopify_product_id,
-          item.shopify_variant_id,
-          item.product_title,
-          item.variant_title || '',
-          item.sku || '',
-          item.gtin || '',
-          item.image_url || '',
-          item.planned_quantity || 0
-        );
+        const existing = findExisting.get(req.params.id, item.shopify_variant_id);
+        if (existing) {
+          // 已存在相同变体：累加数量
+          updateQty.run(
+            item.planned_quantity || 0,
+            item.product_title,
+            item.variant_title || '',
+            item.sku || '',
+            item.gtin || '',
+            item.image_url || '',
+            existing.id
+          );
+        } else {
+          // 不存在：新增
+          insertItem.run(
+            req.params.id,
+            item.shopify_product_id,
+            item.shopify_variant_id,
+            item.product_title,
+            item.variant_title || '',
+            item.sku || '',
+            item.gtin || '',
+            item.image_url || '',
+            item.planned_quantity || 0
+          );
+        }
       }
     });
 
-    insertMany(items);
+    upsertMany(items);
     const savedItems = db.prepare('SELECT * FROM exhibition_items WHERE exhibition_id = ?').all(req.params.id);
     res.json({ success: true, data: savedItems });
   } catch (err) {
