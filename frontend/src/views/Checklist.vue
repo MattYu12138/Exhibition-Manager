@@ -34,7 +34,7 @@
       />
       <div v-if="store.checkProgress === 100" class="all-done">
         <el-icon color="#67c23a"><CircleCheck /></el-icon>
-        所有货品已清点完成！
+        所有货品已清点完成！可以点击下方按钮同步到 Square。
       </div>
     </el-card>
 
@@ -132,18 +132,59 @@
         </div>
       </el-card>
     </div>
+
+    <!-- 出发前同步按钮（底部固定区域） -->
+    <div v-if="store.groupedItems.length" class="sync-footer">
+      <el-card class="sync-card">
+        <div class="sync-content">
+          <div class="sync-info">
+            <div class="sync-title">
+              <el-icon size="20" color="#409eff"><Upload /></el-icon>
+              出发前同步到 Square
+            </div>
+            <div class="sync-desc">
+              清点完成后点击此按钮，将带走数量写入 Square 库存
+              <el-tag
+                v-if="store.checkProgress === 100"
+                type="success"
+                size="small"
+                style="margin-left: 8px"
+              >清点已完成</el-tag>
+              <el-tag
+                v-else
+                type="warning"
+                size="small"
+                style="margin-left: 8px"
+              >{{ store.checkedCount }}/{{ store.totalItems }} 已清点</el-tag>
+            </div>
+          </div>
+          <el-button
+            type="primary"
+            size="large"
+            :loading="syncing"
+            :disabled="store.groupedItems.length === 0"
+            @click="syncToSquare"
+          >
+            <el-icon><Upload /></el-icon>
+            同步数量到 Square
+          </el-button>
+        </div>
+      </el-card>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useExhibitionStore } from '@/stores/exhibition'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const route = useRoute()
 const router = useRouter()
 const store = useExhibitionStore()
 const id = route.params.id
+const syncing = ref(false)
 
 function isProductAllChecked(group) {
   return group.variants.every((v) => v.checked)
@@ -161,6 +202,37 @@ async function toggleProductCheck(group) {
 async function checkAll(checked) {
   for (const group of store.groupedItems) {
     await store.toggleProductCheck(id, group.product_id, checked)
+  }
+}
+
+async function syncToSquare() {
+  // 未全部清点时弹出确认
+  if (store.checkProgress < 100) {
+    try {
+      await ElMessageBox.confirm(
+        `还有 ${store.totalItems - store.checkedCount} 件货品未清点，确定要继续同步吗？`,
+        '确认同步',
+        {
+          confirmButtonText: '继续同步',
+          cancelButtonText: '返回清点',
+          type: 'warning',
+        }
+      )
+    } catch {
+      return
+    }
+  }
+
+  syncing.value = true
+  try {
+    await store.syncBeforeExhibition(id)
+    ElMessage.success('同步成功！数量已写入 Square 库存')
+    // 同步完成后跳转到展会详情页
+    router.push(`/exhibitions/${id}`)
+  } catch (err) {
+    ElMessage.error('同步失败: ' + err.message)
+  } finally {
+    syncing.value = false
   }
 }
 
@@ -218,4 +290,12 @@ onMounted(() => store.loadExhibition(id))
 .variant-qty-info { text-align: center; min-width: 50px; }
 .qty-label { font-size: 11px; color: #909399; }
 .qty-value { font-size: 18px; font-weight: 700; color: #303133; }
+
+/* 底部同步区域 */
+.sync-footer { margin-top: 24px; }
+.sync-card { border: 2px solid #409eff; border-radius: 12px; }
+.sync-content { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.sync-info { flex: 1; }
+.sync-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 700; margin-bottom: 6px; color: #303133; }
+.sync-desc { font-size: 13px; color: #606266; display: flex; align-items: center; flex-wrap: wrap; }
 </style>

@@ -85,12 +85,9 @@ export default {
     step2Title: 'Checklist',
     step2Desc: 'Check off each item as you pack',
     step2Label: 'Step 2',
-    step3Title: 'Sync to Square',
-    step3Desc: 'Push quantities to Square before departure',
     step3Label: 'Step 3',
     step4Title: 'Post-Show Count',
     step4Desc: 'Calculate remaining stock after the show',
-    step4Label: 'Step 4',
     variantCount: '{n} variants',
   },
 

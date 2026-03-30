@@ -85,12 +85,9 @@ export default {
     step2Title: '清点货品',
     step2Desc: '逐件清点，打勾确认已收集',
     step2Label: '第 2 步',
-    step3Title: '出发前同步',
-    step3Desc: '将带走数量同步到 Square',
     step3Label: '第 3 步',
     step4Title: '展会结束盘点',
     step4Desc: '计算剩余差值并同步回 Square',
-    step4Label: '第 4 步',
     variantCount: '{n} 个商品变体',
   },
 

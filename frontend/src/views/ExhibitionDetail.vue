@@ -44,7 +44,7 @@
 
       <!-- 功能入口卡片 -->
       <el-row :gutter="16" class="action-row">
-        <el-col :xs="24" :sm="12" :md="6">
+        <el-col :xs="24" :sm="12" :md="8">
           <el-card class="action-card" shadow="hover" @click="$router.push(`/exhibitions/${id}/select-products`)">
             <div class="action-icon step1"><el-icon size="32"><ShoppingCart /></el-icon></div>
             <div class="action-label">{{ t('exhibitionDetail.step1Title') }}</div>
@@ -52,7 +52,7 @@
             <el-tag size="small" type="info">{{ t('exhibitionDetail.step1Label') }}</el-tag>
           </el-card>
         </el-col>
-        <el-col :xs="24" :sm="12" :md="6">
+        <el-col :xs="24" :sm="12" :md="8">
           <el-card class="action-card" shadow="hover" @click="$router.push(`/exhibitions/${id}/checklist`)">
             <div class="action-icon step2"><el-icon size="32"><Finished /></el-icon></div>
             <div class="action-label">{{ t('exhibitionDetail.step2Title') }}</div>
@@ -60,20 +60,12 @@
             <el-tag size="small" type="warning">{{ t('exhibitionDetail.step2Label') }}</el-tag>
           </el-card>
         </el-col>
-        <el-col :xs="24" :sm="12" :md="6">
-          <el-card class="action-card" shadow="hover" @click="$router.push(`/exhibitions/${id}/inventory`)">
-            <div class="action-icon step3"><el-icon size="32"><Upload /></el-icon></div>
-            <div class="action-label">{{ t('exhibitionDetail.step3Title') }}</div>
-            <div class="action-desc">{{ t('exhibitionDetail.step3Desc') }}</div>
-            <el-tag size="small" type="primary">{{ t('exhibitionDetail.step3Label') }}</el-tag>
-          </el-card>
-        </el-col>
-        <el-col :xs="24" :sm="12" :md="6">
+        <el-col :xs="24" :sm="12" :md="8">
           <el-card class="action-card" shadow="hover" @click="$router.push(`/exhibitions/${id}/inventory`)">
             <div class="action-icon step4"><el-icon size="32"><DataAnalysis /></el-icon></div>
             <div class="action-label">{{ t('exhibitionDetail.step4Title') }}</div>
             <div class="action-desc">{{ t('exhibitionDetail.step4Desc') }}</div>
-            <el-tag size="small" type="success">{{ t('exhibitionDetail.step4Label') }}</el-tag>
+            <el-tag size="small" type="success">{{ t('exhibitionDetail.step3Label') }}</el-tag>
           </el-card>
         </el-col>
       </el-row>
