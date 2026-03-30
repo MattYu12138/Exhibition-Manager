@@ -196,6 +196,9 @@ const expandedMap = ref({})
 // 用普通对象替代 Map，key 为 `${productId}-${variantId}`
 const selectionsMap = ref({})
 const saving = ref(false)
+// 进入页面时记录已有商品的快照：key=shopify_variant_id, value={ db_id, planned_quantity }
+// 用于提交时计算差量，避免重复提交
+const originalSnapshot = ref({})  // { [shopify_variant_id]: { db_id, planned_quantity } }
 // 图片加载失败标记，key 为 productId
 const imgError = reactive({})
 
@@ -325,25 +328,115 @@ function handlePageChange() {
 }
 
 async function loadProducts() {
-  await store.loadShopifyProducts()
+  // 并行加载 Shopify 商品库和展会已有商品
+  const [, exhibition] = await Promise.all([
+    store.loadShopifyProducts(),
+    store.loadExhibition(id),
+  ])
+
+  // 记录已有商品快照，并预填 selectionsMap
+  const snapshot = {}
+  const preselected = {}
+  const existingItems = store.currentExhibition?.items || []
+  for (const item of existingItems) {
+    const variantId = String(item.shopify_variant_id)
+    const productId = String(item.shopify_product_id)
+    snapshot[variantId] = { db_id: item.id, planned_quantity: item.planned_quantity }
+    const key = `${productId}-${variantId}`
+    preselected[key] = {
+      key,
+      product_id: productId,
+      product_title: item.product_title,
+      variant_id: variantId,
+      variant_title: item.variant_title,
+      sku: item.sku,
+      gtin: item.gtin,
+      image_url: item.image_url,
+      quantity: item.planned_quantity,
+    }
+  }
+  originalSnapshot.value = snapshot
+  selectionsMap.value = preselected
+
   expandAll()
 }
 
 async function saveToExhibition() {
-  if (!selectionList.value.length) return
   saving.value = true
   try {
-    const items = selectionList.value.map((sel) => ({
-      shopify_product_id: sel.product_id,
-      shopify_variant_id: sel.variant_id,
-      product_title: sel.product_title,
-      variant_title: sel.variant_title,
-      sku: sel.sku,
-      gtin: sel.gtin,
-      image_url: sel.image_url,
-      planned_quantity: sel.quantity,
-    }))
-    await store.addItemsToExhibition(id, items)
+    const deltaItems = []
+    const snapshot = originalSnapshot.value
+    const currentMap = selectionsMap.value
+
+    // 1. 找出新增的变体（在当前选择中，但不在原始快照里）
+    for (const sel of selectionList.value) {
+      const variantId = String(sel.variant_id)
+      if (!snapshot[variantId]) {
+        // 全新变体 → action='add'
+        deltaItems.push({
+          action: 'add',
+          shopify_product_id: sel.product_id,
+          shopify_variant_id: variantId,
+          product_title: sel.product_title,
+          variant_title: sel.variant_title,
+          sku: sel.sku,
+          gtin: sel.gtin,
+          image_url: sel.image_url,
+          planned_quantity: sel.quantity,
+        })
+      } else if (sel.quantity !== snapshot[variantId].planned_quantity) {
+        // 数量有变化 → action='update'
+        deltaItems.push({
+          action: 'update',
+          shopify_product_id: sel.product_id,
+          shopify_variant_id: variantId,
+          product_title: sel.product_title,
+          variant_title: sel.variant_title,
+          sku: sel.sku,
+          gtin: sel.gtin,
+          image_url: sel.image_url,
+          planned_quantity: sel.quantity,
+        })
+      }
+      // 数量未变化 → 不提交
+    }
+
+    // 2. 找出被移除的变体（在原始快照里，但不在当前选择中）
+    const currentVariantIds = new Set(
+      selectionList.value.map((s) => String(s.variant_id))
+    )
+    for (const variantId of Object.keys(snapshot)) {
+      if (!currentVariantIds.has(variantId)) {
+        // 已被取消选择 → action='remove'
+        deltaItems.push({
+          action: 'remove',
+          shopify_variant_id: variantId,
+          shopify_product_id: '',
+          product_title: '',
+          variant_title: '',
+          planned_quantity: 0,
+        })
+      }
+    }
+
+    if (!deltaItems.length) {
+      ElMessage.info('没有检测到变化，无需保存')
+      router.push(`/exhibitions/${id}`)
+      return
+    }
+
+    const addCount = deltaItems.filter((i) => i.action === 'add').length
+    const updateCount = deltaItems.filter((i) => i.action === 'update').length
+    const removeCount = deltaItems.filter((i) => i.action === 'remove').length
+
+    await store.addItemsToExhibition(id, deltaItems)
+
+    const parts = []
+    if (addCount) parts.push(`新增 ${addCount} 个`)
+    if (updateCount) parts.push(`更新 ${updateCount} 个`)
+    if (removeCount) parts.push(`移除 ${removeCount} 个`)
+    ElMessage.success(parts.join('、'))
+
     router.push(`/exhibitions/${id}`)
   } finally {
     saving.value = false

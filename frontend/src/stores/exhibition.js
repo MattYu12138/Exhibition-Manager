@@ -175,7 +175,7 @@ export const useExhibitionStore = defineStore('exhibition', () => {
       if (currentExhibition.value?.id === exhibitionId) {
         currentExhibition.value.items = res.data
       }
-      ElMessage.success(`已添加 ${items.length} 个商品变体到清单`)
+      // 成功提示由调用方自行控制（差量模式下提示内容更丰富）
       return res.data
     } catch (err) {
       ElMessage.error('添加商品失败: ' + err.message)

@@ -124,7 +124,11 @@ router.post('/:id/copy-to/:targetId', (req, res) => {
   }
 });
 
-// 添加商品到展会清单（相同 variant_id 自动合并，数量累加）
+// 添加/更新展会商品（差量模式）
+// 每个 item 必须包含 action 字段：
+//   action='add'    新增变体（不存在时插入，已存在时忽略）
+//   action='update' 更新数量（将 planned_quantity 覆盖为新绝对值）
+//   action='remove' 删除变体
 router.post('/:id/items', (req, res) => {
   try {
     const { items } = req.body;
@@ -135,47 +139,59 @@ router.post('/:id/items', (req, res) => {
     const findExisting = db.prepare(
       'SELECT * FROM exhibition_items WHERE exhibition_id = ? AND shopify_variant_id = ?'
     );
-    const updateQty = db.prepare(
-      'UPDATE exhibition_items SET planned_quantity = planned_quantity + ?, product_title = ?, variant_title = ?, sku = ?, gtin = ?, image_url = ? WHERE id = ?'
-    );
     const insertItem = db.prepare(`
       INSERT INTO exhibition_items 
       (exhibition_id, shopify_product_id, shopify_variant_id, product_title, variant_title, sku, gtin, image_url, planned_quantity, checked)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
     `);
+    const updateQty = db.prepare(
+      'UPDATE exhibition_items SET planned_quantity = ?, product_title = ?, variant_title = ?, sku = ?, gtin = ?, image_url = ? WHERE id = ?'
+    );
+    const deleteItem = db.prepare(
+      'DELETE FROM exhibition_items WHERE id = ?'
+    );
 
-    const upsertMany = db.transaction((itemList) => {
+    const applyDelta = db.transaction((itemList) => {
       for (const item of itemList) {
         const existing = findExisting.get(req.params.id, item.shopify_variant_id);
-        if (existing) {
-          // 已存在相同变体：累加数量
-          updateQty.run(
-            item.planned_quantity || 0,
-            item.product_title,
-            item.variant_title || '',
-            item.sku || '',
-            item.gtin || '',
-            item.image_url || '',
-            existing.id
-          );
+        const action = item.action || 'add'; // 向后兼容：旧客户端未传 action 时默认为 add
+
+        if (action === 'remove') {
+          // 删除变体
+          if (existing) deleteItem.run(existing.id);
+        } else if (action === 'update') {
+          // 更新数量（覆盖绝对值）
+          if (existing) {
+            updateQty.run(
+              item.planned_quantity || 0,
+              item.product_title,
+              item.variant_title || '',
+              item.sku || '',
+              item.gtin || '',
+              item.image_url || '',
+              existing.id
+            );
+          }
         } else {
-          // 不存在：新增
-          insertItem.run(
-            req.params.id,
-            item.shopify_product_id,
-            item.shopify_variant_id,
-            item.product_title,
-            item.variant_title || '',
-            item.sku || '',
-            item.gtin || '',
-            item.image_url || '',
-            item.planned_quantity || 0
-          );
+          // action='add'：只在不存在时新增，已存在则忽略（防止重复提交）
+          if (!existing) {
+            insertItem.run(
+              req.params.id,
+              item.shopify_product_id,
+              item.shopify_variant_id,
+              item.product_title,
+              item.variant_title || '',
+              item.sku || '',
+              item.gtin || '',
+              item.image_url || '',
+              item.planned_quantity || 0
+            );
+          }
         }
       }
     });
 
-    upsertMany(items);
+    applyDelta(items);
     const savedItems = db.prepare('SELECT * FROM exhibition_items WHERE exhibition_id = ?').all(req.params.id);
     res.json({ success: true, data: savedItems });
   } catch (err) {
