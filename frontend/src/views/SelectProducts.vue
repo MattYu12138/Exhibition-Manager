@@ -207,8 +207,17 @@ const pageSize = 20
 const selectionList = computed(() => Object.values(selectionsMap.value))
 const totalSelected = computed(() => selectionList.value.length)
 const totalQuantity = computed(() => selectionList.value.reduce((sum, s) => sum + (s.quantity || 0), 0))
-// 根据搜索过滤后的商品（用于分页计算）
-const filteredProducts = computed(() => store.shopifyProducts)
+// 根据搜索关键词在前端本地过滤（不调用后端 API，避免 Shopify title 精确匹配限制）
+const filteredProducts = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return store.shopifyProducts
+  return store.shopifyProducts.filter((p) =>
+    p.title.toLowerCase().includes(q) ||
+    (p.variants || []).some(
+      (v) => (v.sku || '').toLowerCase().includes(q) || (v.gtin || '').includes(q)
+    )
+  )
+})
 // 当前页展示的商品
 const pagedProducts = computed(() => {
   const start = (currentPage.value - 1) * pageSize
@@ -292,14 +301,10 @@ function clearAll() {
   selectionsMap.value = {}
 }
 
-let searchTimer = null
+// 搜索：前端本地过滤，无需调用后端 API
 function handleSearch() {
-  clearTimeout(searchTimer)
-  searchTimer = setTimeout(async () => {
-    await store.loadShopifyProducts(searchQuery.value)
-    currentPage.value = 1
-    expandAll()
-  }, 400)
+  currentPage.value = 1
+  expandAll()
 }
 
 function expandAll() {
