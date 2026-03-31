@@ -1,23 +1,22 @@
 <template>
   <div class="select-page">
     <div class="page-header">
-      <el-button text @click="$router.back()"><el-icon><ArrowLeft /></el-icon> 返回</el-button>
+      <el-button text @click="$router.back()"><el-icon><ArrowLeft /></el-icon> {{ $t('common.back') }}</el-button>
       <div>
-        <h1 class="page-title">选择展会商品</h1>
-        <p class="page-desc">从 Shopify 商品库中选择要带到展会的商品及数量</p>
+        <h1 class="page-title">{{ $t('selectProducts.pageTitle') }}</h1>
+        <p class="page-desc">{{ $t('selectProducts.pageDesc') }}</p>
       </div>
     </div>
 
     <el-row :gutter="20">
-      <!-- 左侧：Shopify 商品列表 -->
       <el-col :xs="24" :lg="14">
         <el-card>
           <template #header>
             <div class="card-header">
-              <span style="font-weight: 600">Shopify 商品库（{{ store.shopifyProducts.length }} 个）</span>
+              <span style="font-weight: 600">{{ $t('selectProducts.shopifyLib') }}（{{ store.shopifyProducts.length }} 个）</span>
               <el-input
                 v-model="searchQuery"
-                placeholder="搜索商品名称..."
+                :placeholder="$t('selectProducts.searchPlaceholder')"
                 clearable
                 style="width: 220px"
                 @input="handleSearch"
@@ -30,9 +29,9 @@
           <div v-loading="listLoading">
             <el-empty
               v-if="!store.shopifyProducts.length && !store.productLoading"
-              description="暂无商品数据"
+              :description="$t('selectProducts.noProducts')"
             >
-              <el-button type="primary" @click="loadProducts">重新加载</el-button>
+              <el-button type="primary" @click="loadProducts">{{ $t('selectProducts.reload') }}</el-button>
             </el-empty>
 
             <div v-else class="product-list">
@@ -41,7 +40,6 @@
                 :key="product.id"
                 class="product-item"
               >
-                <!-- 商品头部（可折叠） -->
                 <div class="product-header" @click="toggleProduct(product.id)">
                   <div class="product-info">
                     <img
@@ -53,7 +51,7 @@
                     <div v-else class="product-placeholder"><el-icon><Picture /></el-icon></div>
                     <div class="product-text">
                       <div class="product-name">{{ product.title }}</div>
-                      <div class="product-meta">{{ product.variants ? product.variants.length : 0 }} 个变体</div>
+                      <div class="product-meta">{{ product.variants ? product.variants.length : 0 }} {{ $t('selectProducts.variantCount', { n: '' }).replace('{n} ', '') }}</div>
                     </div>
                   </div>
                   <div class="product-actions">
@@ -62,7 +60,7 @@
                       type="primary"
                       plain
                       @click.stop="selectAllVariants(product)"
-                    >全选</el-button>
+                    >{{ $t('selectProducts.selectAll') }}</el-button>
                     <el-icon
                       class="expand-icon"
                       :class="{ expanded: isExpanded(product.id) }"
@@ -70,7 +68,6 @@
                   </div>
                 </div>
 
-                <!-- 变体列表 -->
                 <div v-show="isExpanded(product.id)" class="variant-list">
                   <div
                     v-for="variant in product.variants"
@@ -86,14 +83,13 @@
                       <span class="variant-title">{{ variant.title }}</span>
                       <span class="variant-sku" v-if="variant.sku">SKU: {{ variant.sku }}</span>
                       <span class="variant-gtin" v-if="variant.gtin">GTIN: {{ variant.gtin }}</span>
-                      <span class="variant-stock">库存: {{ variant.inventory_quantity ?? '-' }}</span>
+                      <span class="variant-stock">{{ $t('selectProducts.stockLabel') }}: {{ variant.inventory_quantity ?? '-' }}</span>
                     </div>
 
-                    <!-- 数量输入区：挂衣架 + 备货 + 只读总数 -->
                     <div class="variant-qty" v-if="isSelected(product.id, variant.id)" @click.stop>
                       <div class="qty-group">
                         <div class="qty-field">
-                          <div class="qty-field-label">挂衣架</div>
+                          <div class="qty-field-label">{{ $t('selectProducts.rack') }}</div>
                           <el-input-number
                             v-model="getSelection(product.id, variant.id).rack_quantity"
                             :min="0"
@@ -104,7 +100,7 @@
                           />
                         </div>
                         <div class="qty-field">
-                          <div class="qty-field-label">备货</div>
+                          <div class="qty-field-label">{{ $t('selectProducts.storage') }}</div>
                           <el-input-number
                             v-model="getSelection(product.id, variant.id).stock_quantity"
                             :min="0"
@@ -115,7 +111,7 @@
                           />
                         </div>
                         <div class="qty-field qty-total">
-                          <div class="qty-field-label">总数</div>
+                          <div class="qty-field-label">{{ $t('selectProducts.totalLabel') }}</div>
                           <div class="qty-total-value">
                             {{ (getSelection(product.id, variant.id).rack_quantity || 0) + (getSelection(product.id, variant.id).stock_quantity || 0) }}
                           </div>
@@ -127,7 +123,6 @@
               </div>
             </div>
 
-            <!-- 分页 -->
             <div class="pagination-wrap" v-if="filteredProducts.length > pageSize">
               <el-pagination
                 v-model:current-page="currentPage"
@@ -143,23 +138,22 @@
         </el-card>
       </el-col>
 
-      <!-- 右侧：已选商品清单 -->
       <el-col :xs="24" :lg="10">
         <el-card class="selection-card" :body-style="{ padding: '0' }">
           <template #header>
             <div class="card-header">
-              <span style="font-weight: 600">已选商品 ({{ totalSelected }})</span>
+              <span style="font-weight: 600">{{ $t('selectProducts.selected') }} ({{ totalSelected }})</span>
               <el-button
                 v-if="selectionList.length > 0"
                 size="small"
                 type="danger"
                 plain
                 @click="clearAll"
-              >清空</el-button>
+              >{{ $t('selectProducts.clearBtn') }}</el-button>
             </div>
           </template>
 
-          <el-empty v-if="!selectionList.length" description="尚未选择商品" style="padding: 40px 0" />
+          <el-empty v-if="!selectionList.length" :description="$t('selectProducts.noProducts')" style="padding: 40px 0" />
 
           <div v-else class="selection-list">
             <div
@@ -177,9 +171,9 @@
               </div>
               <div class="sel-right">
                 <div class="sel-qty-summary">
-                  <span class="sel-qty-item">架: {{ sel.rack_quantity }}</span>
-                  <span class="sel-qty-item">货: {{ sel.stock_quantity }}</span>
-                  <el-tag type="primary" size="small">共 {{ sel.rack_quantity + sel.stock_quantity }}</el-tag>
+                  <span class="sel-qty-item">{{ $t('selectProducts.summaryRack') }}: {{ sel.rack_quantity }}</span>
+                  <span class="sel-qty-item">{{ $t('selectProducts.summaryStorage') }}: {{ sel.stock_quantity }}</span>
+                  <el-tag type="primary" size="small">{{ $t('selectProducts.summaryTotal') }} {{ sel.rack_quantity + sel.stock_quantity }}</el-tag>
                 </div>
                 <el-icon class="sel-remove" @click="removeSelection(sel.key)"><Close /></el-icon>
               </div>
@@ -188,7 +182,7 @@
 
           <div class="selection-footer">
             <div class="total-info">
-              共 {{ totalSelected }} 个变体，合计 {{ totalQuantity }} 件
+              {{ $t('selectProducts.selected') }} {{ totalSelected }} · {{ $t('selectProducts.totalQty', { n: totalQuantity }) }}
             </div>
             <el-button
               type="primary"
@@ -198,7 +192,7 @@
               @click="saveToExhibition"
               style="width: 100%"
             >
-              保存到展会清单
+              {{ $t('selectProducts.saveBtn') }}
             </el-button>
           </div>
         </el-card>
@@ -212,7 +206,9 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useExhibitionStore } from '@/stores/exhibition'
+import { useI18n } from 'vue-i18n'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const store = useExhibitionStore()
@@ -222,22 +218,18 @@ const searchQuery = ref('')
 const expandedMap = ref({})
 const selectionsMap = ref({})
 const saving = ref(false)
-// 进入页面时记录已有商品的快照：key=shopify_variant_id, value={ db_id, rack_quantity, stock_quantity, planned_quantity }
 const originalSnapshot = ref({})
 const imgError = reactive({})
 
-// 分页
 const currentPage = ref(1)
 const pageSize = 20
 
-// 计算属性
 const selectionList = computed(() => Object.values(selectionsMap.value))
 const totalSelected = computed(() => selectionList.value.length)
 const totalQuantity = computed(() =>
   selectionList.value.reduce((sum, s) => sum + (s.rack_quantity || 0) + (s.stock_quantity || 0), 0)
 )
 
-// 多关键词跳字模糊搜索
 const filteredProducts = computed(() => {
   const raw = searchQuery.value.trim().toLowerCase()
   if (!raw) return store.shopifyProducts
@@ -278,7 +270,6 @@ function getSelection(productId, variantId) {
   return selectionsMap.value[`${productId}-${variantId}`]
 }
 
-// 当挂衣架或备货数量变化时，同步更新 quantity（用于兼容旧逻辑）
 function onQtyChange(productId, variantId) {
   const sel = selectionsMap.value[`${productId}-${variantId}`]
   if (sel) {
@@ -407,9 +398,7 @@ async function saveToExhibition() {
   try {
     const deltaItems = []
     const snapshot = originalSnapshot.value
-    const currentMap = selectionsMap.value
 
-    // 1. 找出新增或数量变化的变体
     for (const sel of selectionList.value) {
       const variantId = String(sel.variant_id)
       const rackQty = sel.rack_quantity || 0
@@ -417,7 +406,6 @@ async function saveToExhibition() {
       const totalQty = rackQty + stockQty
 
       if (!snapshot[variantId]) {
-        // 全新变体 → action='add'
         deltaItems.push({
           action: 'add',
           shopify_product_id: sel.product_id,
@@ -434,7 +422,6 @@ async function saveToExhibition() {
       } else {
         const snap = snapshot[variantId]
         if (rackQty !== snap.rack_quantity || stockQty !== snap.stock_quantity) {
-          // 数量有变化 → action='update'
           deltaItems.push({
             action: 'update',
             shopify_product_id: sel.product_id,
@@ -449,11 +436,9 @@ async function saveToExhibition() {
             planned_quantity: totalQty,
           })
         }
-        // 无变化 → 不提交
       }
     }
 
-    // 2. 找出被移除的变体
     const currentVariantIds = new Set(
       selectionList.value.map((s) => String(s.variant_id))
     )
@@ -473,7 +458,7 @@ async function saveToExhibition() {
     }
 
     if (!deltaItems.length) {
-      ElMessage.info('没有检测到变化，无需保存')
+      ElMessage.info(t('selectProducts.noChange'))
       router.push(`/exhibitions/${id}`)
       return
     }
@@ -544,7 +529,6 @@ onMounted(loadProducts)
   padding: 2px 6px; border-radius: 4px;
 }
 
-/* 数量输入区 */
 .variant-qty { width: 100%; padding: 8px 0 4px 28px; }
 .qty-group { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
 .qty-field { display: flex; flex-direction: column; align-items: center; gap: 4px; }

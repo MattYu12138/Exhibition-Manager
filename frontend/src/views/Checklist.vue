@@ -1,26 +1,26 @@
 <template>
   <div class="checklist-page">
     <div class="page-header">
-      <el-button text @click="$router.back()"><el-icon><ArrowLeft /></el-icon> 返回</el-button>
+      <el-button text @click="$router.back()"><el-icon><ArrowLeft /></el-icon> {{ $t('common.back') }}</el-button>
       <div>
-        <h1 class="page-title">货品清点</h1>
-        <p class="page-desc">逐件清点展会货品，完成后打勾确认</p>
+        <h1 class="page-title">{{ $t('checklist.pageTitle') }}</h1>
+        <p class="page-desc">{{ $t('checklist.pageDesc') }}</p>
       </div>
     </div>
 
-    <!-- 进度条 -->
+    <!-- Progress bar -->
     <el-card class="progress-card">
       <div class="progress-header">
         <div class="progress-info">
-          <span class="progress-label">清点进度</span>
+          <span class="progress-label">{{ $t('checklist.progress') }}</span>
           <span class="progress-count">{{ store.checkedCount }} / {{ store.totalItems }}</span>
         </div>
         <div class="progress-actions">
           <el-button size="small" @click="checkAll(true)" :disabled="store.checkedCount === store.totalItems">
-            全部打勾
+            {{ $t('checklist.checkAll') }}
           </el-button>
           <el-button size="small" @click="checkAll(false)" :disabled="store.checkedCount === 0">
-            全部取消
+            {{ $t('checklist.uncheckAll') }}
           </el-button>
         </div>
       </div>
@@ -34,18 +34,18 @@
       />
       <div v-if="store.checkProgress === 100" class="all-done">
         <el-icon color="#67c23a"><CircleCheck /></el-icon>
-        所有货品已清点完成！可以点击下方按钮同步到 Square。
+        {{ $t('checklist.allDone') }}
       </div>
     </el-card>
 
-    <!-- 按商品分组的清单 -->
+    <!-- Product groups -->
     <div v-loading="store.loading" class="product-groups">
       <el-empty
         v-if="!store.groupedItems.length && !store.loading"
-        description="清单为空，请先添加商品"
+        :description="$t('checklist.emptyHint')"
       >
         <el-button type="primary" @click="$router.push(`/exhibitions/${id}/select-products`)">
-          去选择商品
+          {{ $t('checklist.goSelect') }}
         </el-button>
       </el-empty>
 
@@ -55,7 +55,7 @@
         class="product-group-card"
         :class="{ 'all-checked': isProductAllChecked(group) }"
       >
-        <!-- 商品标题行 -->
+        <!-- Product title row -->
         <div class="group-header">
           <div class="group-title-area">
             <el-image
@@ -68,14 +68,14 @@
             <div>
               <div class="group-title">{{ group.product_title }}</div>
               <div class="group-meta">
-                {{ group.variants.filter((v) => v.checked).length }} / {{ group.variants.length }} 个尺码已清点
+                {{ $t('checklist.sizesChecked', { done: group.variants.filter((v) => v.checked).length, total: group.variants.length }) }}
               </div>
             </div>
           </div>
 
-          <!-- 整个商品一键打勾 -->
+          <!-- Toggle all variants for this product -->
           <div class="group-check-btn">
-            <el-tooltip :content="isProductAllChecked(group) ? '取消全部' : '整件商品全部打勾'" placement="top">
+            <el-tooltip :content="isProductAllChecked(group) ? $t('checklist.toggleAllChecked') : $t('checklist.toggleAllUnchecked')" placement="top">
               <el-button
                 :type="isProductAllChecked(group) ? 'success' : 'default'"
                 :icon="isProductAllChecked(group) ? 'CircleCheck' : 'Check'"
@@ -87,7 +87,7 @@
           </div>
         </div>
 
-        <!-- 变体清单 -->
+        <!-- Variant checklist -->
         <div class="variant-checklist">
           <div
             v-for="variant in group.variants"
@@ -95,7 +95,7 @@
             class="variant-check-row"
             :class="{ checked: variant.checked }"
           >
-            <!-- 左侧：勾选图标（点击切换清点状态） -->
+            <!-- Check icon (click to toggle) -->
             <div class="check-icon-wrap" @click="toggleVariantCheck(variant)">
               <transition name="check-bounce">
                 <el-icon v-if="variant.checked" class="check-icon checked-icon" size="22" color="#67c23a">
@@ -107,7 +107,7 @@
               </transition>
             </div>
 
-            <!-- 变体信息 -->
+            <!-- Variant info -->
             <div class="variant-detail" @click="toggleVariantCheck(variant)">
               <span class="variant-name">{{ variant.variant_title || '默认' }}</span>
               <div class="variant-tags">
@@ -116,11 +116,11 @@
               </div>
             </div>
 
-            <!-- 数量区：挂衣架 + 备货 + 只读总数 -->
+            <!-- Qty area: rack + storage + readonly total -->
             <div class="checklist-qty-area" @click.stop>
               <div class="checklist-qty-group">
                 <div class="checklist-qty-field">
-                  <div class="checklist-qty-label">挂衣架</div>
+                  <div class="checklist-qty-label">{{ $t('checklist.rack') }}</div>
                   <el-input-number
                     v-model="localQty[variant.id].rack"
                     :min="0"
@@ -131,7 +131,7 @@
                   />
                 </div>
                 <div class="checklist-qty-field">
-                  <div class="checklist-qty-label">备货</div>
+                  <div class="checklist-qty-label">{{ $t('checklist.storage') }}</div>
                   <el-input-number
                     v-model="localQty[variant.id].stock"
                     :min="0"
@@ -142,7 +142,7 @@
                   />
                 </div>
                 <div class="checklist-qty-field checklist-qty-total">
-                  <div class="checklist-qty-label">总数</div>
+                  <div class="checklist-qty-label">{{ $t('checklist.totalLabel') }}</div>
                   <div class="checklist-total-value">
                     {{ (localQty[variant.id].rack || 0) + (localQty[variant.id].stock || 0) }}
                   </div>
@@ -150,47 +150,47 @@
               </div>
             </div>
 
-            <!-- 清点按钮 -->
+            <!-- Mark checked button -->
             <el-button
               size="small"
               :type="variant.checked ? 'success' : 'default'"
               @click.stop="toggleVariantCheck(variant)"
               style="min-width: 72px; flex-shrink: 0"
             >
-              {{ variant.checked ? '已清点 ✓' : '标记清点' }}
+              {{ variant.checked ? $t('checklist.checked') : $t('checklist.markCheck') }}
             </el-button>
           </div>
         </div>
       </el-card>
     </div>
 
-    <!-- 出发前同步按钮（底部固定区域） -->
+    <!-- Sync footer (fixed at bottom) -->
     <div v-if="store.groupedItems.length" class="sync-footer">
       <el-card class="sync-card">
         <div class="sync-content">
           <div class="sync-info">
             <div class="sync-title">
               <el-icon size="20" color="#409eff"><Upload /></el-icon>
-              出发前同步到 Square
+              {{ $t('checklist.syncTitle') }}
             </div>
             <div class="sync-desc">
-              清点完成后点击此按钮，将带走数量写入 Square 库存
+              {{ $t('checklist.syncDesc') }}
               <el-tag
                 v-if="store.checkProgress === 100"
                 type="success"
                 size="small"
                 style="margin-left: 8px"
-              >清点已完成</el-tag>
+              >{{ $t('checklist.syncDone') }}</el-tag>
               <el-tag
                 v-else
                 type="warning"
                 size="small"
                 style="margin-left: 8px"
-              >{{ store.checkedCount }}/{{ store.totalItems }} 已清点</el-tag>
+              >{{ $t('checklist.syncPending', { done: store.checkedCount, total: store.totalItems }) }}</el-tag>
             </div>
           </div>
           <el-tooltip
-            :content="store.checkProgress < 100 ? `还有 ${store.totalItems - store.checkedCount} 件未清点，请先完成全部清点` : ''"
+            :content="store.checkProgress < 100 ? $t('checklist.syncTooltip', { n: store.totalItems - store.checkedCount }) : ''"
             :disabled="store.checkProgress === 100"
             placement="top"
           >
@@ -203,7 +203,7 @@
                 @click="syncToSquare"
               >
                 <el-icon><Upload /></el-icon>
-                同步数量到 Square
+                {{ $t('checklist.syncBtn') }}
               </el-button>
             </span>
           </el-tooltip>
@@ -219,17 +219,18 @@ import { useRoute, useRouter } from 'vue-router'
 import { useExhibitionStore } from '@/stores/exhibition'
 import { ElMessage } from 'element-plus'
 import { exhibitionApi } from '@/api'
+import { useI18n } from 'vue-i18n'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const store = useExhibitionStore()
 const id = route.params.id
 const syncing = ref(false)
 
-// 本地数量状态：{ [variantId]: { rack, stock } }
+// Local qty state: { [variantId]: { rack, stock } }
 const localQty = reactive({})
 
-// 初始化本地数量（从 store 加载后填充）
 function initLocalQty() {
   for (const group of store.groupedItems) {
     for (const variant of group.variants) {
@@ -245,7 +246,6 @@ function initLocalQty() {
   }
 }
 
-// 当用户修改清点页数量时，保存到后端并重置清点状态
 async function onLocalQtyChange(variant) {
   const qty = localQty[variant.id]
   const newRack = qty.rack || 0
@@ -258,12 +258,11 @@ async function onLocalQtyChange(variant) {
       stock_quantity: newStock,
       planned_quantity: newTotal,
     })
-    // 数量变动后重置清点状态
     if (variant.checked) {
       await store.toggleItemCheck(id, variant.id, false)
     }
   } catch (err) {
-    ElMessage.error('数量更新失败: ' + err.message)
+    ElMessage.error(t('checklist.qtyUpdateFailed', { msg: err.message }))
   }
 }
 
@@ -288,24 +287,22 @@ async function checkAll(checked) {
 
 async function syncToSquare() {
   if (store.checkProgress < 100) {
-    ElMessage.warning(`还有 ${store.totalItems - store.checkedCount} 件货品未清点，请先完成全部清点`)
+    ElMessage.warning(t('checklist.uncheckedWarning', { n: store.totalItems - store.checkedCount }))
     return
   }
 
   syncing.value = true
   try {
-    // 将清点页修改后的实际数量写入 planned_quantity，再同步
     await store.syncBeforeExhibition(id)
-    ElMessage.success('同步成功！数量已写入 Square 库存')
+    ElMessage.success(t('checklist.syncSuccess'))
     router.push(`/exhibitions/${id}`)
   } catch (err) {
-    ElMessage.error('同步失败: ' + err.message)
+    ElMessage.error(t('checklist.syncFailed', { msg: err.message }))
   } finally {
     syncing.value = false
   }
 }
 
-// 监听 store 数据加载完成后初始化本地数量
 watch(() => store.groupedItems, (items) => {
   if (items.length) initLocalQty()
 }, { immediate: true })
@@ -361,7 +358,6 @@ onMounted(() => store.loadExhibition(id))
 .variant-name { font-size: 14px; font-weight: 600; display: block; margin-bottom: 4px; }
 .variant-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 
-/* 清点页数量区 */
 .checklist-qty-area { display: flex; align-items: center; }
 .checklist-qty-group { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
 .checklist-qty-field { display: flex; flex-direction: column; align-items: center; gap: 4px; }
@@ -374,7 +370,6 @@ onMounted(() => store.loadExhibition(id))
   border: 1px solid #c6e2ff;
 }
 
-/* 底部同步区域 */
 .sync-footer { margin-top: 24px; }
 .sync-card { border: 2px solid #409eff; border-radius: 12px; }
 .sync-content { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
