@@ -141,11 +141,11 @@ router.post('/:id/items', (req, res) => {
     );
     const insertItem = db.prepare(`
       INSERT INTO exhibition_items 
-      (exhibition_id, shopify_product_id, shopify_variant_id, product_title, variant_title, sku, gtin, image_url, planned_quantity, checked)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+      (exhibition_id, shopify_product_id, shopify_variant_id, product_title, variant_title, sku, gtin, image_url, rack_quantity, stock_quantity, planned_quantity, checked)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
     `);
     const updateQty = db.prepare(
-      'UPDATE exhibition_items SET planned_quantity = ?, product_title = ?, variant_title = ?, sku = ?, gtin = ?, image_url = ? WHERE id = ?'
+      'UPDATE exhibition_items SET rack_quantity = ?, stock_quantity = ?, planned_quantity = ?, product_title = ?, variant_title = ?, sku = ?, gtin = ?, image_url = ? WHERE id = ?'
     );
     // 数量变动时，重置清点状态和同步快照
     const resetChecked = db.prepare(
@@ -166,8 +166,12 @@ router.post('/:id/items', (req, res) => {
         } else if (action === 'update') {
           // 更新数量（覆盖绝对値）
           if (existing) {
-            const newQty = item.planned_quantity || 0;
+            const newRack = item.rack_quantity !== undefined ? item.rack_quantity : (existing.rack_quantity || 5);
+            const newStock = item.stock_quantity !== undefined ? item.stock_quantity : (existing.stock_quantity || 5);
+            const newQty = newRack + newStock;
             updateQty.run(
+              newRack,
+              newStock,
               newQty,
               item.product_title,
               item.variant_title || '',
@@ -184,6 +188,9 @@ router.post('/:id/items', (req, res) => {
         } else {
           // action='add'：只在不存在时新增，已存在则忽略（防止重复提交）
           if (!existing) {
+            const addRack = item.rack_quantity !== undefined ? item.rack_quantity : 5;
+            const addStock = item.stock_quantity !== undefined ? item.stock_quantity : 5;
+            const addTotal = addRack + addStock;
             insertItem.run(
               req.params.id,
               item.shopify_product_id,
@@ -193,7 +200,9 @@ router.post('/:id/items', (req, res) => {
               item.sku || '',
               item.gtin || '',
               item.image_url || '',
-              item.planned_quantity || 0
+              addRack,
+              addStock,
+              addTotal
             );
           }
         }
@@ -227,12 +236,27 @@ router.put('/:id/items/product/:productId/check', (req, res) => {
 // 更新单个商品的清点状态或数量
 router.put('/:id/items/:itemId', (req, res) => {
   try {
-    const { checked, planned_quantity } = req.body;
+    const { checked, planned_quantity, rack_quantity, stock_quantity } = req.body;
+    // 如果传入 rack_quantity 或 stock_quantity，自动重算 planned_quantity
+    let computedTotal = null;
+    if (rack_quantity !== undefined || stock_quantity !== undefined) {
+      const existing = db.prepare('SELECT * FROM exhibition_items WHERE id = ?').get(req.params.itemId);
+      const newRack = rack_quantity !== undefined ? rack_quantity : (existing?.rack_quantity || 5);
+      const newStock = stock_quantity !== undefined ? stock_quantity : (existing?.stock_quantity || 5);
+      computedTotal = newRack + newStock;
+    }
     db.prepare(
-      'UPDATE exhibition_items SET checked = COALESCE(?, checked), planned_quantity = COALESCE(?, planned_quantity) WHERE id = ? AND exhibition_id = ?'
+      `UPDATE exhibition_items SET 
+        checked = COALESCE(?, checked),
+        rack_quantity = COALESCE(?, rack_quantity),
+        stock_quantity = COALESCE(?, stock_quantity),
+        planned_quantity = COALESCE(?, planned_quantity)
+      WHERE id = ? AND exhibition_id = ?`
     ).run(
       checked !== undefined ? (checked ? 1 : 0) : null,
-      planned_quantity !== undefined ? planned_quantity : null,
+      rack_quantity !== undefined ? rack_quantity : null,
+      stock_quantity !== undefined ? stock_quantity : null,
+      computedTotal !== null ? computedTotal : (planned_quantity !== undefined ? planned_quantity : null),
       req.params.itemId,
       req.params.id
     );

@@ -88,15 +88,39 @@
                       <span class="variant-gtin" v-if="variant.gtin">GTIN: {{ variant.gtin }}</span>
                       <span class="variant-stock">库存: {{ variant.inventory_quantity ?? '-' }}</span>
                     </div>
-                    <div class="variant-qty" v-if="isSelected(product.id, variant.id)">
-                      <el-input-number
-                        v-model="getSelection(product.id, variant.id).quantity"
-                        :min="1"
-                        :max="9999"
-                        size="small"
-                        style="width: 110px"
-                        @click.stop
-                      />
+
+                    <!-- 数量输入区：挂衣架 + 备货 + 只读总数 -->
+                    <div class="variant-qty" v-if="isSelected(product.id, variant.id)" @click.stop>
+                      <div class="qty-group">
+                        <div class="qty-field">
+                          <div class="qty-field-label">挂衣架</div>
+                          <el-input-number
+                            v-model="getSelection(product.id, variant.id).rack_quantity"
+                            :min="0"
+                            :max="9999"
+                            size="small"
+                            style="width: 90px"
+                            @change="onQtyChange(product.id, variant.id)"
+                          />
+                        </div>
+                        <div class="qty-field">
+                          <div class="qty-field-label">备货</div>
+                          <el-input-number
+                            v-model="getSelection(product.id, variant.id).stock_quantity"
+                            :min="0"
+                            :max="9999"
+                            size="small"
+                            style="width: 90px"
+                            @change="onQtyChange(product.id, variant.id)"
+                          />
+                        </div>
+                        <div class="qty-field qty-total">
+                          <div class="qty-field-label">总数</div>
+                          <div class="qty-total-value">
+                            {{ (getSelection(product.id, variant.id).rack_quantity || 0) + (getSelection(product.id, variant.id).stock_quantity || 0) }}
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -152,7 +176,11 @@
                 </div>
               </div>
               <div class="sel-right">
-                <el-tag type="primary" size="small">× {{ sel.quantity }}</el-tag>
+                <div class="sel-qty-summary">
+                  <span class="sel-qty-item">架: {{ sel.rack_quantity }}</span>
+                  <span class="sel-qty-item">货: {{ sel.stock_quantity }}</span>
+                  <el-tag type="primary" size="small">共 {{ sel.rack_quantity + sel.stock_quantity }}</el-tag>
+                </div>
                 <el-icon class="sel-remove" @click="removeSelection(sel.key)"><Close /></el-icon>
               </div>
             </div>
@@ -191,31 +219,28 @@ const store = useExhibitionStore()
 const id = route.params.id
 
 const searchQuery = ref('')
-// 用普通对象替代 Set，key 为 productId，value 为 true，解决 Vue 3 响应式问题
 const expandedMap = ref({})
-// 用普通对象替代 Map，key 为 `${productId}-${variantId}`
 const selectionsMap = ref({})
 const saving = ref(false)
-// 进入页面时记录已有商品的快照：key=shopify_variant_id, value={ db_id, planned_quantity }
-// 用于提交时计算差量，避免重复提交
-const originalSnapshot = ref({})  // { [shopify_variant_id]: { db_id, planned_quantity } }
-// 图片加载失败标记，key 为 productId
+// 进入页面时记录已有商品的快照：key=shopify_variant_id, value={ db_id, rack_quantity, stock_quantity, planned_quantity }
+const originalSnapshot = ref({})
 const imgError = reactive({})
 
 // 分页
 const currentPage = ref(1)
 const pageSize = 20
 
-// 计算属性：将 selectionsMap 转为数组，方便渲染
+// 计算属性
 const selectionList = computed(() => Object.values(selectionsMap.value))
 const totalSelected = computed(() => selectionList.value.length)
-const totalQuantity = computed(() => selectionList.value.reduce((sum, s) => sum + (s.quantity || 0), 0))
-// 多关键词跳字模糊搜索：按空格分割输入，每个词必须匹配到商品名称、SKU 或 GTIN
-// 例：输入 "waffle leggings pink" 可匹配 "Organic Cotton Waffle Leggings - Blush Pink"
+const totalQuantity = computed(() =>
+  selectionList.value.reduce((sum, s) => sum + (s.rack_quantity || 0) + (s.stock_quantity || 0), 0)
+)
+
+// 多关键词跳字模糊搜索
 const filteredProducts = computed(() => {
   const raw = searchQuery.value.trim().toLowerCase()
   if (!raw) return store.shopifyProducts
-  // 按空格分割，过滤空字符串
   const keywords = raw.split(/\s+/).filter(Boolean)
   return store.shopifyProducts.filter((p) => {
     const titleLower = p.title.toLowerCase()
@@ -223,16 +248,15 @@ const filteredProducts = computed(() => {
       (v) => `${v.sku || ''} ${v.gtin || ''} ${v.title || ''}`.toLowerCase()
     ).join(' ')
     const searchTarget = `${titleLower} ${variantTexts}`
-    // 每个关键词都必须在 searchTarget 中出现
     return keywords.every((kw) => searchTarget.includes(kw))
   })
 })
-// 当前页展示的商品
+
 const pagedProducts = computed(() => {
   const start = (currentPage.value - 1) * pageSize
   return filteredProducts.value.slice(start, start + pageSize)
 })
-// 仅在首次加载（暂无缓存数据）时显示整块骨架，避免已有数据被 loading 蒙层遮挡
+
 const listLoading = computed(() => store.productLoading && !store.shopifyProducts.length)
 
 function isExpanded(productId) {
@@ -254,6 +278,14 @@ function getSelection(productId, variantId) {
   return selectionsMap.value[`${productId}-${variantId}`]
 }
 
+// 当挂衣架或备货数量变化时，同步更新 quantity（用于兼容旧逻辑）
+function onQtyChange(productId, variantId) {
+  const sel = selectionsMap.value[`${productId}-${variantId}`]
+  if (sel) {
+    sel.quantity = (sel.rack_quantity || 0) + (sel.stock_quantity || 0)
+  }
+}
+
 function toggleVariant(product, variant, checked) {
   const key = `${product.id}-${variant.id}`
   if (checked) {
@@ -268,7 +300,9 @@ function toggleVariant(product, variant, checked) {
         sku: variant.sku,
         gtin: variant.gtin,
         image_url: variant.image_url || product.main_image,
-        quantity: 1,
+        rack_quantity: 5,
+        stock_quantity: 5,
+        quantity: 10,
       },
     }
   } else {
@@ -292,7 +326,9 @@ function selectAllVariants(product) {
         sku: variant.sku,
         gtin: variant.gtin,
         image_url: variant.image_url || product.main_image,
-        quantity: 1,
+        rack_quantity: 5,
+        stock_quantity: 5,
+        quantity: 10,
       }
     }
   }
@@ -310,7 +346,6 @@ function clearAll() {
   selectionsMap.value = {}
 }
 
-// 搜索：前端本地过滤，无需调用后端 API
 function handleSearch() {
   currentPage.value = 1
   expandAll()
@@ -323,25 +358,29 @@ function expandAll() {
 }
 
 function handlePageChange() {
-  // 切页时展开当前页所有商品，并滚动到顶部
   expandAll()
 }
 
 async function loadProducts() {
-  // 并行加载 Shopify 商品库和展会已有商品
   const [, exhibition] = await Promise.all([
     store.loadShopifyProducts(),
     store.loadExhibition(id),
   ])
 
-  // 记录已有商品快照，并预填 selectionsMap
   const snapshot = {}
   const preselected = {}
   const existingItems = store.currentExhibition?.items || []
   for (const item of existingItems) {
     const variantId = String(item.shopify_variant_id)
     const productId = String(item.shopify_product_id)
-    snapshot[variantId] = { db_id: item.id, planned_quantity: item.planned_quantity }
+    const rackQty = item.rack_quantity !== undefined && item.rack_quantity !== null ? item.rack_quantity : 5
+    const stockQty = item.stock_quantity !== undefined && item.stock_quantity !== null ? item.stock_quantity : 5
+    snapshot[variantId] = {
+      db_id: item.id,
+      rack_quantity: rackQty,
+      stock_quantity: stockQty,
+      planned_quantity: item.planned_quantity,
+    }
     const key = `${productId}-${variantId}`
     preselected[key] = {
       key,
@@ -352,7 +391,9 @@ async function loadProducts() {
       sku: item.sku,
       gtin: item.gtin,
       image_url: item.image_url,
-      quantity: item.planned_quantity,
+      rack_quantity: rackQty,
+      stock_quantity: stockQty,
+      quantity: rackQty + stockQty,
     }
   }
   originalSnapshot.value = snapshot
@@ -368,9 +409,13 @@ async function saveToExhibition() {
     const snapshot = originalSnapshot.value
     const currentMap = selectionsMap.value
 
-    // 1. 找出新增的变体（在当前选择中，但不在原始快照里）
+    // 1. 找出新增或数量变化的变体
     for (const sel of selectionList.value) {
       const variantId = String(sel.variant_id)
+      const rackQty = sel.rack_quantity || 0
+      const stockQty = sel.stock_quantity || 0
+      const totalQty = rackQty + stockQty
+
       if (!snapshot[variantId]) {
         // 全新变体 → action='add'
         deltaItems.push({
@@ -382,38 +427,46 @@ async function saveToExhibition() {
           sku: sel.sku,
           gtin: sel.gtin,
           image_url: sel.image_url,
-          planned_quantity: sel.quantity,
+          rack_quantity: rackQty,
+          stock_quantity: stockQty,
+          planned_quantity: totalQty,
         })
-      } else if (sel.quantity !== snapshot[variantId].planned_quantity) {
-        // 数量有变化 → action='update'
-        deltaItems.push({
-          action: 'update',
-          shopify_product_id: sel.product_id,
-          shopify_variant_id: variantId,
-          product_title: sel.product_title,
-          variant_title: sel.variant_title,
-          sku: sel.sku,
-          gtin: sel.gtin,
-          image_url: sel.image_url,
-          planned_quantity: sel.quantity,
-        })
+      } else {
+        const snap = snapshot[variantId]
+        if (rackQty !== snap.rack_quantity || stockQty !== snap.stock_quantity) {
+          // 数量有变化 → action='update'
+          deltaItems.push({
+            action: 'update',
+            shopify_product_id: sel.product_id,
+            shopify_variant_id: variantId,
+            product_title: sel.product_title,
+            variant_title: sel.variant_title,
+            sku: sel.sku,
+            gtin: sel.gtin,
+            image_url: sel.image_url,
+            rack_quantity: rackQty,
+            stock_quantity: stockQty,
+            planned_quantity: totalQty,
+          })
+        }
+        // 无变化 → 不提交
       }
-      // 数量未变化 → 不提交
     }
 
-    // 2. 找出被移除的变体（在原始快照里，但不在当前选择中）
+    // 2. 找出被移除的变体
     const currentVariantIds = new Set(
       selectionList.value.map((s) => String(s.variant_id))
     )
     for (const variantId of Object.keys(snapshot)) {
       if (!currentVariantIds.has(variantId)) {
-        // 已被取消选择 → action='remove'
         deltaItems.push({
           action: 'remove',
           shopify_variant_id: variantId,
           shopify_product_id: '',
           product_title: '',
           variant_title: '',
+          rack_quantity: 0,
+          stock_quantity: 0,
           planned_quantity: 0,
         })
       }
@@ -480,15 +533,28 @@ onMounted(loadProducts)
 .variant-list { border-top: 1px solid #ebeef5; }
 .variant-item {
   display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px; transition: background 0.15s;
+  padding: 10px 14px; transition: background 0.15s; flex-wrap: wrap;
 }
 .variant-item:hover { background: #f9f9f9; }
 .variant-item.selected { background: #ecf5ff; }
-.variant-info { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.variant-info { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
 .variant-title { font-size: 14px; font-weight: 500; color: #303133; }
 .variant-sku, .variant-gtin, .variant-stock {
   font-size: 11px; color: #909399; background: #f5f7fa;
   padding: 2px 6px; border-radius: 4px;
+}
+
+/* 数量输入区 */
+.variant-qty { width: 100%; padding: 8px 0 4px 28px; }
+.qty-group { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.qty-field { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.qty-field-label { font-size: 11px; color: #909399; font-weight: 500; }
+.qty-total { min-width: 56px; }
+.qty-total-value {
+  font-size: 20px; font-weight: 700; color: #409eff;
+  background: #ecf5ff; border-radius: 8px;
+  padding: 4px 12px; text-align: center; min-width: 56px;
+  border: 1px solid #c6e2ff;
 }
 
 .selection-card { position: sticky; top: 80px; }
@@ -503,6 +569,8 @@ onMounted(loadProducts)
 .sel-meta { display: flex; gap: 6px; margin-top: 4px; }
 .sel-meta span { font-size: 11px; color: #909399; }
 .sel-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: 8px; }
+.sel-qty-summary { display: flex; align-items: center; gap: 6px; }
+.sel-qty-item { font-size: 11px; color: #606266; }
 .sel-remove { cursor: pointer; color: #c0c4cc; font-size: 16px; }
 .sel-remove:hover { color: #f56c6c; }
 

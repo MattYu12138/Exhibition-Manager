@@ -31,7 +31,9 @@ db.exec(`
     sku TEXT,
     gtin TEXT,
     image_url TEXT,
-    planned_quantity INTEGER DEFAULT 0,   -- 计划带走数量
+    rack_quantity INTEGER DEFAULT 5,       -- 挂衣架数量
+    stock_quantity INTEGER DEFAULT 5,      -- 备货数量
+    planned_quantity INTEGER DEFAULT 10,   -- 计划带走总数（= rack_quantity + stock_quantity）
     checked INTEGER DEFAULT 0,            -- 是否已清点（0/1）
     last_synced_quantity INTEGER DEFAULT NULL, -- 上次同步到 Square 时的数量
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -54,10 +56,13 @@ db.exec(`
 `);
 
 // 迁移：为已有数据库添加新字段（若字段已存在则忽略）
-try {
-  db.exec('ALTER TABLE exhibition_items ADD COLUMN last_synced_quantity INTEGER DEFAULT NULL');
-} catch (e) {
-  // 字段已存在，忽略错误
+const migrations = [
+  'ALTER TABLE exhibition_items ADD COLUMN last_synced_quantity INTEGER DEFAULT NULL',
+  'ALTER TABLE exhibition_items ADD COLUMN rack_quantity INTEGER DEFAULT 5',
+  'ALTER TABLE exhibition_items ADD COLUMN stock_quantity INTEGER DEFAULT 5',
+];
+for (const sql of migrations) {
+  try { db.exec(sql); } catch (e) { /* 字段已存在，忽略 */ }
 }
 
 module.exports = db;
