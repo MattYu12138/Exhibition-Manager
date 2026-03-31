@@ -268,6 +268,16 @@ router.put('/:id/items/:itemId', (req, res) => {
   }
 });
 
+// 清空展会中所有商品
+router.delete('/:id/items', (req, res) => {
+  try {
+    db.prepare('DELETE FROM exhibition_items WHERE exhibition_id = ?').run(req.params.id);
+    res.json({ success: true, message: '已清空展会商品清单' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // 删除展会中的商品
 router.delete('/:id/items/:itemId', (req, res) => {
   try {

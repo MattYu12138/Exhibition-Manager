@@ -206,6 +206,7 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useExhibitionStore } from '@/stores/exhibition'
+import { exhibitionApi } from '@/api'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -344,9 +345,16 @@ async function clearAll() {
         type: 'warning',
       }
     )
+    // Delete all items from DB, then reset local state and snapshot
+    await exhibitionApi.clearItems(id)
     selectionsMap.value = {}
-  } catch {
-    // user cancelled, do nothing
+    originalSnapshot.value = {}
+  } catch (err) {
+    // If user cancelled, ElMessageBox throws 'cancel' string — ignore it
+    // If it's a real API error, show message
+    if (err && err.message) {
+      ElMessage.error(err.message)
+    }
   }
 }
 

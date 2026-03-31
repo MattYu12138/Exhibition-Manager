@@ -26,6 +26,7 @@ export const exhibitionApi = {
   checkProduct: (id, productId, checked) =>
     api.put(`/exhibitions/${id}/items/product/${productId}/check`, { checked }),
   deleteItem: (id, itemId) => api.delete(`/exhibitions/${id}/items/${itemId}`),
+  clearItems: (id) => api.delete(`/exhibitions/${id}/items`),
   copyTemplate: (sourceId, targetId) => api.post(`/exhibitions/${sourceId}/copy-to/${targetId}`),
 }
 
