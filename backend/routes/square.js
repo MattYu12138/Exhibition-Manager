@@ -121,21 +121,24 @@ router.post('/sync', async (req, res) => {
 
       } else if (sync_type === 'after') {
         // ═══════════════════════════════════════════
-        // 展会结束后：从 Square 读取剩余量，计算卖出量
+        // 展会结束后：每次都实时从 Square API 获取最新剩余量
         // ═══════════════════════════════════════════
+
+        // 每次调用都实时请求 Square API，确保获取最新库存数量
         const squareRemaining = await squareService.getInventoryCount(match.variationId);
 
         const snapshot = db.prepare(
           'SELECT * FROM inventory_snapshots WHERE exhibition_id = ? AND shopify_variant_id = ?'
         ).get(exhibition_id, item.shopify_variant_id);
 
+        // qtyBefore 使用出发前同步时记录的数量（固定基准值，不随重复调用变化）
         const qtyBefore = snapshot ? snapshot.square_quantity_before : item.planned_quantity;
-        // 卖出量 = Square出发前同步数量 - Square展会后剩余
+        // 卖出量 = 出发前同步数量 - Square 当前最新剩余（每次实时获取）
         const soldQty = Math.max(0, qtyBefore - squareRemaining);
         // 剩余待清点 = 带走数量(planned_quantity) - 卖出量
         const remainingQty = Math.max(0, item.planned_quantity - soldQty);
 
-        // 更新快照
+        // 每次都覆盖更新快照，确保 square_quantity_after 始终是最新值
         if (snapshot) {
           db.prepare(
             'UPDATE inventory_snapshots SET square_quantity_after = ?, sold_quantity = ?, remaining_quantity = ?, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
