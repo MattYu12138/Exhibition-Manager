@@ -204,7 +204,7 @@
 <script setup>
 import { ref, computed, reactive, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useExhibitionStore } from '@/stores/exhibition'
 import { useI18n } from 'vue-i18n'
 
@@ -333,8 +333,21 @@ function removeSelection(key) {
   selectionsMap.value = next
 }
 
-function clearAll() {
-  selectionsMap.value = {}
+async function clearAll() {
+  try {
+    await ElMessageBox.confirm(
+      t('selectProducts.clearConfirmMsg'),
+      t('selectProducts.clearConfirmTitle'),
+      {
+        confirmButtonText: t('selectProducts.clearConfirmOk'),
+        cancelButtonText: t('selectProducts.clearConfirmCancel'),
+        type: 'warning',
+      }
+    )
+    selectionsMap.value = {}
+  } catch {
+    // user cancelled, do nothing
+  }
 }
 
 function handleSearch() {

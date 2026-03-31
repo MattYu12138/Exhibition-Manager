@@ -117,6 +117,10 @@ export default {
     noChange: 'No changes detected, nothing to save',
     saveSuccess: 'Saved {n} variants to exhibition',
     saveFailed: 'Save failed: {msg}',
+    clearConfirmTitle: 'Confirm Clear',
+    clearConfirmMsg: 'Are you sure you want to clear all selected products? This cannot be undone.',
+    clearConfirmOk: 'Clear All',
+    clearConfirmCancel: 'Cancel',
   },
 
   // Checklist

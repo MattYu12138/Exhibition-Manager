@@ -117,6 +117,10 @@ export default {
     noChange: '没有检测到变化，无需保存',
     saveSuccess: '已保存 {n} 个变体到展会清单',
     saveFailed: '保存失败: {msg}',
+    clearConfirmTitle: '确认清空',
+    clearConfirmMsg: '确定要清空所有已选商品吗？此操作不可撤销。',
+    clearConfirmOk: '确认清空',
+    clearConfirmCancel: '取消',
   },
 
   // 清点页
