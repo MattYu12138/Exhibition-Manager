@@ -117,6 +117,64 @@ class SquareService {
   }
 
   /**
+   * 创建 Square 商品（ITEM + ITEM_VARIATION）
+   * @param {Object} itemData - 商品数据
+   * @param {string} itemData.name - 商品名称
+   * @param {string} itemData.description - 商品描述（可选）
+   * @param {string} itemData.variantName - 变体名称
+   * @param {string} itemData.sku - SKU
+   * @param {string} itemData.gtin - GTIN/UPC
+   * @param {number} itemData.priceCents - 价格（分）
+   * @returns {Promise<{itemId: string, variationId: string}>}
+   */
+  async createCatalogItem(itemData) {
+    const idempotencyKey = `create-item-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+    
+    const itemObject = {
+      type: 'ITEM',
+      id: `#item-${idempotencyKey}`,
+      itemData: {
+        name: itemData.name,
+        description: itemData.description || '',
+        variations: [
+          {
+            type: 'ITEM_VARIATION',
+            id: `#variation-${idempotencyKey}`,
+            itemVariationData: {
+              name: itemData.variantName || 'Default',
+              sku: itemData.sku || '',
+              upc: itemData.gtin || '',
+              pricingType: 'FIXED_PRICING',
+              priceMoney: {
+                amount: BigInt(itemData.priceCents || 0),
+                currency: 'AUD',
+              },
+            },
+          },
+        ],
+      },
+    };
+
+    try {
+      const response = await this.client.catalog.upsertObject({
+        idempotencyKey,
+        object: itemObject,
+      });
+
+      const createdItem = response.catalogObject;
+      const createdVariation = response.idMappings?.find((m) => m.clientObjectId === `#variation-${idempotencyKey}`);
+
+      return {
+        itemId: createdItem.id,
+        variationId: createdVariation?.objectId || createdItem.itemData.variations[0].id,
+      };
+    } catch (err) {
+      console.error('创建 Square 商品失败:', err.message);
+      throw new Error(`创建 Square 商品失败: ${err.message}`);
+    }
+  }
+
+  /**
    * 获取指定变体的当前库存数量
    * 注意：SDK v44 的 inventory.get 存在 URL 拼接 bug，改用 batchGetCounts 实现
    */

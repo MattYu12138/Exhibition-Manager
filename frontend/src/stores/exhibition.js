@@ -268,8 +268,8 @@ export const useExhibitionStore = defineStore('exhibition', () => {
     loading.value = true
     try {
       const res = await squareApi.syncBefore(exhibitionId)
-      ElMessage.success('带走数量已同步到 Square')
-      return res.data
+      // 不再自动显示成功提示，由调用方根据 unmatched 情况决定
+      return res
     } catch (err) {
       ElMessage.error('同步失败: ' + err.message)
       throw err

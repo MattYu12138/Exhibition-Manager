@@ -116,6 +116,108 @@
         </el-table>
       </div>
     </el-card>
+
+    <!-- 未匹配商品弹窗 -->
+    <el-dialog
+      v-model="unmatchedDialogVisible"
+      :title="t('unmatchedDialog.title')"
+      width="90%"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+    >
+      <el-alert type="warning" :closable="false" style="margin-bottom: 16px">
+        <template #title>
+          <span style="font-size: 14px">{{ t('unmatchedDialog.subtitle', { n: unmatchedItems.length }) }}</span>
+        </template>
+      </el-alert>
+
+      <el-table :data="unmatchedItems" border stripe max-height="500">
+        <el-table-column type="index" width="50" align="center" />
+        <el-table-column :label="t('unmatchedDialog.colProduct')" min-width="200" fixed>
+          <template #default="{ row }">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <el-image v-if="row.image_url" :src="row.image_url" style="width: 40px; height: 40px; border-radius: 4px" fit="cover" />
+              <div>
+                <div style="font-weight: 600; font-size: 13px">{{ row.product_title }}</div>
+                <div style="font-size: 12px; color: #909399">{{ row.variant_title }}</div>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('unmatchedDialog.colSku')" width="120">
+          <template #default="{ row }">
+            <span style="font-size: 12px; color: #606266">{{ row.sku || '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('unmatchedDialog.colGtin')" width="140">
+          <template #default="{ row }">
+            <span style="font-size: 12px; color: #606266">{{ row.gtin || '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('unmatchedDialog.colPlannedQty')" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag type="info">{{ row.planned_quantity }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('unmatchedDialog.colItemName')" width="180">
+          <template #default="{ row }">
+            <el-input
+              v-model="row.customName"
+              :placeholder="t('unmatchedDialog.itemNamePlaceholder')"
+              size="small"
+              :disabled="!row.includeInSquare"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('unmatchedDialog.colVariantName')" width="150">
+          <template #default="{ row }">
+            <el-input
+              v-model="row.customVariantName"
+              :placeholder="t('unmatchedDialog.variantNamePlaceholder')"
+              size="small"
+              :disabled="!row.includeInSquare"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('unmatchedDialog.colPrice')" width="120">
+          <template #default="{ row }">
+            <el-input-number
+              v-model="row.customPrice"
+              :placeholder="t('unmatchedDialog.pricePlaceholder')"
+              size="small"
+              :min="0"
+              :precision="2"
+              :step="0.01"
+              :disabled="!row.includeInSquare"
+              style="width: 100%"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('unmatchedDialog.colAction')" width="140" align="center" fixed="right">
+          <template #default="{ row }">
+            <el-switch
+              v-model="row.includeInSquare"
+              :active-text="t('unmatchedDialog.includeItem')"
+              :inactive-text="t('unmatchedDialog.skipItem')"
+              inline-prompt
+              style="--el-switch-on-color: #67c23a; --el-switch-off-color: #909399"
+            />
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <template #footer>
+        <div style="display: flex; justify-content: space-between; align-items: center">
+          <el-button @click="skipAllUnmatched" :disabled="addingToSquare">{{ t('unmatchedDialog.skipAll') }}</el-button>
+          <div style="display: flex; gap: 10px">
+            <el-button @click="unmatchedDialogVisible = false" :disabled="addingToSquare">{{ t('unmatchedDialog.cancel') }}</el-button>
+            <el-button type="primary" @click="confirmAddToSquare" :loading="addingToSquare">
+              {{ t('unmatchedDialog.addSelected') }}
+            </el-button>
+          </div>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -125,6 +227,7 @@ import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useExhibitionStore } from '@/stores/exhibition'
+import { squareApi } from '@/api'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -135,6 +238,11 @@ const snapshots = ref([])
 const syncing = ref(null)
 const loadingSnap = ref(false)
 const currentStep = ref(0)
+
+// 未匹配商品弹窗
+const unmatchedDialogVisible = ref(false)
+const unmatchedItems = ref([])
+const addingToSquare = ref(false)
 
 const totalPlanned = computed(() =>
   snapshots.value.reduce((s, r) => s + (r.item_planned_qty || 0), 0)
@@ -167,10 +275,26 @@ async function handleSyncBefore() {
   syncing.value = 'before'
   try {
     const result = await store.syncBeforeExhibition(id)
-    await loadSnapshotData()
-    currentStep.value = 1
-    const syncedCount = result?.data?.filter(r => r.status === 'synced').length || 0
-    ElMessage.success(t('inventoryResult.syncBeforeSuccess', { n: syncedCount }))
+    
+    // 检查是否有未匹配商品
+    if (result?.unmatched && result.unmatched.length > 0) {
+      // 初始化未匹配商品列表，添加自定义字段
+      unmatchedItems.value = result.unmatched.map((item) => ({
+        ...item,
+        customName: item.product_title || '',
+        customVariantName: item.variant_title || 'Default',
+        customPrice: 0,
+        customDescription: '',
+        includeInSquare: true, // 默认选中
+      }))
+      unmatchedDialogVisible.value = true
+    } else {
+      // 全部匹配成功
+      await loadSnapshotData()
+      currentStep.value = 1
+      const syncedCount = result?.data?.filter(r => r.status === 'synced').length || 0
+      ElMessage.success(t('inventoryResult.syncBeforeSuccess', { n: syncedCount }))
+    }
   } catch (err) {
     ElMessage.error(t('inventoryResult.syncFailed', { msg: err.message || '' }))
   } finally {
@@ -195,6 +319,67 @@ async function handleSyncAfter() {
     ElMessage.error(t('inventoryResult.getFailed', { msg: err.message || '' }))
   } finally {
     syncing.value = null
+  }
+}
+
+function skipAllUnmatched() {
+  unmatchedDialogVisible.value = false
+  ElMessage.info(t('unmatchedDialog.skipHint'))
+}
+
+async function confirmAddToSquare() {
+  const selectedItems = unmatchedItems.value.filter((item) => item.includeInSquare)
+  
+  if (selectedItems.length === 0) {
+    ElMessage.warning(t('unmatchedDialog.noItemsSelected'))
+    return
+  }
+
+  // 验证必填字段
+  for (const item of selectedItems) {
+    if (!item.customName || !item.customVariantName) {
+      ElMessage.warning(`${item.product_title} - ${item.variant_title}: ${t('unmatchedDialog.itemNamePlaceholder')}`)
+      return
+    }
+  }
+
+  await ElMessageBox.confirm(
+    t('unmatchedDialog.confirmAddMsg', { n: selectedItems.length }),
+    t('unmatchedDialog.confirmAdd'),
+    { type: 'warning', confirmButtonText: t('common.confirm') }
+  )
+
+  addingToSquare.value = true
+  try {
+    const payload = selectedItems.map((item) => ({
+      shopify_variant_id: item.shopify_variant_id,
+      name: item.customName,
+      variantName: item.customVariantName,
+      sku: item.sku || '',
+      gtin: item.gtin || '',
+      priceCents: Math.round((item.customPrice || 0) * 100), // 转换为分
+      description: item.customDescription || '',
+      planned_quantity: item.planned_quantity,
+    }))
+
+    const result = await squareApi.createItems(id, payload)
+    
+    const successCount = result?.summary?.created || 0
+    const failCount = result?.summary?.failed || 0
+
+    if (failCount === 0) {
+      ElMessage.success(t('unmatchedDialog.addSuccess', { n: successCount }))
+    } else {
+      ElMessage.warning(t('unmatchedDialog.addPartial', { success: successCount, fail: failCount }))
+    }
+
+    unmatchedDialogVisible.value = false
+    await loadSnapshotData()
+    currentStep.value = 1
+  } catch (err) {
+    ElMessage.error(t('unmatchedDialog.addFailed', { msg: err.message || '' }))
+  } finally {
+    addingToSquare.value = false
   }
 }
 

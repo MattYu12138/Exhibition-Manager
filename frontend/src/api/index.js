@@ -51,6 +51,8 @@ export const squareApi = {
   updateRemaining: (exhibitionId) =>
     api.post('/square/sync/update-remaining', { exhibition_id: exhibitionId }),
   getSnapshots: (exhibitionId) => api.get(`/square/snapshots/${exhibitionId}`),
+  createItems: (exhibitionId, items) =>
+    api.post('/square/create-items', { exhibition_id: exhibitionId, items }),
 }
 // ==================== 健康检查 ====================
 export const healthApi = {
