@@ -121,6 +121,10 @@ export default {
     clearConfirmMsg: 'Are you sure you want to clear all selected products? This cannot be undone.',
     clearConfirmOk: 'Clear All',
     clearConfirmCancel: 'Cancel',
+    statusActive: 'Active',
+    statusDraft: 'Draft',
+    statusArchived: 'Archived',
+    statusUnlisted: 'Unlisted',
   },
 
   // Checklist

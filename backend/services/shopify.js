@@ -93,20 +93,30 @@ class ShopifyService {
   /**
    * 获取所有商品（含变体、GTIN、图片）
    * 支持分页，自动拉取全部数据
+   * @param {object} params - 额外查询参数，如 { status: 'draft' } 或 { published_status: 'unlisted' }
    */
   async getAllProducts(params = {}) {
     const products = [];
     let pageInfo = null;
     let hasMore = true;
 
+    // 处理 unlisted：Shopify REST API 用 published_status=unlisted
+    // 其他状态（active/draft/archived）用 status 参数
+    const baseParams = {
+      limit: 250,
+      fields: 'id,title,variants,images,options,status,published_at',
+    };
+
+    if (params.published_status === 'unlisted') {
+      // unlisted = active 但 published_at 为 null（未在任何渠道发布）
+      baseParams.status = 'active';
+      baseParams.published_status = 'unlisted';
+    } else {
+      baseParams.status = params.status || 'active';
+    }
+
     while (hasMore) {
       const headers = await this._getHeaders();
-      const queryParams = new URLSearchParams({
-        limit: 250,
-        fields: 'id,title,variants,images,options,status',
-        status: 'active',
-        ...params,
-      });
 
       if (pageInfo) {
         const url = `${this.baseUrl}/products.json?limit=250&page_info=${pageInfo}`;
@@ -122,6 +132,7 @@ class ShopifyService {
           hasMore = false;
         }
       } else {
+        const queryParams = new URLSearchParams(baseParams);
         const url = `${this.baseUrl}/products.json?${queryParams.toString()}`;
         const response = await axios.get(url, { headers });
         products.push(...response.data.products);
@@ -141,11 +152,18 @@ class ShopifyService {
   }
 
   /**
-   * 搜索商品（按标题关键词）
+   * 搜索商品（按标题关键词），支持 status 过滤
    */
-  async searchProducts(query) {
+  async searchProducts(query, status = 'active', publishedStatus = null) {
     const headers = await this._getHeaders();
-    const url = `${this.baseUrl}/products.json?title=${encodeURIComponent(query)}&limit=50&status=active`;
+    let url;
+
+    if (publishedStatus === 'unlisted') {
+      url = `${this.baseUrl}/products.json?title=${encodeURIComponent(query)}&limit=50&status=active&published_status=unlisted`;
+    } else {
+      url = `${this.baseUrl}/products.json?title=${encodeURIComponent(query)}&limit=50&status=${status}`;
+    }
+
     const response = await axios.get(url, { headers });
     return this._formatProducts(response.data.products);
   }
@@ -178,6 +196,7 @@ class ShopifyService {
       return {
         id: String(product.id),
         title: product.title,
+        status: product.status,
         options: product.options || [],
         main_image: mainImage,
         variants,

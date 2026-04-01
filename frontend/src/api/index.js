@@ -1,11 +1,9 @@
 import axios from 'axios'
-
 const api = axios.create({
   baseURL: '/api',
   timeout: 30000,
   headers: { 'Content-Type': 'application/json' },
 })
-
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
@@ -13,7 +11,6 @@ api.interceptors.response.use(
     return Promise.reject(new Error(message))
   }
 )
-
 // ==================== 展会管理 ====================
 export const exhibitionApi = {
   list: () => api.get('/exhibitions'),
@@ -29,13 +26,21 @@ export const exhibitionApi = {
   clearItems: (id) => api.delete(`/exhibitions/${id}/items`),
   copyTemplate: (sourceId, targetId) => api.post(`/exhibitions/${sourceId}/copy-to/${targetId}`),
 }
-
 // ==================== Shopify ====================
 export const shopifyApi = {
-  getProducts: (search) => api.get('/shopify/products', { params: search ? { search } : {} }),
+  // status: 'active' | 'draft' | 'archived' | 'unlisted'
+  getProducts: (search, status, publishedStatus) => {
+    const params = {}
+    if (search) params.search = search
+    if (publishedStatus === 'unlisted') {
+      params.published_status = 'unlisted'
+    } else if (status) {
+      params.status = status
+    }
+    return api.get('/shopify/products', { params })
+  },
   getProduct: (id) => api.get(`/shopify/products/${id}`),
 }
-
 // ==================== Square ====================
 export const squareApi = {
   getCatalog: () => api.get('/square/catalog'),
@@ -47,7 +52,6 @@ export const squareApi = {
     api.post('/square/sync/update-remaining', { exhibition_id: exhibitionId }),
   getSnapshots: (exhibitionId) => api.get(`/square/snapshots/${exhibitionId}`),
 }
-
 // ==================== 健康检查 ====================
 export const healthApi = {
   check: () => api.get('/health'),

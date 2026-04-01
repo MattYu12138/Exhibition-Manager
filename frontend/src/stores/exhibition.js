@@ -243,6 +243,26 @@ export const useExhibitionStore = defineStore('exhibition', () => {
     }
   }
 
+  /**
+   * 按商品状态加载 Shopify 商品
+   * @param {string} status - 'active' | 'draft' | 'archived' | 'unlisted'
+   * @param {string} search - 可选搜索关键词
+   */
+  async function loadShopifyProductsByStatus(status = 'active', search = '') {
+    productLoading.value = true
+    shopifyProducts.value = []
+    try {
+      const publishedStatus = status === 'unlisted' ? 'unlisted' : null
+      const actualStatus = status === 'unlisted' ? 'active' : status
+      const res = await shopifyApi.getProducts(search || '', actualStatus, publishedStatus)
+      shopifyProducts.value = normalizeShopifyProducts(res?.data ?? res)
+    } catch (err) {
+      ElMessage.error('获取 Shopify 商品失败: ' + err.message)
+    } finally {
+      productLoading.value = false
+    }
+  }
+
   // ==================== Square 同步 ====================
   async function syncBeforeExhibition(exhibitionId) {
     loading.value = true
@@ -318,6 +338,7 @@ export const useExhibitionStore = defineStore('exhibition', () => {
     updateItemQuantity,
     removeItem,
     loadShopifyProducts,
+    loadShopifyProductsByStatus,
     syncBeforeExhibition,
     syncAfterExhibition,
     updateRemainingToSquare,

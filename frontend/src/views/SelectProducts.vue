@@ -18,11 +18,22 @@
                 v-model="searchQuery"
                 :placeholder="$t('selectProducts.searchPlaceholder')"
                 clearable
-                style="width: 220px"
+                style="width: 200px"
                 @input="handleSearch"
               >
                 <template #prefix><el-icon><Search /></el-icon></template>
               </el-input>
+            </div>
+            <!-- 商品状态筛选按钮 -->
+            <div class="status-filter">
+              <el-button
+                v-for="tab in statusTabs"
+                :key="tab.value"
+                :type="activeStatus === tab.value ? 'primary' : 'default'"
+                size="small"
+                :class="{ 'status-btn-active': activeStatus === tab.value }"
+                @click="switchStatus(tab.value)"
+              >{{ tab.label }}</el-button>
             </div>
           </template>
 
@@ -225,6 +236,15 @@ const imgError = reactive({})
 const currentPage = ref(1)
 const pageSize = 20
 
+// 商品状态筛选
+const activeStatus = ref('active')
+const statusTabs = computed(() => [
+  { value: 'active', label: t('selectProducts.statusActive') },
+  { value: 'draft', label: t('selectProducts.statusDraft') },
+  { value: 'archived', label: t('selectProducts.statusArchived') },
+  { value: 'unlisted', label: t('selectProducts.statusUnlisted') },
+])
+
 const selectionList = computed(() => Object.values(selectionsMap.value))
 const totalSelected = computed(() => selectionList.value.length)
 const totalQuantity = computed(() =>
@@ -345,13 +365,10 @@ async function clearAll() {
         type: 'warning',
       }
     )
-    // Delete all items from DB, then reset local state and snapshot
     await exhibitionApi.clearItems(id)
     selectionsMap.value = {}
     originalSnapshot.value = {}
   } catch (err) {
-    // If user cancelled, ElMessageBox throws 'cancel' string — ignore it
-    // If it's a real API error, show message
     if (err && err.message) {
       ElMessage.error(err.message)
     }
@@ -373,9 +390,18 @@ function handlePageChange() {
   expandAll()
 }
 
+async function switchStatus(status) {
+  if (activeStatus.value === status) return
+  activeStatus.value = status
+  searchQuery.value = ''
+  currentPage.value = 1
+  await store.loadShopifyProductsByStatus(status)
+  expandAll()
+}
+
 async function loadProducts() {
-  const [, exhibition] = await Promise.all([
-    store.loadShopifyProducts(),
+  const [, ] = await Promise.all([
+    store.loadShopifyProductsByStatus(activeStatus.value),
     store.loadExhibition(id),
   ])
 
@@ -509,7 +535,15 @@ onMounted(loadProducts)
 .page-header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 24px; }
 .page-title { font-size: 22px; font-weight: 700; }
 .page-desc { font-size: 14px; color: #909399; margin-top: 4px; }
-.card-header { display: flex; justify-content: space-between; align-items: center; }
+.card-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+
+/* 状态筛选按钮行 */
+.status-filter {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
 
 .product-list { display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
 .pagination-wrap { display: flex; justify-content: center; margin-top: 16px; padding-bottom: 4px; }
@@ -581,4 +615,18 @@ onMounted(loadProducts)
 
 .selection-footer { padding: 16px; border-top: 1px solid #ebeef5; }
 .total-info { font-size: 13px; color: #606266; margin-bottom: 12px; }
+
+/* 手机端响应式 */
+@media (max-width: 768px) {
+  .card-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .card-header > .el-input {
+    width: 100% !important;
+  }
+  .status-filter {
+    width: 100%;
+  }
+}
 </style>

@@ -13,12 +13,12 @@
     </div>
 
     <!-- 统计卡片 -->
-    <el-row :gutter="16" class="stats-row">
+    <el-row :gutter="12" class="stats-row">
       <el-col :span="8">
         <el-card class="stat-card">
           <div class="stat-content">
-            <div class="stat-icon preparing"><el-icon size="28"><Edit /></el-icon></div>
-            <div>
+            <div class="stat-icon preparing"><el-icon size="24"><Edit /></el-icon></div>
+            <div class="stat-text">
               <div class="stat-num">{{ stats.preparing }}</div>
               <div class="stat-label">{{ t('exhibitionList.statPreparing') }}</div>
             </div>
@@ -28,8 +28,8 @@
       <el-col :span="8">
         <el-card class="stat-card">
           <div class="stat-content">
-            <div class="stat-icon active"><el-icon size="28"><Flag /></el-icon></div>
-            <div>
+            <div class="stat-icon active"><el-icon size="24"><Flag /></el-icon></div>
+            <div class="stat-text">
               <div class="stat-num">{{ stats.active }}</div>
               <div class="stat-label">{{ t('exhibitionList.statActive') }}</div>
             </div>
@@ -39,8 +39,8 @@
       <el-col :span="8">
         <el-card class="stat-card">
           <div class="stat-content">
-            <div class="stat-icon completed"><el-icon size="28"><CircleCheck /></el-icon></div>
-            <div>
+            <div class="stat-icon completed"><el-icon size="24"><CircleCheck /></el-icon></div>
+            <div class="stat-text">
               <div class="stat-num">{{ stats.completed }}</div>
               <div class="stat-label">{{ t('exhibitionList.statCompleted') }}</div>
             </div>
@@ -306,7 +306,6 @@ async function confirmCopy() {
       targetId = res.data.id
       await store.loadExhibitions()
     }
-
     const result = await exhibitionApi.copyTemplate(copySourceEx.value.id, targetId)
     ElMessage.success(result.message || t('exhibitionList.copySuccess'))
     copyDialog.value = false
@@ -336,18 +335,43 @@ onMounted(() => store.loadExhibitions())
 }
 .page-title { font-size: 24px; font-weight: 700; color: #1a1a2e; }
 .page-desc { color: #909399; margin-top: 4px; font-size: 14px; }
-
 .header-actions { display: flex; align-items: center; gap: 10px; }
 
 .stats-row { margin-bottom: 20px; }
 .stat-card { border-radius: 12px; }
-.stat-content { display: flex; align-items: center; gap: 16px; padding: 8px 0; }
-.stat-icon { width: 56px; height: 56px; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
+.stat-content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  min-width: 0;
+}
+.stat-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
 .stat-icon.preparing { background: #ecf5ff; color: #409eff; }
 .stat-icon.active { background: #fdf6ec; color: #e6a23c; }
 .stat-icon.completed { background: #f0f9eb; color: #67c23a; }
-.stat-num { font-size: 28px; font-weight: 700; color: #303133; }
-.stat-label { font-size: 13px; color: #909399; margin-top: 2px; }
+.stat-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.stat-num { font-size: 24px; font-weight: 700; color: #303133; line-height: 1.2; }
+.stat-label {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .exhibition-grid {
   display: grid;
@@ -363,7 +387,6 @@ onMounted(() => store.loadExhibitions())
 .ex-name { font-size: 16px; font-weight: 600; color: #303133; margin-bottom: 8px; }
 .ex-meta { display: flex; gap: 12px; font-size: 13px; color: #909399; flex-wrap: wrap; }
 .ex-meta span { display: flex; align-items: center; gap: 4px; }
-
 .ex-card-footer {
   display: flex;
   flex-direction: column;
@@ -394,4 +417,16 @@ onMounted(() => store.loadExhibitions())
 .copy-target-select { display: flex; flex-direction: column; gap: 8px; }
 .copy-hint { font-size: 12px; color: #909399; margin: 0; }
 .copy-new-form { padding: 4px 0; }
+
+/* 手机端响应式：统计卡片 */
+@media (max-width: 480px) {
+  .stat-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+  }
+  .stat-num { font-size: 20px; }
+  .stat-label { font-size: 11px; }
+  .stat-content { gap: 6px; padding: 4px 0; }
+}
 </style>

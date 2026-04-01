@@ -121,6 +121,10 @@ export default {
     clearConfirmMsg: '确定要清空所有已选商品吗？此操作不可撤销。',
     clearConfirmOk: '确认清空',
     clearConfirmCancel: '取消',
+    statusActive: '在线',
+    statusDraft: '草稿',
+    statusArchived: '已归档',
+    statusUnlisted: '未上架',
   },
 
   // 清点页
