@@ -321,18 +321,13 @@
       </el-table>
 
       <template #footer>
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px">
-          <el-button @click="skipAllUnmatched" :disabled="addingToSquare">
-            {{ $t('unmatchedDialog.skipAll') }}
+        <div style="display: flex; justify-content: flex-end; gap: 10px">
+          <el-button @click="unmatchedDialogVisible = false" :disabled="addingToSquare">
+            {{ $t('unmatchedDialog.cancel') }}
           </el-button>
-          <div style="display: flex; gap: 10px">
-            <el-button @click="unmatchedDialogVisible = false" :disabled="addingToSquare">
-              {{ $t('unmatchedDialog.cancel') }}
-            </el-button>
-            <el-button type="primary" @click="confirmAddToSquare" :loading="addingToSquare">
-              {{ $t('unmatchedDialog.addSelected') }}
-            </el-button>
-          </div>
+          <el-button type="primary" @click="confirmAddToSquare" :loading="addingToSquare">
+            {{ $t('unmatchedDialog.addSelected') }}
+          </el-button>
         </div>
       </template>
     </el-dialog>
@@ -451,17 +446,14 @@ async function syncToSquare() {
   }
 }
 
-function skipAllUnmatched() {
-  unmatchedDialogVisible.value = false
-  ElMessage.info(t('unmatchedDialog.skipHint'))
-  router.push(`/exhibitions/${id}`)
-}
-
 async function confirmAddToSquare() {
   const selectedItems = unmatchedItems.value.filter((item) => item.includeInSquare)
 
+  // 没有选中商品时，直接跳过所有未匹配商品，继续完成同步流程
   if (selectedItems.length === 0) {
-    ElMessage.warning(t('unmatchedDialog.noItemsSelected'))
+    unmatchedDialogVisible.value = false
+    ElMessage.success(t('checklist.syncSuccess'))
+    router.push(`/exhibitions/${id}`)
     return
   }
 
