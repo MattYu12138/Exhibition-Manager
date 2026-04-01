@@ -228,25 +228,29 @@ router.post('/create-items', async (req, res) => {
           await squareService.setInventoryQuantity(variationId, plannedQty);
         }
 
-        // 3. 记录快照
-        const existing = db.prepare(
-          'SELECT id FROM inventory_snapshots WHERE exhibition_id = ? AND shopify_variant_id = ?'
-        ).get(exhibition_id, item.shopify_variant_id);
+        // 3. 记录快照（失败不影响商品创建成功状态）
+        try {
+          const existing = db.prepare(
+            'SELECT id FROM inventory_snapshots WHERE exhibition_id = ? AND shopify_variant_id = ?'
+          ).get(exhibition_id, item.shopify_variant_id);
 
-        if (existing) {
+          if (existing) {
+            db.prepare(
+              'UPDATE inventory_snapshots SET square_catalog_variation_id = ?, square_quantity_before = ?, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
+            ).run(variationId, plannedQty, existing.id);
+          } else {
+            db.prepare(
+              'INSERT INTO inventory_snapshots (exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before) VALUES (?, ?, ?, ?)'
+            ).run(exhibition_id, item.shopify_variant_id, variationId, plannedQty);
+          }
+
+          // 4. 更新 last_synced_quantity
           db.prepare(
-            'UPDATE inventory_snapshots SET square_catalog_variation_id = ?, square_quantity_before = ?, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
-          ).run(variationId, plannedQty, existing.id);
-        } else {
-          db.prepare(
-            'INSERT INTO inventory_snapshots (exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before) VALUES (?, ?, ?, ?)'
-          ).run(exhibition_id, item.shopify_variant_id, variationId, plannedQty);
+            'UPDATE exhibition_items SET last_synced_quantity = ? WHERE exhibition_id = ? AND shopify_variant_id = ?'
+          ).run(plannedQty, exhibition_id, item.shopify_variant_id);
+        } catch (dbErr) {
+          console.warn('[create-items] 快照写入失败（不影响商品创建）:', dbErr.message);
         }
-
-        // 4. 更新 last_synced_quantity
-        db.prepare(
-          'UPDATE exhibition_items SET last_synced_quantity = ? WHERE exhibition_id = ? AND shopify_variant_id = ?'
-        ).run(plannedQty, exhibition_id, item.shopify_variant_id);
 
         results.push({
           shopify_variant_id: item.shopify_variant_id,
