@@ -156,17 +156,30 @@ class SquareService {
     };
 
     try {
-      const response = await this.client.catalog.upsertObject({
+      // SDK v44: catalog.object.upsert()
+      const response = await this.client.catalog.object.upsert({
         idempotencyKey,
         object: itemObject,
       });
 
       const createdItem = response.catalogObject;
-      const createdVariation = response.idMappings?.find((m) => m.clientObjectId === `#variation-${idempotencyKey}`);
+      // idMappings 将临时 ID (#xxx) 映射到真实 ID
+      const variationMapping = response.idMappings?.find(
+        (m) => m.clientObjectId === `#variation-${idempotencyKey}`
+      );
+
+      // 优先使用 idMappings 中的真实 ID，降级到 variations 数组第一个
+      const variationId =
+        variationMapping?.objectId ||
+        createdItem?.itemData?.variations?.[0]?.id;
+
+      if (!variationId) {
+        throw new Error('无法获取创建的变体 ID，请检查 Square API 响应');
+      }
 
       return {
         itemId: createdItem.id,
-        variationId: createdVariation?.objectId || createdItem.itemData.variations[0].id,
+        variationId,
       };
     } catch (err) {
       console.error('创建 Square 商品失败:', err.message);
