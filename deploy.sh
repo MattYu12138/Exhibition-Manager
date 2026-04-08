@@ -1,70 +1,78 @@
 #!/bin/bash
 # ============================================================
-# Exhibition Manager - Safe Deploy Script
+# Exhibition Manager - Safe Deploy Script (Docker)
 # 用法: ./deploy.sh
 # 功能:
-#   1. 备份数据库
-#   2. 备份并保留 .env 文件（不被 git 覆盖）
-#   3. 拉取最新代码
-#   4. 恢复 .env
-#   5. 安装依赖并重新编译 better-sqlite3（原生模块）
-#   6. 重启 PM2
+#   0. 备份数据库
+#   1. 备份并保留 .env 文件（不被 git 覆盖）
+#   2. 拉取最新代码（git stash 避免冲突）
+#   3. 恢复 .env
+#   4. 构建前端
+#   5. 重建并重启 Docker 容器
 # ============================================================
 
 set -e
 
 APP_DIR="/home/ubuntu/Exhibition-Manager"
+FRONTEND_DIR="$APP_DIR/frontend"
+BACKEND_DIR="$APP_DIR/backend"
 DATA_DIR="/data/exhibition-app"
 BACKUP_DIR="$DATA_DIR/backups"
-ENV_BACKUP="/tmp/exhibition_env_backup"
+ENV_BACKUP="/home/ubuntu/.env.exhibition.backup"
 
-echo "===== [1/6] 备份数据库 ====="
+echo "===== [0/5] 备份数据库 ====="
 mkdir -p "$BACKUP_DIR"
-if [ -f "$DATA_DIR/exhibition.db" ]; then
+DB_FILE="$DATA_DIR/database/exhibition.db"
+if [ -f "$DB_FILE" ]; then
   TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-  cp "$DATA_DIR/exhibition.db" "$BACKUP_DIR/pre_deploy_${TIMESTAMP}.sqlite"
+  cp "$DB_FILE" "$BACKUP_DIR/pre_deploy_${TIMESTAMP}.sqlite"
   echo "✓ 数据库已备份到 $BACKUP_DIR/pre_deploy_${TIMESTAMP}.sqlite"
 else
   echo "⚠ 未找到数据库文件，跳过备份"
 fi
 
 echo ""
-echo "===== [2/6] 备份 .env 文件 ====="
-if [ -f "$APP_DIR/backend/.env" ]; then
-  cp "$APP_DIR/backend/.env" "$ENV_BACKUP"
+echo "===== [1/5] 备份 .env 文件 ====="
+if [ -f "$BACKEND_DIR/.env" ]; then
+  cp "$BACKEND_DIR/.env" "$ENV_BACKUP"
   echo "✓ .env 已备份到 $ENV_BACKUP"
 else
   echo "⚠ 未找到 .env 文件"
 fi
 
 echo ""
-echo "===== [3/6] 拉取最新代码 ====="
+echo "===== [2/5] 拉取最新代码 ====="
 cd "$APP_DIR"
-git fetch origin main
-git reset --hard origin/main
+git stash --include-untracked 2>/dev/null || true
+git pull origin main
+git stash drop 2>/dev/null || true
 echo "✓ 代码已更新到最新版本"
 
 echo ""
-echo "===== [4/6] 恢复 .env 文件 ====="
+echo "===== [3/5] 恢复 .env 文件 ====="
 if [ -f "$ENV_BACKUP" ]; then
-  cp "$ENV_BACKUP" "$APP_DIR/backend/.env"
+  cp "$ENV_BACKUP" "$BACKEND_DIR/.env"
   echo "✓ .env 已恢复"
 else
   echo "⚠ 无 .env 备份，请手动检查配置"
 fi
 
 echo ""
-echo "===== [5/6] 安装依赖并重新编译原生模块 ====="
-cd "$APP_DIR/backend"
-npm install --production
-# 强制重新编译 better-sqlite3（避免跨平台 ELF 错误）
-npm rebuild better-sqlite3
-echo "✓ 依赖安装完成，better-sqlite3 已重新编译"
+echo "===== [4/5] 构建前端 ====="
+cd "$FRONTEND_DIR"
+npm install --silent
+npm run build
+echo "✓ 前端构建完成"
 
 echo ""
-echo "===== [6/6] 重启 PM2 ====="
-pm2 restart exhibition-manager --update-env
-sleep 2
-pm2 status exhibition-manager
+echo "===== [5/5] 重建并重启 Docker 容器 ====="
+cd "$APP_DIR"
+sudo docker compose build --no-cache
+sudo docker compose up -d --force-recreate
+sleep 3
+STATUS=$(curl -s http://localhost:3001/api/health | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','unknown'))" 2>/dev/null || echo "error")
+echo "✓ 健康检查: $STATUS"
+
 echo ""
 echo "✅ 部署完成！"
+echo "   https://exhibition.lummiincolour.com.au"
