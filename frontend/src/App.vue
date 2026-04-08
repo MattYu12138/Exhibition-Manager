@@ -145,12 +145,31 @@ body {
   font-size: 18px;
   font-weight: 600;
   letter-spacing: 0.5px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .header-nav {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+@media (max-width: 640px) {
+  .app-header {
+    padding: 0 12px;
+  }
+  .logo span {
+    font-size: 15px;
+  }
+  .header-nav {
+    gap: 4px;
+  }
+  .username {
+    display: none;
+  }
 }
 
 .user-info {

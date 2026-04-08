@@ -26,16 +26,18 @@
         <el-table-column prop="created_at" :label="t('userMgmt.colCreatedAt')" width="160">
           <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column :label="t('userMgmt.colActions')" width="240" align="right">
+        <el-table-column :label="t('userMgmt.colActions')" width="290" align="right">
           <template #default="{ row }">
-            <el-button size="small" @click="openEditRole(row)">{{ t('userMgmt.changeRole') }}</el-button>
-            <el-button size="small" @click="openResetPassword(row)">{{ t('userMgmt.resetPwd') }}</el-button>
-            <el-button
-              size="small"
-              type="danger"
-              :disabled="row.id === authStore.user?.id"
-              @click="handleDelete(row)"
-            >{{ t('userMgmt.deleteUser') }}</el-button>
+            <div class="action-btns">
+              <el-button size="small" @click="openEditRole(row)">{{ t('userMgmt.changeRole') }}</el-button>
+              <el-button size="small" @click="openResetPassword(row)">{{ t('userMgmt.resetPwd') }}</el-button>
+              <el-button
+                size="small"
+                type="danger"
+                :disabled="row.id === authStore.user?.id"
+                @click="handleDelete(row)"
+              >{{ t('userMgmt.deleteUser') }}</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -249,5 +251,12 @@ onMounted(loadUsers)
   font-size: 14px;
   color: #909399;
   margin-top: 4px;
+}
+.action-btns {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  justify-content: flex-end;
+  align-items: center;
 }
 </style>
