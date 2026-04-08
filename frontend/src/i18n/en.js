@@ -159,6 +159,10 @@ export default {
     uncheckedWarning: '{n} items not checked. Please complete all checks first.',
     toggleAllUnchecked: 'Check all sizes',
     toggleAllChecked: 'Uncheck all',
+    searchPlaceholder: 'Search product name, SKU, GTIN...',
+    searchEmpty: 'No matching products found',
+    sectionUnchecked: 'Unchecked',
+    sectionChecked: 'Checked',
   },
 
   // Inventory Result

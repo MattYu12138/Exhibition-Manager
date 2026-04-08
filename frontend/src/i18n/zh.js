@@ -159,6 +159,10 @@ export default {
     uncheckedWarning: '还有 {n} 件货品未清点，请先完成全部清点',
     toggleAllUnchecked: '整件商品全部打勾',
     toggleAllChecked: '取消全部',
+    searchPlaceholder: '搜索商品名称、SKU、GTIN...',
+    searchEmpty: '未找到匹配的商品',
+    sectionUnchecked: '未清点',
+    sectionChecked: '已清点',
   },
 
   // 库存结果页

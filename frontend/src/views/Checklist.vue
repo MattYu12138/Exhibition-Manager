@@ -38,6 +38,21 @@
       </div>
     </el-card>
 
+    <!-- Search bar -->
+    <div v-if="store.groupedItems.length" class="search-bar-wrap">
+      <el-input
+        v-model="searchQuery"
+        :placeholder="$t('checklist.searchPlaceholder')"
+        clearable
+        size="large"
+        @input="handleSearch"
+      >
+        <template #prefix>
+          <el-icon><Search /></el-icon>
+        </template>
+      </el-input>
+    </div>
+
     <!-- Product groups -->
     <div v-loading="store.loading" class="product-groups">
       <el-empty
@@ -49,119 +64,237 @@
         </el-button>
       </el-empty>
 
-      <el-card
-        v-for="group in store.groupedItems"
-        :key="group.product_id"
-        class="product-group-card"
-        :class="{ 'all-checked': isProductAllChecked(group) }"
-      >
-        <!-- Product title row -->
-        <div class="group-header">
-          <div class="group-title-area">
-            <el-image
-              v-if="group.image_url"
-              :src="group.image_url"
-              style="width: 52px; height: 52px; border-radius: 10px; flex-shrink: 0"
-              fit="cover"
-            />
-            <div v-else class="group-placeholder"><el-icon><Box /></el-icon></div>
-            <div>
-              <div class="group-title">{{ group.product_title }}</div>
-              <div class="group-meta">
-                {{ $t('checklist.sizesChecked', { done: group.variants.filter((v) => v.checked).length, total: group.variants.length }) }}
-              </div>
-            </div>
-          </div>
+      <!-- 搜索无结果 -->
+      <el-empty
+        v-else-if="store.groupedItems.length && !uncheckedGroups.length && !checkedGroups.length"
+        :description="$t('checklist.searchEmpty')"
+      />
 
-          <!-- Toggle all variants for this product -->
-          <div class="group-check-btn">
-            <el-tooltip :content="isProductAllChecked(group) ? $t('checklist.toggleAllChecked') : $t('checklist.toggleAllUnchecked')" placement="top">
-              <el-button
-                :type="isProductAllChecked(group) ? 'success' : 'default'"
-                :icon="isProductAllChecked(group) ? 'CircleCheck' : 'Check'"
-                circle
-                size="large"
-                @click="toggleProductCheck(group)"
-              />
-            </el-tooltip>
-          </div>
+      <template v-else>
+        <!-- ── 未清点分区 ── -->
+        <div v-if="uncheckedGroups.length" class="section-header unchecked-header">
+          <el-icon color="#e6a23c"><Warning /></el-icon>
+          <span>{{ $t('checklist.sectionUnchecked') }}</span>
+          <el-tag type="warning" size="small" round>{{ uncheckedGroups.length }}</el-tag>
         </div>
 
-        <!-- Variant checklist -->
-        <div class="variant-checklist">
-          <div
-            v-for="variant in group.variants"
-            :key="variant.id"
-            class="variant-check-row"
-            :class="{ checked: variant.checked }"
-          >
-            <!-- Check icon (click to toggle) -->
-            <div class="check-icon-wrap" @click="toggleVariantCheck(variant)">
-              <transition name="check-bounce">
-                <el-icon v-if="variant.checked" class="check-icon checked-icon" size="22" color="#67c23a">
-                  <CircleCheck />
-                </el-icon>
-                <el-icon v-else class="check-icon unchecked-icon" size="22" color="#dcdfe6">
-                  <CircleClose />
-                </el-icon>
-              </transition>
-            </div>
-
-            <!-- Variant info -->
-            <div class="variant-detail" @click="toggleVariantCheck(variant)">
-              <span class="variant-name">{{ variant.variant_title || '默认' }}</span>
-              <div class="variant-tags">
-                <el-tag v-if="variant.sku" size="small" type="info">{{ variant.sku }}</el-tag>
-                <el-tag v-if="variant.gtin" size="small" type="warning">{{ variant.gtin }}</el-tag>
+        <el-card
+          v-for="group in uncheckedGroups"
+          :key="'u-' + group.product_id"
+          class="product-group-card"
+        >
+          <div class="group-header">
+            <div class="group-title-area">
+              <el-image
+                v-if="group.image_url"
+                :src="group.image_url"
+                style="width: 52px; height: 52px; border-radius: 10px; flex-shrink: 0"
+                fit="cover"
+              />
+              <div v-else class="group-placeholder"><el-icon><Box /></el-icon></div>
+              <div>
+                <div class="group-title">{{ group.product_title }}</div>
+                <div class="group-meta">
+                  {{ $t('checklist.sizesChecked', { done: group.variants.filter((v) => v.checked).length, total: group.variants.length }) }}
+                </div>
               </div>
             </div>
+            <div class="group-check-btn">
+              <el-tooltip :content="$t('checklist.toggleAllUnchecked')" placement="top">
+                <el-button
+                  type="default"
+                  icon="Check"
+                  circle
+                  size="large"
+                  @click="toggleProductCheck(group)"
+                />
+              </el-tooltip>
+            </div>
+          </div>
 
-            <!-- Qty area: rack + storage + readonly total -->
-            <div class="checklist-qty-area" @click.stop>
-              <div class="checklist-qty-group">
-                <div class="checklist-qty-field">
-                  <div class="checklist-qty-label">{{ $t('checklist.rack') }}</div>
-                  <el-input-number
-                    v-model="localQty[variant.id].rack"
-                    :min="0"
-                    :max="9999"
-                    size="small"
-                    style="width: 80px"
-                    @change="onLocalQtyChange(variant)"
-                  />
+          <div class="variant-checklist">
+            <div
+              v-for="variant in group.variants"
+              :key="variant.id"
+              class="variant-check-row"
+              :class="{ checked: variant.checked }"
+            >
+              <div class="check-icon-wrap" @click="toggleVariantCheck(variant)">
+                <transition name="check-bounce">
+                  <el-icon v-if="variant.checked" class="check-icon checked-icon" size="22" color="#67c23a">
+                    <CircleCheck />
+                  </el-icon>
+                  <el-icon v-else class="check-icon unchecked-icon" size="22" color="#dcdfe6">
+                    <CircleClose />
+                  </el-icon>
+                </transition>
+              </div>
+
+              <div class="variant-detail" @click="toggleVariantCheck(variant)">
+                <span class="variant-name">{{ variant.variant_title || '默认' }}</span>
+                <div class="variant-tags">
+                  <el-tag v-if="variant.sku" size="small" type="info">{{ variant.sku }}</el-tag>
+                  <el-tag v-if="variant.gtin" size="small" type="warning">{{ variant.gtin }}</el-tag>
                 </div>
-                <div class="checklist-qty-field">
-                  <div class="checklist-qty-label">{{ $t('checklist.storage') }}</div>
-                  <el-input-number
-                    v-model="localQty[variant.id].stock"
-                    :min="0"
-                    :max="9999"
-                    size="small"
-                    style="width: 80px"
-                    @change="onLocalQtyChange(variant)"
-                  />
-                </div>
-                <div class="checklist-qty-field checklist-qty-total">
-                  <div class="checklist-qty-label">{{ $t('checklist.totalLabel') }}</div>
-                  <div class="checklist-total-value">
-                    {{ (localQty[variant.id].rack || 0) + (localQty[variant.id].stock || 0) }}
+              </div>
+
+              <div class="checklist-qty-area" @click.stop>
+                <div class="checklist-qty-group">
+                  <div class="checklist-qty-field">
+                    <div class="checklist-qty-label">{{ $t('checklist.rack') }}</div>
+                    <el-input-number
+                      v-model="localQty[variant.id].rack"
+                      :min="0"
+                      :max="9999"
+                      size="small"
+                      style="width: 80px"
+                      @change="onLocalQtyChange(variant)"
+                    />
+                  </div>
+                  <div class="checklist-qty-field">
+                    <div class="checklist-qty-label">{{ $t('checklist.storage') }}</div>
+                    <el-input-number
+                      v-model="localQty[variant.id].stock"
+                      :min="0"
+                      :max="9999"
+                      size="small"
+                      style="width: 80px"
+                      @change="onLocalQtyChange(variant)"
+                    />
+                  </div>
+                  <div class="checklist-qty-field checklist-qty-total">
+                    <div class="checklist-qty-label">{{ $t('checklist.totalLabel') }}</div>
+                    <div class="checklist-total-value">
+                      {{ (localQty[variant.id].rack || 0) + (localQty[variant.id].stock || 0) }}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            <!-- Mark checked button -->
-            <el-button
-              size="small"
-              :type="variant.checked ? 'success' : 'default'"
-              @click.stop="toggleVariantCheck(variant)"
-              style="min-width: 72px; flex-shrink: 0"
-            >
-              {{ variant.checked ? $t('checklist.checked') : $t('checklist.markCheck') }}
-            </el-button>
+              <el-button
+                size="small"
+                type="default"
+                @click.stop="toggleVariantCheck(variant)"
+                style="min-width: 72px; flex-shrink: 0"
+              >
+                {{ $t('checklist.markCheck') }}
+              </el-button>
+            </div>
           </div>
+        </el-card>
+
+        <!-- ── 已清点分区 ── -->
+        <div v-if="checkedGroups.length" class="section-header checked-header">
+          <el-icon color="#67c23a"><CircleCheck /></el-icon>
+          <span>{{ $t('checklist.sectionChecked') }}</span>
+          <el-tag type="success" size="small" round>{{ checkedGroups.length }}</el-tag>
         </div>
-      </el-card>
+
+        <el-card
+          v-for="group in checkedGroups"
+          :key="'c-' + group.product_id"
+          class="product-group-card all-checked"
+        >
+          <div class="group-header">
+            <div class="group-title-area">
+              <el-image
+                v-if="group.image_url"
+                :src="group.image_url"
+                style="width: 52px; height: 52px; border-radius: 10px; flex-shrink: 0"
+                fit="cover"
+              />
+              <div v-else class="group-placeholder"><el-icon><Box /></el-icon></div>
+              <div>
+                <div class="group-title">{{ group.product_title }}</div>
+                <div class="group-meta">
+                  {{ $t('checklist.sizesChecked', { done: group.variants.filter((v) => v.checked).length, total: group.variants.length }) }}
+                </div>
+              </div>
+            </div>
+            <div class="group-check-btn">
+              <el-tooltip :content="$t('checklist.toggleAllChecked')" placement="top">
+                <el-button
+                  type="success"
+                  icon="CircleCheck"
+                  circle
+                  size="large"
+                  @click="toggleProductCheck(group)"
+                />
+              </el-tooltip>
+            </div>
+          </div>
+
+          <div class="variant-checklist">
+            <div
+              v-for="variant in group.variants"
+              :key="variant.id"
+              class="variant-check-row"
+              :class="{ checked: variant.checked }"
+            >
+              <div class="check-icon-wrap" @click="toggleVariantCheck(variant)">
+                <transition name="check-bounce">
+                  <el-icon v-if="variant.checked" class="check-icon checked-icon" size="22" color="#67c23a">
+                    <CircleCheck />
+                  </el-icon>
+                  <el-icon v-else class="check-icon unchecked-icon" size="22" color="#dcdfe6">
+                    <CircleClose />
+                  </el-icon>
+                </transition>
+              </div>
+
+              <div class="variant-detail" @click="toggleVariantCheck(variant)">
+                <span class="variant-name">{{ variant.variant_title || '默认' }}</span>
+                <div class="variant-tags">
+                  <el-tag v-if="variant.sku" size="small" type="info">{{ variant.sku }}</el-tag>
+                  <el-tag v-if="variant.gtin" size="small" type="warning">{{ variant.gtin }}</el-tag>
+                </div>
+              </div>
+
+              <div class="checklist-qty-area" @click.stop>
+                <div class="checklist-qty-group">
+                  <div class="checklist-qty-field">
+                    <div class="checklist-qty-label">{{ $t('checklist.rack') }}</div>
+                    <el-input-number
+                      v-model="localQty[variant.id].rack"
+                      :min="0"
+                      :max="9999"
+                      size="small"
+                      style="width: 80px"
+                      @change="onLocalQtyChange(variant)"
+                    />
+                  </div>
+                  <div class="checklist-qty-field">
+                    <div class="checklist-qty-label">{{ $t('checklist.storage') }}</div>
+                    <el-input-number
+                      v-model="localQty[variant.id].stock"
+                      :min="0"
+                      :max="9999"
+                      size="small"
+                      style="width: 80px"
+                      @change="onLocalQtyChange(variant)"
+                    />
+                  </div>
+                  <div class="checklist-qty-field checklist-qty-total">
+                    <div class="checklist-qty-label">{{ $t('checklist.totalLabel') }}</div>
+                    <div class="checklist-total-value">
+                      {{ (localQty[variant.id].rack || 0) + (localQty[variant.id].stock || 0) }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <el-button
+                size="small"
+                type="success"
+                @click.stop="toggleVariantCheck(variant)"
+                style="min-width: 72px; flex-shrink: 0"
+              >
+                {{ $t('checklist.checked') }}
+              </el-button>
+            </div>
+          </div>
+        </el-card>
+      </template>
     </div>
 
     <!-- Sync footer (fixed at bottom) -->
@@ -267,8 +400,8 @@
           </template>
         </el-table-column>
 
-        <!-- Square 商品名（可编辑） -->
-        <el-table-column :label="$t('unmatchedDialog.colItemName')" width="180">
+        <!-- Square 商品名 -->
+        <el-table-column :label="$t('unmatchedDialog.colItemName')" min-width="160">
           <template #default="{ row }">
             <el-input
               v-model="row.customName"
@@ -279,8 +412,8 @@
           </template>
         </el-table-column>
 
-        <!-- Square 变体名（可编辑） -->
-        <el-table-column :label="$t('unmatchedDialog.colVariantName')" width="150">
+        <!-- Square 变体名 -->
+        <el-table-column :label="$t('unmatchedDialog.colVariantName')" min-width="140">
           <template #default="{ row }">
             <el-input
               v-model="row.customVariantName"
@@ -292,47 +425,41 @@
         </el-table-column>
 
         <!-- 售价 -->
-        <el-table-column :label="$t('unmatchedDialog.colPrice')" width="130">
+        <el-table-column :label="$t('unmatchedDialog.colPrice')" width="120" align="center">
           <template #default="{ row }">
             <el-input-number
               v-model="row.customPrice"
               :min="0"
               :precision="2"
-              :step="0.01"
+              :step="0.5"
               size="small"
+              style="width: 100px"
               :disabled="!row.includeInSquare"
-              style="width: 100%"
             />
           </template>
         </el-table-column>
 
-        <!-- 操作开关 -->
-        <el-table-column :label="$t('unmatchedDialog.colAction')" width="130" align="center" fixed="right">
+        <!-- 操作 -->
+        <el-table-column :label="$t('unmatchedDialog.colAction')" width="120" align="center" fixed="right">
           <template #default="{ row }">
             <el-switch
               v-model="row.includeInSquare"
               :active-text="$t('unmatchedDialog.includeItem')"
               :inactive-text="$t('unmatchedDialog.skipItem')"
-              inline-prompt
-              style="--el-switch-on-color: #67c23a; --el-switch-off-color: #909399"
+              size="small"
             />
           </template>
         </el-table-column>
       </el-table>
 
       <template #footer>
-        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px">
-          <el-button @click="skipAllUnmatched" :disabled="addingToSquare">
-            {{ $t('unmatchedDialog.skipAll') }}
+        <div style="display: flex; justify-content: flex-end; gap: 10px">
+          <el-button @click="unmatchedDialogVisible = false" :disabled="addingToSquare">
+            {{ $t('unmatchedDialog.cancel') }}
           </el-button>
-          <div style="display: flex; gap: 10px">
-            <el-button @click="unmatchedDialogVisible = false" :disabled="addingToSquare">
-              {{ $t('unmatchedDialog.cancel') }}
-            </el-button>
-            <el-button type="primary" @click="confirmAddToSquare" :loading="addingToSquare">
-              {{ $t('unmatchedDialog.addSelected') }}
-            </el-button>
-          </div>
+          <el-button type="primary" @click="confirmAddToSquare" :loading="addingToSquare">
+            {{ $t('unmatchedDialog.addSelected') }}
+          </el-button>
         </div>
       </template>
     </el-dialog>
@@ -340,7 +467,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useExhibitionStore } from '@/stores/exhibition'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -353,6 +480,41 @@ const router = useRouter()
 const store = useExhibitionStore()
 const id = route.params.id
 const syncing = ref(false)
+
+// 搜索
+const searchQuery = ref('')
+
+function handleSearch() {
+  // 搜索是 computed 驱动的，此函数保留用于扩展（如重置分页）
+}
+
+/**
+ * 多关键词模糊搜索过滤：将 searchQuery 按空格拆分为多个关键词，
+ * 每个关键词都必须命中商品标题或任意变体的 SKU / GTIN / 变体名
+ */
+const filteredGroups = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase()
+  if (!query) return store.groupedItems
+
+  const keywords = query.split(/\s+/).filter(Boolean)
+  return store.groupedItems.filter((group) => {
+    const target = [
+      group.product_title,
+      ...group.variants.map((v) => [v.variant_title, v.sku, v.gtin].filter(Boolean).join(' ')),
+    ].join(' ').toLowerCase()
+    return keywords.every((kw) => target.includes(kw))
+  })
+})
+
+/** 未清点分区：至少有一个变体未清点的商品组 */
+const uncheckedGroups = computed(() =>
+  filteredGroups.value.filter((g) => !g.variants.every((v) => v.checked))
+)
+
+/** 已清点分区：所有变体都已清点的商品组 */
+const checkedGroups = computed(() =>
+  filteredGroups.value.filter((g) => g.variants.every((v) => v.checked))
+)
 
 // Local qty state: { [variantId]: { rack, stock } }
 const localQty = reactive({})
@@ -426,9 +588,7 @@ async function syncToSquare() {
   try {
     const result = await store.syncBeforeExhibition(id)
 
-    // 检查是否有未匹配商品
     if (result?.unmatched && result.unmatched.length > 0) {
-      // 初始化未匹配商品列表，添加自定义字段
       unmatchedItems.value = result.unmatched.map((item) => ({
         ...item,
         customName: item.product_title || '',
@@ -439,8 +599,6 @@ async function syncToSquare() {
       }))
       unmatchedDialogVisible.value = true
     } else {
-      // 全部匹配成功
-      const syncedCount = result?.data?.filter(r => r.status === 'synced').length || 0
       ElMessage.success(t('checklist.syncSuccess'))
       router.push(`/exhibitions/${id}`)
     }
@@ -451,17 +609,14 @@ async function syncToSquare() {
   }
 }
 
-function skipAllUnmatched() {
-  unmatchedDialogVisible.value = false
-  ElMessage.info(t('unmatchedDialog.skipHint'))
-  router.push(`/exhibitions/${id}`)
-}
-
 async function confirmAddToSquare() {
   const selectedItems = unmatchedItems.value.filter((item) => item.includeInSquare)
 
+  // 没有选中商品时，直接跳过所有未匹配商品，继续完成同步流程
   if (selectedItems.length === 0) {
-    ElMessage.warning(t('unmatchedDialog.noItemsSelected'))
+    unmatchedDialogVisible.value = false
+    ElMessage.success(t('checklist.syncSuccess'))
+    router.push(`/exhibitions/${id}`)
     return
   }
 
@@ -531,6 +686,18 @@ onMounted(() => store.loadExhibition(id))
 .progress-count { font-size: 22px; font-weight: 700; color: #409eff; }
 .progress-actions { display: flex; gap: 8px; }
 .all-done { display: flex; align-items: center; gap: 6px; margin-top: 12px; color: #67c23a; font-weight: 600; font-size: 15px; }
+
+/* 搜索框 */
+.search-bar-wrap { margin-bottom: 20px; }
+
+/* 分区标题 */
+.section-header {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 15px; font-weight: 700;
+  padding: 10px 4px; margin-bottom: 8px; margin-top: 8px;
+}
+.unchecked-header { color: #e6a23c; }
+.checked-header { color: #67c23a; }
 
 .product-groups { display: flex; flex-direction: column; gap: 16px; }
 
