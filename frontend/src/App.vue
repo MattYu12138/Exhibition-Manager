@@ -4,20 +4,18 @@
       <!-- 顶部导航（登录页不显示） -->
       <el-header v-if="!isLoginPage" class="app-header">
         <div class="header-inner">
+          <!-- Logo -->
           <div class="logo" @click="$router.push('/')">
             <el-icon size="24" color="#fff"><Box /></el-icon>
             <span>{{ t('nav.appTitle') }}</span>
           </div>
-          <div class="header-nav">
-            <el-button
-              text
-              :style="{ color: '#fff' }"
-              @click="$router.push('/exhibitions')"
-            >
+
+          <!-- 桌面端导航 -->
+          <div class="header-nav desktop-nav">
+            <el-button text :style="{ color: '#fff' }" @click="$router.push('/exhibitions')">
               <el-icon><List /></el-icon> {{ t('nav.exhibitions') }}
             </el-button>
 
-            <!-- 管理员专属：账号管理 -->
             <el-button
               v-if="authStore.isAdmin"
               text
@@ -29,7 +27,6 @@
 
             <LangSwitch />
 
-            <!-- 登录用户信息 + 登出 -->
             <el-dropdown v-if="authStore.isLoggedIn" @command="handleUserCommand">
               <div class="user-info">
                 <el-avatar :size="28" style="background: #0f3460; color: #fff; font-size: 13px">
@@ -43,8 +40,54 @@
               </div>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item command="logout" icon="SwitchButton">
+                  <el-dropdown-item command="logout">
                     {{ t('nav.logout') }}
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
+
+          <!-- 手机端汉堡菜单 -->
+          <div class="mobile-nav">
+            <el-dropdown trigger="click" @command="handleMobileCommand" placement="bottom-end">
+              <div class="hamburger-btn">
+                <span></span>
+                <span></span>
+                <span></span>
+              </div>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <!-- 用户信息 -->
+                  <div v-if="authStore.isLoggedIn" class="mobile-user-info">
+                    <el-avatar :size="32" style="background: #0f3460; color: #fff; font-size: 14px">
+                      {{ authStore.user?.username?.charAt(0)?.toUpperCase() }}
+                    </el-avatar>
+                    <div class="mobile-user-text">
+                      <span class="mobile-username">{{ authStore.user?.username }}</span>
+                      <el-tag size="small" :type="roleTagType">
+                        {{ t(`userMgmt.roles.${authStore.user?.role}`) }}
+                      </el-tag>
+                    </div>
+                  </div>
+                  <el-divider v-if="authStore.isLoggedIn" style="margin: 4px 0" />
+
+                  <el-dropdown-item command="exhibitions">
+                    <el-icon><List /></el-icon> {{ t('nav.exhibitions') }}
+                  </el-dropdown-item>
+
+                  <el-dropdown-item v-if="authStore.isAdmin" command="users">
+                    <el-icon><UserFilled /></el-icon> {{ t('nav.userManagement') }}
+                  </el-dropdown-item>
+
+                  <el-dropdown-item command="lang">
+                    <el-icon><Switch /></el-icon>
+                    {{ locale === 'zh' ? 'English' : '中文' }}
+                  </el-dropdown-item>
+
+                  <el-divider v-if="authStore.isLoggedIn" style="margin: 4px 0" />
+                  <el-dropdown-item v-if="authStore.isLoggedIn" command="logout" style="color: #f56c6c">
+                    <el-icon><SwitchButton /></el-icon> {{ t('nav.logout') }}
                   </el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -74,6 +117,7 @@ import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import en from 'element-plus/es/locale/lang/en'
 import LangSwitch from '@/components/LangSwitch.vue'
 import { useAuthStore } from '@/stores/auth'
+import { Box, List, UserFilled, ArrowDown, Switch, SwitchButton } from '@element-plus/icons-vue'
 
 const { t, locale } = useI18n()
 const route = useRoute()
@@ -90,6 +134,21 @@ const roleTagType = computed(() => {
 
 async function handleUserCommand(cmd) {
   if (cmd === 'logout') {
+    await authStore.logout()
+    ElMessage.success(t('nav.logoutSuccess'))
+    router.push('/login')
+  }
+}
+
+async function handleMobileCommand(cmd) {
+  if (cmd === 'exhibitions') {
+    router.push('/exhibitions')
+  } else if (cmd === 'users') {
+    router.push('/users')
+  } else if (cmd === 'lang') {
+    locale.value = locale.value === 'zh' ? 'en' : 'zh'
+    localStorage.setItem('lang', locale.value)
+  } else if (cmd === 'logout') {
     await authStore.logout()
     ElMessage.success(t('nav.logoutSuccess'))
     router.push('/login')
@@ -149,27 +208,70 @@ body {
   flex-shrink: 0;
 }
 
-.header-nav {
+/* 桌面端导航 */
+.desktop-nav {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
-  overflow: hidden;
 }
 
-@media (max-width: 640px) {
+/* 手机端汉堡菜单 - 默认隐藏 */
+.mobile-nav {
+  display: none;
+}
+
+/* 响应式：768px 以下切换到汉堡菜单 */
+@media (max-width: 768px) {
   .app-header {
-    padding: 0 12px;
+    padding: 0 16px;
   }
-  .logo span {
-    font-size: 15px;
-  }
-  .header-nav {
-    gap: 4px;
-  }
-  .username {
+  .desktop-nav {
     display: none;
   }
+  .mobile-nav {
+    display: flex;
+    align-items: center;
+  }
+}
+
+/* 汉堡图标 */
+.hamburger-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+.hamburger-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+.hamburger-btn span {
+  display: block;
+  width: 22px;
+  height: 2px;
+  background: #fff;
+  border-radius: 2px;
+}
+
+/* 手机端下拉菜单用户信息区 */
+.mobile-user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px 6px;
+}
+.mobile-user-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mobile-username {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
 }
 
 .user-info {
@@ -198,6 +300,12 @@ body {
   max-width: 1400px;
   margin: 0 auto;
   width: 100%;
+}
+
+@media (max-width: 768px) {
+  .app-main {
+    padding: 16px 12px;
+  }
 }
 
 .app-main-login {
