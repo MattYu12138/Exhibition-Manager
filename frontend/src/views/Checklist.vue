@@ -38,6 +38,53 @@
       </div>
     </el-card>
 
+    <!-- Sync card (above search bar) -->
+    <div v-if="store.groupedItems.length" class="sync-footer">
+      <el-card class="sync-card">
+        <div class="sync-content">
+          <div class="sync-info">
+            <div class="sync-title">
+              <el-icon size="20" color="#409eff"><Upload /></el-icon>
+              {{ $t('checklist.syncTitle') }}
+            </div>
+            <div class="sync-desc">
+              {{ $t('checklist.syncDesc') }}
+              <el-tag
+                v-if="store.checkProgress === 100"
+                type="success"
+                size="small"
+                style="margin-left: 8px"
+              >{{ $t('checklist.syncDone') }}</el-tag>
+              <el-tag
+                v-else
+                type="warning"
+                size="small"
+                style="margin-left: 8px"
+              >{{ $t('checklist.syncPending', { done: store.checkedCount, total: store.totalItems }) }}</el-tag>
+            </div>
+          </div>
+          <el-tooltip
+            :content="store.checkProgress < 100 ? $t('checklist.syncTooltip', { n: store.totalItems - store.checkedCount }) : ''"
+            :disabled="store.checkProgress === 100"
+            placement="top"
+          >
+            <span>
+              <el-button
+                type="primary"
+                size="large"
+                :loading="syncing"
+                :disabled="store.checkProgress < 100"
+                @click="syncToSquare"
+              >
+                <el-icon><Upload /></el-icon>
+                {{ $t('checklist.syncBtn') }}
+              </el-button>
+            </span>
+          </el-tooltip>
+        </div>
+      </el-card>
+    </div>
+
     <!-- Search bar -->
     <div v-if="store.groupedItems.length" class="search-bar-wrap">
       <el-input
@@ -295,53 +342,6 @@
           </div>
         </el-card>
       </template>
-    </div>
-
-    <!-- Sync footer (fixed at bottom) -->
-    <div v-if="store.groupedItems.length" class="sync-footer">
-      <el-card class="sync-card">
-        <div class="sync-content">
-          <div class="sync-info">
-            <div class="sync-title">
-              <el-icon size="20" color="#409eff"><Upload /></el-icon>
-              {{ $t('checklist.syncTitle') }}
-            </div>
-            <div class="sync-desc">
-              {{ $t('checklist.syncDesc') }}
-              <el-tag
-                v-if="store.checkProgress === 100"
-                type="success"
-                size="small"
-                style="margin-left: 8px"
-              >{{ $t('checklist.syncDone') }}</el-tag>
-              <el-tag
-                v-else
-                type="warning"
-                size="small"
-                style="margin-left: 8px"
-              >{{ $t('checklist.syncPending', { done: store.checkedCount, total: store.totalItems }) }}</el-tag>
-            </div>
-          </div>
-          <el-tooltip
-            :content="store.checkProgress < 100 ? $t('checklist.syncTooltip', { n: store.totalItems - store.checkedCount }) : ''"
-            :disabled="store.checkProgress === 100"
-            placement="top"
-          >
-            <span>
-              <el-button
-                type="primary"
-                size="large"
-                :loading="syncing"
-                :disabled="store.checkProgress < 100"
-                @click="syncToSquare"
-              >
-                <el-icon><Upload /></el-icon>
-                {{ $t('checklist.syncBtn') }}
-              </el-button>
-            </span>
-          </el-tooltip>
-        </div>
-      </el-card>
     </div>
 
     <!-- ===== 未匹配商品弹窗 ===== -->
@@ -746,7 +746,7 @@ onMounted(() => store.loadExhibition(id))
   border: 1px solid #c6e2ff;
 }
 
-.sync-footer { margin-top: 24px; }
+.sync-footer { margin-bottom: 20px; }
 .sync-card { border: 2px solid #409eff; border-radius: 12px; }
 .sync-content { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .sync-info { flex: 1; }
