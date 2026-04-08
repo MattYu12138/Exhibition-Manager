@@ -34,9 +34,12 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Session 配置（3 小时有效期）
-const sessionDbPath = process.env.SESSION_DB_PATH || path.join(__dirname, 'sessions.db');
+// connect-sqlite3 需要 dir（目录）+ db（文件名）分开传，不支持完整路径
+const sessionDbFull = process.env.SESSION_DB_PATH || path.join(__dirname, 'sessions.db');
+const sessionDbDir = path.dirname(sessionDbFull);
+const sessionDbFile = path.basename(sessionDbFull);
 app.use(session({
-  store: new SQLiteStore({ db: sessionDbPath, table: 'sessions' }),
+  store: new SQLiteStore({ db: sessionDbFile, dir: sessionDbDir, table: 'sessions' }),
   secret: process.env.SESSION_SECRET || 'exhibition-manager-secret-2026',
   resave: false,
   saveUninitialized: false,
