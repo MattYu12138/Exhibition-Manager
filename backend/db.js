@@ -1,7 +1,6 @@
 const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
 const path = require('path');
-const { snowflakeId, userId } = require('./utils/snowflake');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'exhibition.db');
 const db = new Database(DB_PATH);

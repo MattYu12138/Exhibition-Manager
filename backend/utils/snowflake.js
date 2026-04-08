@@ -72,4 +72,38 @@ function userId(db) {
   return 'U' + String(next).padStart(7, '0')
 }
 
-module.exports = { snowflakeId, exhibitionId, userId }
+/**
+ * Generate exhibition item ID: P + 12-digit zero-padded sequential number
+ * e.g. P000000000001 (13 chars total)
+ * @param {object} db - better-sqlite3 database instance
+ */
+function itemId(db) {
+  const rows = db.prepare("SELECT id FROM exhibition_items WHERE id LIKE 'P%'").all()
+  let max = 0
+  for (const row of rows) {
+    const num = parseInt(row.id.slice(1), 10)
+    if (!isNaN(num) && num > max) max = num
+  }
+  const next = max + 1
+  if (next > 999999999999) throw new Error('Item ID overflow: exceeded P999999999999')
+  return 'P' + String(next).padStart(12, '0')
+}
+
+/**
+ * Generate inventory snapshot ID: IS + 8-digit zero-padded sequential number
+ * e.g. IS00000001 (10 chars total)
+ * @param {object} db - better-sqlite3 database instance
+ */
+function snapshotId(db) {
+  const rows = db.prepare("SELECT id FROM inventory_snapshots WHERE id LIKE 'IS%'").all()
+  let max = 0
+  for (const row of rows) {
+    const num = parseInt(row.id.slice(2), 10)
+    if (!isNaN(num) && num > max) max = num
+  }
+  const next = max + 1
+  if (next > 99999999) throw new Error('Snapshot ID overflow: exceeded IS99999999')
+  return 'IS' + String(next).padStart(8, '0')
+}
+
+module.exports = { snowflakeId, exhibitionId, userId, itemId, snapshotId }

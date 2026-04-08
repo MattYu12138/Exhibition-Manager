@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { requireStaff } = require('../middleware/auth');
-const { snowflakeId, exhibitionId } = require('../utils/snowflake');
+const { itemId, exhibitionId } = require('../utils/snowflake');
 
 // 获取所有展会
 router.get('/', (req, res) => {
@@ -100,7 +100,7 @@ router.post('/:id/copy-to/:targetId', requireStaff, (req, res) => {
     const copyMany = db.transaction((items) => {
       for (const item of items) {
         insertItem.run(
-          snowflakeId(),
+          itemId(db),
           targetId,
           item.shopify_product_id,
           item.shopify_variant_id,
@@ -196,7 +196,7 @@ router.post('/:id/items', requireStaff, (req, res) => {
             const addStock = item.stock_quantity !== undefined ? item.stock_quantity : 5;
             const addTotal = addRack + addStock;
             insertItem.run(
-              snowflakeId(),
+              itemId(db),
               req.params.id,
               item.shopify_product_id,
               item.shopify_variant_id,
