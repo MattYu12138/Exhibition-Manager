@@ -2,17 +2,8 @@ services:
   backend:
     build: ./backend
     restart: always
-    environment:
-      - SHOPIFY_SHOP=${SHOPIFY_SHOP}
-      - SHOPIFY_STORE_DOMAIN=${SHOPIFY_STORE_DOMAIN}
-      - SHOPIFY_CLIENT_ID=${SHOPIFY_CLIENT_ID}
-      - SHOPIFY_CLIENT_SECRET=${SHOPIFY_CLIENT_SECRET}
-      - SQUARE_ACCESS_TOKEN=${SQUARE_ACCESS_TOKEN}
-      - SQUARE_LOCATION_ID=${SQUARE_LOCATION_ID}
-      - SQUARE_ENVIRONMENT=${SQUARE_ENVIRONMENT:-production}
-      - PORT=3001
-      - FRONTEND_URL=${FRONTEND_URL}
-      - DB_PATH=${DB_PATH:-/data/exhibition-app/database/exhibition.db}
+    env_file:
+      - ./backend/.env
     volumes:
       - /data/exhibition-app/database:/data/exhibition-app/database
       - /home/ubuntu/Exhibition-Manager/frontend/dist:/frontend/dist:ro
