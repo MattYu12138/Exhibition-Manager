@@ -1,7 +1,7 @@
 const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
 const path = require('path');
-const { snowflakeId } = require('./utils/snowflake');
+const { snowflakeId, userId } = require('./utils/snowflake');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'exhibition.db');
 const db = new Database(DB_PATH);
@@ -81,7 +81,7 @@ for (const sql of migrations) {
 const adminExists = db.prepare("SELECT id FROM users WHERE username = 'admin'").get();
 if (!adminExists) {
   const hash = bcrypt.hashSync('123456', 10);
-  db.prepare("INSERT INTO users (id, username, password_hash, role) VALUES (?, 'admin', ?, 'admin')").run(snowflakeId(), hash);
+  db.prepare("INSERT INTO users (id, username, password_hash, role) VALUES (?, 'admin', ?, 'admin')").run('U0000001', hash);
   console.log('[DB] admin 账号已初始化');
 }
 

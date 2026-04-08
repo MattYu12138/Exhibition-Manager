@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const db = require('../db');
-const { snowflakeId } = require('../utils/snowflake');
+const { userId } = require('../utils/snowflake');
 
 // 中间件：仅管理员可访问
 function adminOnly(req, res, next) {
@@ -35,7 +35,7 @@ router.post('/', adminOnly, (req, res) => {
     return res.status(400).json({ success: false, message: '用户名已存在' });
   }
   const hash = bcrypt.hashSync(password, 10);
-  const newId = snowflakeId();
+  const newId = userId(db);
   db.prepare(
     'INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)'
   ).run(newId, username, hash, role);

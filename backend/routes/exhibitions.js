@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { requireStaff } = require('../middleware/auth');
-const { snowflakeId } = require('../utils/snowflake');
+const { snowflakeId, exhibitionId } = require('../utils/snowflake');
 
 // 获取所有展会
 router.get('/', (req, res) => {
@@ -33,7 +33,7 @@ router.post('/', requireStaff, (req, res) => {
     const { name, date, location } = req.body;
     if (!name) return res.status(400).json({ success: false, message: '展会名称不能为空' });
 
-    const newId = snowflakeId();
+    const newId = exhibitionId(db);
     db.prepare(
       'INSERT INTO exhibitions (id, name, date, location, status) VALUES (?, ?, ?, ?, ?)'
     ).run(newId, name, date || null, location || null, 'preparing');

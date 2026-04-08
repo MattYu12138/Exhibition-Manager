@@ -19,7 +19,6 @@ function snowflakeId() {
   if (now === lastTimestamp) {
     sequence = (sequence + 1n) & MAX_SEQUENCE
     if (sequence === 0n) {
-      // wait for next millisecond
       while (now <= lastTimestamp) {
         now = BigInt(Date.now())
       }
@@ -38,4 +37,39 @@ function snowflakeId() {
   return id.toString()
 }
 
-module.exports = { snowflakeId }
+/**
+ * Generate exhibition ID: EX + 4-digit zero-padded sequential number
+ * e.g. EX0001, EX0002, ..., EX9999
+ * @param {object} db - better-sqlite3 database instance
+ */
+function exhibitionId(db) {
+  // Find the highest existing numeric suffix among EX#### IDs
+  const rows = db.prepare("SELECT id FROM exhibitions WHERE id LIKE 'EX%'").all()
+  let max = 0
+  for (const row of rows) {
+    const num = parseInt(row.id.slice(2), 10)
+    if (!isNaN(num) && num > max) max = num
+  }
+  const next = max + 1
+  if (next > 9999) throw new Error('Exhibition ID overflow: exceeded EX9999')
+  return 'EX' + String(next).padStart(4, '0')
+}
+
+/**
+ * Generate user ID: U + 7-digit zero-padded sequential number
+ * e.g. U0000001, U0000002, ..., U9999999
+ * @param {object} db - better-sqlite3 database instance
+ */
+function userId(db) {
+  const rows = db.prepare("SELECT id FROM users WHERE id LIKE 'U%'").all()
+  let max = 0
+  for (const row of rows) {
+    const num = parseInt(row.id.slice(1), 10)
+    if (!isNaN(num) && num > max) max = num
+  }
+  const next = max + 1
+  if (next > 9999999) throw new Error('User ID overflow: exceeded U9999999')
+  return 'U' + String(next).padStart(7, '0')
+}
+
+module.exports = { snowflakeId, exhibitionId, userId }
