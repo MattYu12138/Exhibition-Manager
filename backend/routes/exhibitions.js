@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const { requireStaff } = require('../middleware/auth');
+const { snowflakeId } = require('../utils/snowflake');
 
 // 获取所有展会
 router.get('/', (req, res) => {
@@ -32,11 +33,12 @@ router.post('/', requireStaff, (req, res) => {
     const { name, date, location } = req.body;
     if (!name) return res.status(400).json({ success: false, message: '展会名称不能为空' });
 
-    const result = db.prepare(
-      'INSERT INTO exhibitions (name, date, location, status) VALUES (?, ?, ?, ?)'
-    ).run(name, date || null, location || null, 'preparing');
+    const newId = snowflakeId();
+    db.prepare(
+      'INSERT INTO exhibitions (id, name, date, location, status) VALUES (?, ?, ?, ?, ?)'
+    ).run(newId, name, date || null, location || null, 'preparing');
 
-    const exhibition = db.prepare('SELECT * FROM exhibitions WHERE id = ?').get(result.lastInsertRowid);
+    const exhibition = db.prepare('SELECT * FROM exhibitions WHERE id = ?').get(newId);
     res.json({ success: true, data: exhibition });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -91,13 +93,14 @@ router.post('/:id/copy-to/:targetId', requireStaff, (req, res) => {
     // 批量插入到目标展会（已存在的变体用 INSERT OR IGNORE 跳过）
     const insertItem = db.prepare(`
       INSERT OR IGNORE INTO exhibition_items
-      (exhibition_id, shopify_product_id, shopify_variant_id, product_title, variant_title, sku, gtin, image_url, planned_quantity, checked)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+      (id, exhibition_id, shopify_product_id, shopify_variant_id, product_title, variant_title, sku, gtin, image_url, planned_quantity, checked)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
     `);
 
     const copyMany = db.transaction((items) => {
       for (const item of items) {
         insertItem.run(
+          snowflakeId(),
           targetId,
           item.shopify_product_id,
           item.shopify_variant_id,
@@ -142,8 +145,8 @@ router.post('/:id/items', requireStaff, (req, res) => {
     );
     const insertItem = db.prepare(`
       INSERT INTO exhibition_items 
-      (exhibition_id, shopify_product_id, shopify_variant_id, product_title, variant_title, sku, gtin, image_url, rack_quantity, stock_quantity, planned_quantity, checked)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+      (id, exhibition_id, shopify_product_id, shopify_variant_id, product_title, variant_title, sku, gtin, image_url, rack_quantity, stock_quantity, planned_quantity, checked)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
     `);
     const updateQty = db.prepare(
       'UPDATE exhibition_items SET rack_quantity = ?, stock_quantity = ?, planned_quantity = ?, product_title = ?, variant_title = ?, sku = ?, gtin = ?, image_url = ? WHERE id = ?'
@@ -193,6 +196,7 @@ router.post('/:id/items', requireStaff, (req, res) => {
             const addStock = item.stock_quantity !== undefined ? item.stock_quantity : 5;
             const addTotal = addRack + addStock;
             insertItem.run(
+              snowflakeId(),
               req.params.id,
               item.shopify_product_id,
               item.shopify_variant_id,

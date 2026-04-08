@@ -13,20 +13,20 @@
 
     <!-- 用户列表 -->
     <el-card>
-      <el-table :data="users" v-loading="loading" stripe style="width: 100%">
-        <el-table-column prop="id" :label="t('userMgmt.colId')" width="60" />
-        <el-table-column prop="username" :label="t('userMgmt.colUsername')" min-width="120" />
-        <el-table-column prop="role" :label="t('userMgmt.colRole')" width="100">
+      <el-table :data="users" v-loading="loading" stripe style="width: 100%" table-layout="fixed">
+        <el-table-column prop="id" :label="t('userMgmt.colId')" :width="idColWidth" align="center" />
+        <el-table-column prop="username" :label="t('userMgmt.colUsername')" align="center" />
+        <el-table-column prop="role" :label="t('userMgmt.colRole')" :width="roleColWidth" align="center">
           <template #default="{ row }">
             <el-tag :type="roleTagType(row.role)" size="small">
               {{ t(`userMgmt.roles.${row.role}`) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" :label="t('userMgmt.colCreatedAt')" width="160">
+        <el-table-column prop="created_at" :label="t('userMgmt.colCreatedAt')" :width="dateColWidth" align="center">
           <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column :label="t('userMgmt.colActions')" width="290" align="right">
+        <el-table-column :label="t('userMgmt.colActions')" :width="actionsColWidth" align="center">
           <template #default="{ row }">
             <div class="action-btns">
               <el-button size="small" @click="openEditRole(row)">{{ t('userMgmt.changeRole') }}</el-button>
@@ -99,7 +99,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
@@ -233,6 +233,13 @@ function formatDate(dt) {
 }
 
 onMounted(loadUsers)
+
+// 按 2:2:1:2:3 比例动态计算列宽（总份数 10）
+const totalWidth = computed(() => window.innerWidth > 1200 ? 1100 : window.innerWidth - 80)
+const idColWidth = computed(() => Math.floor(totalWidth.value * 2 / 10))
+const roleColWidth = computed(() => Math.floor(totalWidth.value * 1 / 10))
+const dateColWidth = computed(() => Math.floor(totalWidth.value * 2 / 10))
+const actionsColWidth = computed(() => Math.floor(totalWidth.value * 3 / 10))
 </script>
 
 <style scoped>
@@ -255,8 +262,8 @@ onMounted(loadUsers)
 .action-btns {
   display: flex;
   flex-wrap: nowrap;
-  gap: 4px;
-  justify-content: flex-end;
+  gap: 6px;
+  justify-content: center;
   align-items: center;
 }
 </style>

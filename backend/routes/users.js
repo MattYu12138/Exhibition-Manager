@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const db = require('../db');
+const { snowflakeId } = require('../utils/snowflake');
 
 // 中间件：仅管理员可访问
 function adminOnly(req, res, next) {
@@ -34,10 +35,11 @@ router.post('/', adminOnly, (req, res) => {
     return res.status(400).json({ success: false, message: '用户名已存在' });
   }
   const hash = bcrypt.hashSync(password, 10);
-  const result = db.prepare(
-    'INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)'
-  ).run(username, hash, role);
-  res.json({ success: true, data: { id: result.lastInsertRowid, username, role } });
+  const newId = snowflakeId();
+  db.prepare(
+    'INSERT INTO users (id, username, password_hash, role) VALUES (?, ?, ?, ?)'
+  ).run(newId, username, hash, role);
+  res.json({ success: true, data: { id: newId, username, role } });
 });
 
 // 修改用户角色
@@ -47,8 +49,8 @@ router.patch('/:id/role', adminOnly, (req, res) => {
   if (!['admin', 'staff', 'guest'].includes(role)) {
     return res.status(400).json({ success: false, message: '无效的角色' });
   }
-  // 不允许修改自己的角色
-  if (parseInt(id) === req.session.user.id) {
+  // 不允许修改自己的角色（字符串比较）
+  if (String(id) === String(req.session.user.id)) {
     return res.status(400).json({ success: false, message: '不能修改自己的角色' });
   }
   db.prepare('UPDATE users SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(role, id);
@@ -70,11 +72,12 @@ router.patch('/:id/password', adminOnly, (req, res) => {
 // 删除用户
 router.delete('/:id', adminOnly, (req, res) => {
   const { id } = req.params;
-  if (parseInt(id) === req.session.user.id) {
+  // 不允许删除自己（字符串比较）
+  if (String(id) === String(req.session.user.id)) {
     return res.status(400).json({ success: false, message: '不能删除自己' });
   }
   db.prepare('DELETE FROM users WHERE id = ?').run(id);
   res.json({ success: true });
 });
 
-module.exports = router;
+module.exports = exports = router;

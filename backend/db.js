@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
 const path = require('path');
+const { snowflakeId } = require('./utils/snowflake');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'exhibition.db');
 const db = new Database(DB_PATH);
@@ -8,11 +9,11 @@ const db = new Database(DB_PATH);
 // 启用 WAL 模式提升性能
 db.pragma('journal_mode = WAL');
 
-// 初始化数据表
+// 初始化数据表（新建库使用雪花 ID）
 db.exec(`
   -- 展会活动表
   CREATE TABLE IF NOT EXISTS exhibitions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     date TEXT,
     location TEXT,
@@ -23,8 +24,8 @@ db.exec(`
 
   -- 展会商品清单表
   CREATE TABLE IF NOT EXISTS exhibition_items (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    exhibition_id INTEGER NOT NULL,
+    id TEXT PRIMARY KEY,
+    exhibition_id TEXT NOT NULL,
     shopify_product_id TEXT NOT NULL,
     shopify_variant_id TEXT NOT NULL,
     product_title TEXT NOT NULL,
@@ -43,8 +44,8 @@ db.exec(`
 
   -- 展会结束后剩余盘点表
   CREATE TABLE IF NOT EXISTS inventory_snapshots (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    exhibition_id INTEGER NOT NULL,
+    id TEXT PRIMARY KEY,
+    exhibition_id TEXT NOT NULL,
     shopify_variant_id TEXT NOT NULL,
     square_catalog_variation_id TEXT,
     square_quantity_before INTEGER DEFAULT 0,
@@ -57,7 +58,7 @@ db.exec(`
 
   -- 用户账号表
   CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'staff',
@@ -80,7 +81,7 @@ for (const sql of migrations) {
 const adminExists = db.prepare("SELECT id FROM users WHERE username = 'admin'").get();
 if (!adminExists) {
   const hash = bcrypt.hashSync('123456', 10);
-  db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('admin', ?, 'admin')").run(hash);
+  db.prepare("INSERT INTO users (id, username, password_hash, role) VALUES (?, 'admin', ?, 'admin')").run(snowflakeId(), hash);
   console.log('[DB] admin 账号已初始化');
 }
 

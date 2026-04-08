@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const squareService = require('../services/square');
 const db = require('../db');
+const { snowflakeId } = require('../utils/snowflake');
 
 // 获取 Square 商品目录
 router.get('/catalog', async (req, res) => {
@@ -165,8 +166,8 @@ router.post('/sync', async (req, res) => {
               ).run(match.variationId, newTotalQty, existing.id);
             } else {
               db.prepare(
-                'INSERT INTO inventory_snapshots (exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before) VALUES (?, ?, ?, ?)'
-              ).run(exhibition_id, item.shopify_variant_id, match.variationId, newTotalQty);
+                'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before) VALUES (?, ?, ?, ?, ?)'
+              ).run(snowflakeId(), exhibition_id, item.shopify_variant_id, match.variationId, newTotalQty);
             }
 
             db.prepare(
@@ -214,8 +215,8 @@ router.post('/sync', async (req, res) => {
           ).run(squareRemaining, soldQty, remainingQty, snapshot.id);
         } else {
           db.prepare(
-            'INSERT INTO inventory_snapshots (exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before, square_quantity_after, sold_quantity, remaining_quantity) VALUES (?, ?, ?, ?, ?, ?, ?)'
-          ).run(exhibition_id, item.shopify_variant_id, match.variationId, qtyBefore, squareRemaining, soldQty, remainingQty);
+            'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before, square_quantity_after, sold_quantity, remaining_quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+          ).run(snowflakeId(), exhibition_id, item.shopify_variant_id, match.variationId, qtyBefore, squareRemaining, soldQty, remainingQty);
         }
 
         results.push({
@@ -291,8 +292,8 @@ router.post('/create-items', async (req, res) => {
             ).run(variationId, plannedQty, existing.id);
           } else {
             db.prepare(
-              'INSERT INTO inventory_snapshots (exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before) VALUES (?, ?, ?, ?)'
-            ).run(exhibition_id, item.shopify_variant_id, variationId, plannedQty);
+              'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before) VALUES (?, ?, ?, ?, ?)'
+            ).run(snowflakeId(), exhibition_id, item.shopify_variant_id, variationId, plannedQty);
           }
 
           // 4. 更新 last_synced_quantity
