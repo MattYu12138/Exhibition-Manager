@@ -1,7 +1,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 
-const DB_PATH = path.join(__dirname, 'exhibition.db');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'exhibition.db');
 const db = new Database(DB_PATH);
 
 // 启用 WAL 模式提升性能
