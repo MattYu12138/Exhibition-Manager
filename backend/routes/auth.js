@@ -1,47 +1,96 @@
 /**
- * Shopify Token 管理模块
- * 基于官方文档：https://shopify.dev/docs/apps/build/dev-dashboard/get-api-access-tokens
- *
- * 使用 client_credentials grant 方式（Dev Dashboard App 专用）：
- *   - 不需要浏览器跳转授权页面
- *   - 直接用 Client ID + Client Secret POST 换取 access_token
- *   - Token 有效期 24 小时，自动刷新
- *
- * .env 需要配置：
- *   SHOPIFY_SHOP=lummi-in-colour           (不含 .myshopify.com)
- *   SHOPIFY_CLIENT_ID=your_client_id
- *   SHOPIFY_CLIENT_SECRET=your_client_secret
+ * 认证模块：登录、登出、验证码、当前用户
+ * （原 Shopify Token 管理功能已保留在下方）
  */
 
 const express = require('express');
 const router = express.Router();
+const bcrypt = require('bcryptjs');
+const svgCaptcha = require('svg-captcha');
+const db = require('../db');
 const { URLSearchParams } = require('url');
 
-// Token 缓存（内存）
+// ─── 用户认证 ────────────────────────────────────────────────
+
+// 生成图形验证码
+router.get('/captcha', (req, res) => {
+  const captcha = svgCaptcha.create({
+    size: 4,
+    noise: 2,
+    color: true,
+    background: '#f0f4ff',
+    width: 120,
+    height: 40,
+    fontSize: 40,
+  });
+  req.session.captcha = captcha.text.toLowerCase();
+  res.type('svg');
+  res.send(captcha.data);
+});
+
+// 登录
+router.post('/login', (req, res) => {
+  const { username, password, captcha } = req.body;
+
+  if (!username || !password || !captcha) {
+    return res.status(400).json({ success: false, message: '请填写所有字段' });
+  }
+
+  // 验证验证码（不区分大小写）
+  if (!req.session.captcha || captcha.toLowerCase() !== req.session.captcha) {
+    req.session.captcha = null;
+    return res.status(400).json({ success: false, message: '验证码错误' });
+  }
+  req.session.captcha = null;
+
+  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+  if (!user) {
+    return res.status(401).json({ success: false, message: '用户名或密码错误' });
+  }
+
+  const valid = bcrypt.compareSync(password, user.password_hash);
+  if (!valid) {
+    return res.status(401).json({ success: false, message: '用户名或密码错误' });
+  }
+
+  req.session.user = { id: user.id, username: user.username, role: user.role };
+
+  res.json({
+    success: true,
+    user: { id: user.id, username: user.username, role: user.role },
+  });
+});
+
+// 登出
+router.post('/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.json({ success: true });
+  });
+});
+
+// 获取当前登录用户
+router.get('/me', (req, res) => {
+  if (!req.session.user) {
+    return res.status(401).json({ success: false, message: '未登录' });
+  }
+  res.json({ success: true, user: req.session.user });
+});
+
+// ─── Shopify Token 管理（原有功能保留） ──────────────────────
+
 let cachedToken = null;
 let tokenExpiresAt = 0;
 
-/**
- * 使用 client_credentials grant 获取 access_token
- * 官方文档示例：POST https://{shop}.myshopify.com/admin/oauth/access_token
- * Body: grant_type=client_credentials&client_id=...&client_secret=...
- */
 async function getShopifyToken() {
-  // 距离过期还有 60 秒以上则直接返回缓存
   if (cachedToken && Date.now() < tokenExpiresAt - 60_000) {
     return cachedToken;
   }
-
   const shop = process.env.SHOPIFY_SHOP;
   const clientId = process.env.SHOPIFY_CLIENT_ID;
   const clientSecret = process.env.SHOPIFY_CLIENT_SECRET;
-
   if (!shop || !clientId || !clientSecret) {
-    throw new Error(
-      '缺少 Shopify 凭据，请在 .env 中配置 SHOPIFY_SHOP、SHOPIFY_CLIENT_ID、SHOPIFY_CLIENT_SECRET'
-    );
+    throw new Error('缺少 Shopify 凭据');
   }
-
   const response = await fetch(
     `https://${shop}.myshopify.com/admin/oauth/access_token`,
     {
@@ -54,24 +103,17 @@ async function getShopifyToken() {
       }),
     }
   );
-
   if (!response.ok) {
     const text = await response.text();
     throw new Error(`获取 Shopify Token 失败 (${response.status}): ${text}`);
   }
-
   const { access_token, expires_in } = await response.json();
   cachedToken = access_token;
   tokenExpiresAt = Date.now() + expires_in * 1000;
-
   console.log(`[Shopify Auth] Token 获取成功，有效期 ${expires_in} 秒`);
   return cachedToken;
 }
 
-/**
- * GET /auth/token
- * 返回当前有效的 access_token（供调试用）
- */
 router.get('/auth/token', async (req, res) => {
   try {
     const token = await getShopifyToken();
@@ -79,7 +121,6 @@ router.get('/auth/token', async (req, res) => {
       success: true,
       access_token: token,
       expires_at: new Date(tokenExpiresAt).toISOString(),
-      message: '请将此 token 填入 .env 的 SHOPIFY_ACCESS_TOKEN（可选，系统会自动刷新）',
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

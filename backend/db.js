@@ -1,4 +1,5 @@
 const Database = require('better-sqlite3');
+const bcrypt = require('bcryptjs');
 const path = require('path');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'exhibition.db');
@@ -15,12 +16,12 @@ db.exec(`
     name TEXT NOT NULL,
     date TEXT,
     location TEXT,
-    status TEXT DEFAULT 'preparing',  -- preparing / active / completed
+    status TEXT DEFAULT 'preparing',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
-  -- 展会商品清单表（出发前选择的商品）
+  -- 展会商品清单表
   CREATE TABLE IF NOT EXISTS exhibition_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     exhibition_id INTEGER NOT NULL,
@@ -31,11 +32,11 @@ db.exec(`
     sku TEXT,
     gtin TEXT,
     image_url TEXT,
-    rack_quantity INTEGER DEFAULT 5,       -- 挂衣架数量
-    stock_quantity INTEGER DEFAULT 5,      -- 备货数量
-    planned_quantity INTEGER DEFAULT 10,   -- 计划带走总数（= rack_quantity + stock_quantity）
-    checked INTEGER DEFAULT 0,            -- 是否已清点（0/1）
-    last_synced_quantity INTEGER DEFAULT NULL, -- 上次同步到 Square 时的数量
+    rack_quantity INTEGER DEFAULT 5,
+    stock_quantity INTEGER DEFAULT 5,
+    planned_quantity INTEGER DEFAULT 10,
+    checked INTEGER DEFAULT 0,
+    last_synced_quantity INTEGER DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (exhibition_id) REFERENCES exhibitions(id) ON DELETE CASCADE
   );
@@ -46,12 +47,22 @@ db.exec(`
     exhibition_id INTEGER NOT NULL,
     shopify_variant_id TEXT NOT NULL,
     square_catalog_variation_id TEXT,
-    square_quantity_before INTEGER DEFAULT 0,   -- 出发前 Square 库存
-    square_quantity_after INTEGER DEFAULT 0,    -- 展会结束后 Square 库存
-    sold_quantity INTEGER DEFAULT 0,            -- 展会销售数量（差值）
-    remaining_quantity INTEGER DEFAULT 0,       -- 剩余数量
+    square_quantity_before INTEGER DEFAULT 0,
+    square_quantity_after INTEGER DEFAULT 0,
+    sold_quantity INTEGER DEFAULT 0,
+    remaining_quantity INTEGER DEFAULT 0,
     synced_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (exhibition_id) REFERENCES exhibitions(id) ON DELETE CASCADE
+  );
+
+  -- 用户账号表
+  CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'staff',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 `);
 
@@ -63,6 +74,14 @@ const migrations = [
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (e) { /* 字段已存在，忽略 */ }
+}
+
+// 初始化 admin 账号（若不存在）
+const adminExists = db.prepare("SELECT id FROM users WHERE username = 'admin'").get();
+if (!adminExists) {
+  const hash = bcrypt.hashSync('123456', 10);
+  db.prepare("INSERT INTO users (username, password_hash, role) VALUES ('admin', ?, 'admin')").run(hash);
+  console.log('[DB] admin 账号已初始化');
 }
 
 module.exports = db;

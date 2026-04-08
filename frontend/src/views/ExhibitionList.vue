@@ -6,7 +6,7 @@
         <p class="page-desc">{{ t('exhibitionList.pageDesc') }}</p>
       </div>
       <div class="header-actions">
-        <el-button type="primary" size="large" @click="$router.push('/exhibitions/new')">
+        <el-button v-if="authStore.canEdit" type="primary" size="large" @click="$router.push('/exhibitions/new')">
           <el-icon><Plus /></el-icon> {{ t('exhibitionList.newExhibition') }}
         </el-button>
       </div>
@@ -56,7 +56,7 @@
       </template>
 
       <el-empty v-if="!store.exhibitions.length" :description="t('exhibitionList.empty')">
-        <el-button type="primary" @click="$router.push('/exhibitions/new')">{{ t('exhibitionList.newExhibition') }}</el-button>
+        <el-button v-if="authStore.canEdit" type="primary" @click="$router.push('/exhibitions/new')">{{ t('exhibitionList.newExhibition') }}</el-button>
       </el-empty>
 
       <div v-else class="exhibition-grid">
@@ -68,7 +68,7 @@
         >
           <div class="ex-card-header">
             <el-tag :type="statusType(ex.status)" size="small">{{ statusLabel(ex.status) }}</el-tag>
-            <el-dropdown @command="(cmd) => handleCommand(cmd, ex)">
+            <el-dropdown v-if="authStore.canEdit" @command="(cmd) => handleCommand(cmd, ex)">
               <el-icon class="more-btn"><MoreFilled /></el-icon>
               <template #dropdown>
                 <el-dropdown-menu>
@@ -88,8 +88,9 @@
           </div>
 
           <div class="ex-card-footer">
-            <!-- 上行：复制模版按钮 -->
+            <!-- 上行：复制模版按钮（仅员工/管理员） -->
             <el-button
+              v-if="authStore.canEdit"
               size="small"
               plain
               type="warning"
@@ -214,6 +215,9 @@ import { useI18n } from 'vue-i18n'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { useExhibitionStore } from '@/stores/exhibition'
 import { exhibitionApi } from '@/api'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
 
 const { t } = useI18n()
 const store = useExhibitionStore()

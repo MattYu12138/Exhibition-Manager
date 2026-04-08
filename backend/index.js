@@ -2,19 +2,22 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const session = require('express-session');
+const SQLiteStore = require('connect-sqlite3')(session);
 
 const exhibitionsRouter = require('./routes/exhibitions');
 const shopifyRouter = require('./routes/shopify');
 const squareRouter = require('./routes/square');
 const authRouter = require('./routes/auth');
+const usersRouter = require('./routes/users');
+const { requireLogin, requireStaff } = require('./middleware/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// 中间件
+// ─── 中间件 ───────────────────────────────────────────────────
 app.use(cors({
   origin: function(origin, callback) {
-    // 允许 Shopify Admin iframe、本地开发、以及无 origin 的请求（同源）
     const allowed = [
       process.env.FRONTEND_URL || 'http://localhost:5173',
       'https://admin.shopify.com',
@@ -22,7 +25,7 @@ app.use(cors({
     if (!origin || allowed.some(o => origin.startsWith(o))) {
       callback(null, true);
     } else {
-      callback(null, true); // 私有应用，允许所有来源
+      callback(null, true);
     }
   },
   credentials: true,
@@ -30,7 +33,23 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 健康检查
+// Session 配置（3 小时有效期）
+const sessionDbPath = process.env.SESSION_DB_PATH || path.join(__dirname, 'sessions.db');
+app.use(session({
+  store: new SQLiteStore({ db: sessionDbPath, table: 'sessions' }),
+  secret: process.env.SESSION_SECRET || 'exhibition-manager-secret-2026',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 3 * 60 * 60 * 1000, // 3 小时
+    httpOnly: true,
+    sameSite: 'lax',
+  },
+}));
+
+// ─── 路由 ─────────────────────────────────────────────────────
+
+// 健康检查（无需登录）
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -40,28 +59,33 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// OAuth 授权路由（用于获取主商店 Access Token，一次性使用）
+// 认证路由（无需登录）
+app.use('/api/auth', authRouter);
+
+// 账号管理路由（仅管理员）
+app.use('/api/users', usersRouter);
+
+// 业务路由（需要登录）
+app.use('/api/exhibitions', requireLogin, exhibitionsRouter);
+app.use('/api/shopify', requireLogin, shopifyRouter);
+app.use('/api/square', requireLogin, squareRouter);
+
+// 原 Shopify OAuth 路由（保留兼容）
 app.use('/', authRouter);
 
-// API 路由
-app.use('/api/exhibitions', exhibitionsRouter);
-app.use('/api/shopify', shopifyRouter);
-app.use('/api/square', squareRouter);
-
-// 提供前端静态文件（当 dist 目录存在时）
+// ─── 静态文件 & SPA fallback ──────────────────────────────────
 const fs = require('fs');
 const distPath = path.resolve(__dirname, '../frontend/dist');
 console.log('[Static] dist path:', distPath, 'exists:', fs.existsSync(distPath));
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
-  // SPA fallback: 非 /api 路由都返回 index.html
   app.use((req, res, next) => {
     if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }
 
-// 错误处理
+// ─── 错误处理 ─────────────────────────────────────────────────
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({ success: false, message: '服务器内部错误', error: err.message });

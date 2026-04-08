@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const { requireStaff } = require('../middleware/auth');
 
 // 获取所有展会
 router.get('/', (req, res) => {
@@ -26,7 +27,7 @@ router.get('/:id', (req, res) => {
 });
 
 // 创建展会
-router.post('/', (req, res) => {
+router.post('/', requireStaff, (req, res) => {
   try {
     const { name, date, location } = req.body;
     if (!name) return res.status(400).json({ success: false, message: '展会名称不能为空' });
@@ -43,7 +44,7 @@ router.post('/', (req, res) => {
 });
 
 // 更新展会信息
-router.put('/:id', (req, res) => {
+router.put('/:id', requireStaff, (req, res) => {
   try {
     const { name, date, location, status } = req.body;
     db.prepare(
@@ -58,7 +59,7 @@ router.put('/:id', (req, res) => {
 });
 
 // 删除展会
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireStaff, (req, res) => {
   try {
     db.prepare('DELETE FROM exhibitions WHERE id = ?').run(req.params.id);
     res.json({ success: true, message: '展会已删除' });
@@ -69,7 +70,7 @@ router.delete('/:id', (req, res) => {
 
 // ⚠️ 复制模版路由必须放在 /:id/items 路由之前，否则 Express 会将 "copy-to" 误匹配为 itemId
 // POST /api/exhibitions/:id/copy-to/:targetId
-router.post('/:id/copy-to/:targetId', (req, res) => {
+router.post('/:id/copy-to/:targetId', requireStaff, (req, res) => {
   try {
     const sourceId = req.params.id;
     const targetId = req.params.targetId;
@@ -129,7 +130,7 @@ router.post('/:id/copy-to/:targetId', (req, res) => {
 //   action='add'    新增变体（不存在时插入，已存在时忽略）
 //   action='update' 更新数量（将 planned_quantity 覆盖为新绝对值）
 //   action='remove' 删除变体
-router.post('/:id/items', (req, res) => {
+router.post('/:id/items', requireStaff, (req, res) => {
   try {
     const { items } = req.body;
     if (!items || !Array.isArray(items)) {
@@ -219,7 +220,7 @@ router.post('/:id/items', (req, res) => {
 
 // 批量更新清点状态（整个商品所有变体打勾）
 // ⚠️ 此路由必须在 /:id/items/:itemId 之前，否则 "product" 会被误匹配为 itemId
-router.put('/:id/items/product/:productId/check', (req, res) => {
+router.put('/:id/items/product/:productId/check', requireStaff, (req, res) => {
   try {
     const { checked } = req.body;
     db.prepare(
@@ -234,7 +235,7 @@ router.put('/:id/items/product/:productId/check', (req, res) => {
 });
 
 // 更新单个商品的清点状态或数量
-router.put('/:id/items/:itemId', (req, res) => {
+router.put('/:id/items/:itemId', requireStaff, (req, res) => {
   try {
     const { checked, planned_quantity, rack_quantity, stock_quantity } = req.body;
     // 如果传入 rack_quantity 或 stock_quantity，自动重算 planned_quantity
@@ -269,7 +270,7 @@ router.put('/:id/items/:itemId', (req, res) => {
 });
 
 // 清空展会中所有商品
-router.delete('/:id/items', (req, res) => {
+router.delete('/:id/items', requireStaff, (req, res) => {
   try {
     db.prepare('DELETE FROM exhibition_items WHERE exhibition_id = ?').run(req.params.id);
     res.json({ success: true, message: '已清空展会商品清单' });
@@ -279,7 +280,7 @@ router.delete('/:id/items', (req, res) => {
 });
 
 // 删除展会中的商品
-router.delete('/:id/items/:itemId', (req, res) => {
+router.delete('/:id/items/:itemId', requireStaff, (req, res) => {
   try {
     db.prepare('DELETE FROM exhibition_items WHERE id = ? AND exhibition_id = ?').run(
       req.params.itemId,

@@ -3,10 +3,16 @@ const api = axios.create({
   baseURL: '/api',
   timeout: 30000,
   headers: { 'Content-Type': 'application/json' },
+  withCredentials: true,
 })
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
+    // Session 过期或未登录，跳转到登录页
+    if (error.response?.status === 401) {
+      window.location.href = '/login'
+      return Promise.reject(new Error('未登录'))
+    }
     const message = error.response?.data?.message || error.message || '请求失败'
     return Promise.reject(new Error(message))
   }

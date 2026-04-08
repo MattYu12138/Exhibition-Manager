@@ -29,6 +29,7 @@
           </div>
           <div class="info-actions">
             <el-select
+              v-if="authStore.canEdit"
               v-model="currentStatus"
               size="small"
               style="width: 120px"
@@ -84,14 +85,14 @@
         <template #header>
           <div class="card-header">
             <span style="font-weight: 600">{{ t('selectProducts.pageTitle') }}</span>
-            <el-button size="small" type="primary" @click="$router.push(`/exhibitions/${id}/select-products`)">
+            <el-button v-if="authStore.canEdit" size="small" type="primary" @click="$router.push(`/exhibitions/${id}/select-products`)">
               <el-icon><Plus /></el-icon> {{ t('selectProducts.confirm') }}
             </el-button>
           </div>
         </template>
 
         <el-empty v-if="!store.currentExhibition.items?.length" :description="t('selectProducts.noProducts')">
-          <el-button type="primary" @click="$router.push(`/exhibitions/${id}/select-products`)">
+          <el-button v-if="authStore.canEdit" type="primary" @click="$router.push(`/exhibitions/${id}/select-products`)">
             {{ t('exhibitionDetail.step1Title') }}
           </el-button>
         </el-empty>
@@ -135,6 +136,9 @@ import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { useExhibitionStore } from '@/stores/exhibition'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
 
 const { t } = useI18n()
 const route = useRoute()
