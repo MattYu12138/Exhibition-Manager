@@ -85,13 +85,32 @@
       </el-card>
     </div>
 
-    <!-- Search bar -->
-    <div v-if="store.groupedItems.length" class="search-bar-wrap">
+    <!-- Tab toggle + Search bar -->
+    <div v-if="store.groupedItems.length" class="tab-search-row">
+      <div class="tab-toggle">
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'unchecked' }"
+          @click="activeTab = 'unchecked'"
+        >
+          {{ $t('checklist.sectionUnchecked') }}
+          <span class="tab-count">{{ uncheckedGroups.length }}</span>
+        </button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'checked' }"
+          @click="activeTab = 'checked'"
+        >
+          {{ $t('checklist.sectionChecked') }}
+          <span class="tab-count">{{ checkedGroups.length }}</span>
+        </button>
+      </div>
       <el-input
         v-model="searchQuery"
         :placeholder="$t('checklist.searchPlaceholder')"
         clearable
         size="large"
+        class="tab-search-input"
         @input="handleSearch"
       >
         <template #prefix>
@@ -111,24 +130,17 @@
         </el-button>
       </el-empty>
 
-      <!-- 搜索无结果 -->
       <el-empty
-        v-else-if="store.groupedItems.length && !uncheckedGroups.length && !checkedGroups.length"
-        :description="$t('checklist.searchEmpty')"
+        v-else-if="store.groupedItems.length && activeGroups.length === 0"
+        :description="searchQuery ? $t('checklist.searchEmpty') : (activeTab === 'unchecked' ? $t('checklist.tabUncheckedEmpty') : $t('checklist.tabCheckedEmpty'))"
       />
 
       <template v-else>
-        <!-- ── 未清点分区 ── -->
-        <div v-if="uncheckedGroups.length" class="section-header unchecked-header">
-          <el-icon color="#e6a23c"><Warning /></el-icon>
-          <span>{{ $t('checklist.sectionUnchecked') }}</span>
-          <el-tag type="warning" size="small" round>{{ uncheckedGroups.length }}</el-tag>
-        </div>
-
         <el-card
-          v-for="group in uncheckedGroups"
-          :key="'u-' + group.product_id"
+          v-for="group in activeGroups"
+          :key="activeTab + '-' + group.product_id"
           class="product-group-card"
+          :class="{ 'all-checked': activeTab === 'checked' }"
         >
           <div class="group-header">
             <div class="group-title-area">
@@ -147,10 +159,13 @@
               </div>
             </div>
             <div class="group-check-btn">
-              <el-tooltip :content="$t('checklist.toggleAllUnchecked')" placement="top">
+              <el-tooltip
+                :content="activeTab === 'checked' ? $t('checklist.toggleAllChecked') : $t('checklist.toggleAllUnchecked')"
+                placement="top"
+              >
                 <el-button
-                  type="default"
-                  icon="Check"
+                  :type="activeTab === 'checked' ? 'success' : 'default'"
+                  :icon="activeTab === 'checked' ? 'CircleCheck' : 'Check'"
                   circle
                   size="large"
                   @click="toggleProductCheck(group)"
@@ -220,123 +235,11 @@
 
               <el-button
                 size="small"
-                type="default"
+                :type="variant.checked ? 'success' : 'default'"
                 @click.stop="toggleVariantCheck(variant)"
                 style="min-width: 72px; flex-shrink: 0"
               >
-                {{ $t('checklist.markCheck') }}
-              </el-button>
-            </div>
-          </div>
-        </el-card>
-
-        <!-- ── 已清点分区 ── -->
-        <div v-if="checkedGroups.length" class="section-header checked-header">
-          <el-icon color="#67c23a"><CircleCheck /></el-icon>
-          <span>{{ $t('checklist.sectionChecked') }}</span>
-          <el-tag type="success" size="small" round>{{ checkedGroups.length }}</el-tag>
-        </div>
-
-        <el-card
-          v-for="group in checkedGroups"
-          :key="'c-' + group.product_id"
-          class="product-group-card all-checked"
-        >
-          <div class="group-header">
-            <div class="group-title-area">
-              <el-image
-                v-if="group.image_url"
-                :src="group.image_url"
-                style="width: 52px; height: 52px; border-radius: 10px; flex-shrink: 0"
-                fit="cover"
-              />
-              <div v-else class="group-placeholder"><el-icon><Box /></el-icon></div>
-              <div>
-                <div class="group-title">{{ group.product_title }}</div>
-                <div class="group-meta">
-                  {{ $t('checklist.sizesChecked', { done: group.variants.filter((v) => v.checked).length, total: group.variants.length }) }}
-                </div>
-              </div>
-            </div>
-            <div class="group-check-btn">
-              <el-tooltip :content="$t('checklist.toggleAllChecked')" placement="top">
-                <el-button
-                  type="success"
-                  icon="CircleCheck"
-                  circle
-                  size="large"
-                  @click="toggleProductCheck(group)"
-                />
-              </el-tooltip>
-            </div>
-          </div>
-
-          <div class="variant-checklist">
-            <div
-              v-for="variant in group.variants"
-              :key="variant.id"
-              class="variant-check-row"
-              :class="{ checked: variant.checked }"
-            >
-              <div class="check-icon-wrap" @click="toggleVariantCheck(variant)">
-                <transition name="check-bounce">
-                  <el-icon v-if="variant.checked" class="check-icon checked-icon" size="22" color="#67c23a">
-                    <CircleCheck />
-                  </el-icon>
-                  <el-icon v-else class="check-icon unchecked-icon" size="22" color="#dcdfe6">
-                    <CircleClose />
-                  </el-icon>
-                </transition>
-              </div>
-
-              <div class="variant-detail" @click="toggleVariantCheck(variant)">
-                <span class="variant-name">{{ variant.variant_title || '默认' }}</span>
-                <div class="variant-tags">
-                  <el-tag v-if="variant.sku" size="small" type="info">{{ variant.sku }}</el-tag>
-                  <el-tag v-if="variant.gtin" size="small" type="warning">{{ variant.gtin }}</el-tag>
-                </div>
-              </div>
-
-              <div class="checklist-qty-area" @click.stop>
-                <div class="checklist-qty-group">
-                  <div class="checklist-qty-field">
-                    <div class="checklist-qty-label">{{ $t('checklist.rack') }}</div>
-                    <el-input-number
-                      v-model="localQty[variant.id].rack"
-                      :min="0"
-                      :max="9999"
-                      size="small"
-                      style="width: 80px"
-                      @change="onLocalQtyChange(variant)"
-                    />
-                  </div>
-                  <div class="checklist-qty-field">
-                    <div class="checklist-qty-label">{{ $t('checklist.storage') }}</div>
-                    <el-input-number
-                      v-model="localQty[variant.id].stock"
-                      :min="0"
-                      :max="9999"
-                      size="small"
-                      style="width: 80px"
-                      @change="onLocalQtyChange(variant)"
-                    />
-                  </div>
-                  <div class="checklist-qty-field checklist-qty-total">
-                    <div class="checklist-qty-label">{{ $t('checklist.totalLabel') }}</div>
-                    <div class="checklist-total-value">
-                      {{ (localQty[variant.id].rack || 0) + (localQty[variant.id].stock || 0) }}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <el-button
-                size="small"
-                type="success"
-                @click.stop="toggleVariantCheck(variant)"
-                style="min-width: 72px; flex-shrink: 0"
-              >
-                {{ $t('checklist.checked') }}
+                {{ variant.checked ? $t('checklist.checked') : $t('checklist.markCheck') }}
               </el-button>
             </div>
           </div>
@@ -484,6 +387,9 @@ const syncing = ref(false)
 // 搜索
 const searchQuery = ref('')
 
+// 标签页：'unchecked' | 'checked'，默认显示未清点
+const activeTab = ref('unchecked')
+
 function handleSearch() {
   // 搜索是 computed 驱动的，此函数保留用于扩展（如重置分页）
 }
@@ -514,6 +420,11 @@ const uncheckedGroups = computed(() =>
 /** 已清点分区：所有变体都已清点的商品组 */
 const checkedGroups = computed(() =>
   filteredGroups.value.filter((g) => g.variants.every((v) => v.checked))
+)
+
+/** 当前标签页显示的商品组 */
+const activeGroups = computed(() =>
+  activeTab.value === 'unchecked' ? uncheckedGroups.value : checkedGroups.value
 )
 
 // Local qty state: { [variantId]: { rack, stock } }
@@ -687,17 +598,30 @@ onMounted(() => store.loadExhibition(id))
 .progress-actions { display: flex; gap: 8px; }
 .all-done { display: flex; align-items: center; gap: 6px; margin-top: 12px; color: #67c23a; font-weight: 600; font-size: 15px; }
 
-/* 搜索框 */
-.search-bar-wrap { margin-bottom: 20px; }
-
-/* 分区标题 */
-.section-header {
-  display: flex; align-items: center; gap: 8px;
-  font-size: 15px; font-weight: 700;
-  padding: 10px 4px; margin-bottom: 8px; margin-top: 8px;
+/* Tab + 搜索行 */
+.tab-search-row {
+  display: flex; align-items: center; gap: 12px;
+  margin-bottom: 20px; flex-wrap: wrap;
 }
-.unchecked-header { color: #e6a23c; }
-.checked-header { color: #67c23a; }
+.tab-toggle {
+  display: flex; background: #f5f7fa; border-radius: 8px; padding: 4px; gap: 4px; flex-shrink: 0;
+}
+.tab-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 16px; border-radius: 6px; border: none; cursor: pointer;
+  font-size: 14px; font-weight: 600; background: transparent; color: #606266;
+  transition: all 0.2s;
+}
+.tab-btn:hover { background: #e9ecef; color: #303133; }
+.tab-btn.active { background: #fff; color: #409eff; box-shadow: 0 1px 4px rgba(0,0,0,0.12); }
+.tab-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 20px; padding: 0 6px;
+  border-radius: 10px; font-size: 12px; font-weight: 700;
+  background: #e9ecef; color: #606266;
+}
+.tab-btn.active .tab-count { background: #ecf5ff; color: #409eff; }
+.tab-search-input { flex: 1; min-width: 200px; }
 
 .product-groups { display: flex; flex-direction: column; gap: 16px; }
 

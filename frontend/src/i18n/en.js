@@ -163,6 +163,8 @@ export default {
     searchEmpty: 'No matching products found',
     sectionUnchecked: 'Unchecked',
     sectionChecked: 'Checked',
+    tabUncheckedEmpty: 'All items have been checked!',
+    tabCheckedEmpty: 'No checked items yet',
   },
 
   // Inventory Result

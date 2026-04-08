@@ -163,6 +163,8 @@ export default {
     searchEmpty: '未找到匹配的商品',
     sectionUnchecked: '未清点',
     sectionChecked: '已清点',
+    tabUncheckedEmpty: '所有商品已清点完成！',
+    tabCheckedEmpty: '还没有已清点的商品',
   },
 
   // 库存结果页
