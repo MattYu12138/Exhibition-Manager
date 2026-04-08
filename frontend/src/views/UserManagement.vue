@@ -31,6 +31,9 @@
             <div class="action-btns">
               <el-button size="small" @click="openEditRole(row)">{{ t('userMgmt.changeRole') }}</el-button>
               <el-button size="small" @click="openResetPassword(row)">{{ t('userMgmt.resetPwd') }}</el-button>
+              <el-button size="small" type="info" @click="openViewPassword(row)">
+                <el-icon><View /></el-icon> {{ t('userMgmt.viewPwd') }}
+              </el-button>
               <el-button
                 size="small"
                 type="danger"
@@ -95,6 +98,61 @@
         <el-button type="primary" :loading="submitting" @click="handleResetPassword">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
+
+    <!-- 查看密码对话框 -->
+    <el-dialog v-model="viewPwdDialogVisible" :title="t('userMgmt.viewPwdTitle')" width="380px">
+      <div class="view-pwd-content">
+        <div v-if="viewPwdLoading" class="pwd-loading">
+          <el-icon class="is-loading"><Loading /></el-icon>
+          {{ t('userMgmt.viewPwdLoading') }}
+        </div>
+        <template v-else>
+          <div class="pwd-user-info">
+            <el-avatar :size="36" style="background: #0f3460; color: #fff; font-size: 15px; flex-shrink: 0">
+              {{ viewPwdUser?.username?.charAt(0)?.toUpperCase() }}
+            </el-avatar>
+            <div>
+              <div class="pwd-username">{{ viewPwdUser?.username }}</div>
+              <el-tag :type="roleTagType(viewPwdUser?.role)" size="small">
+                {{ t(`userMgmt.roles.${viewPwdUser?.role}`) }}
+              </el-tag>
+            </div>
+          </div>
+          <el-divider />
+          <div v-if="viewPwdValue === null" class="pwd-old-account">
+            <el-icon color="#e6a23c"><Warning /></el-icon>
+            {{ t('userMgmt.viewPwdOldAccount') }}
+          </div>
+          <div v-else class="pwd-display-row">
+            <span class="pwd-label">{{ t('userMgmt.viewPwdCurrent') }}</span>
+            <div class="pwd-value-wrap">
+              <span class="pwd-value" :class="{ 'pwd-hidden': !showPwd }">
+                {{ showPwd ? viewPwdValue : '••••••••' }}
+              </span>
+              <el-button
+                text
+                size="small"
+                @click="showPwd = !showPwd"
+                style="margin-left: 8px"
+              >
+                <el-icon><component :is="showPwd ? Hide : View" /></el-icon>
+              </el-button>
+              <el-button
+                text
+                size="small"
+                @click="copyPassword"
+                style="margin-left: 4px"
+              >
+                <el-icon><CopyDocument /></el-icon>
+              </el-button>
+            </div>
+          </div>
+        </template>
+      </div>
+      <template #footer>
+        <el-button @click="viewPwdDialogVisible = false">{{ t('common.cancel') }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -102,7 +160,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, View, Hide, CopyDocument, Loading, Warning } from '@element-plus/icons-vue'
 import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
 
@@ -134,6 +192,13 @@ const resetPwdForm = ref({ id: null, password: '' })
 const resetPwdRules = {
   password: [{ required: true, min: 4, message: t('userMgmt.passwordMinLength'), trigger: 'blur' }],
 }
+
+// 查看密码
+const viewPwdDialogVisible = ref(false)
+const viewPwdLoading = ref(false)
+const viewPwdUser = ref(null)
+const viewPwdValue = ref(null)
+const showPwd = ref(false)
 
 async function loadUsers() {
   loading.value = true
@@ -207,6 +272,32 @@ async function handleResetPassword() {
   }
 }
 
+async function openViewPassword(row) {
+  viewPwdUser.value = row
+  viewPwdValue.value = null
+  showPwd.value = false
+  viewPwdLoading.value = true
+  viewPwdDialogVisible.value = true
+  try {
+    const res = await axios.get(`/api/users/${row.id}/password`, { withCredentials: true })
+    viewPwdValue.value = res.data.password
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || '获取密码失败')
+    viewPwdDialogVisible.value = false
+  } finally {
+    viewPwdLoading.value = false
+  }
+}
+
+function copyPassword() {
+  if (!viewPwdValue.value) return
+  navigator.clipboard.writeText(viewPwdValue.value).then(() => {
+    ElMessage.success('密码已复制到剪贴板')
+  }).catch(() => {
+    ElMessage.warning('复制失败，请手动复制')
+  })
+}
+
 async function handleDelete(row) {
   try {
     await ElMessageBox.confirm(
@@ -234,12 +325,12 @@ function formatDate(dt) {
 
 onMounted(loadUsers)
 
-// 按 2:2:1:2:3 比例动态计算列宽（总份数 10）
+// 按 2:2:1:2:4 比例动态计算列宽（总份数 11）
 const totalWidth = computed(() => window.innerWidth > 1200 ? 1100 : window.innerWidth - 80)
-const idColWidth = computed(() => Math.floor(totalWidth.value * 2 / 10))
-const roleColWidth = computed(() => Math.floor(totalWidth.value * 1 / 10))
-const dateColWidth = computed(() => Math.floor(totalWidth.value * 2 / 10))
-const actionsColWidth = computed(() => Math.floor(totalWidth.value * 3 / 10))
+const idColWidth = computed(() => Math.floor(totalWidth.value * 2 / 11))
+const roleColWidth = computed(() => Math.floor(totalWidth.value * 1 / 11))
+const dateColWidth = computed(() => Math.floor(totalWidth.value * 2 / 11))
+const actionsColWidth = computed(() => Math.floor(totalWidth.value * 4 / 11))
 </script>
 
 <style scoped>
@@ -261,9 +352,72 @@ const actionsColWidth = computed(() => Math.floor(totalWidth.value * 3 / 10))
 }
 .action-btns {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 6px;
   justify-content: center;
   align-items: center;
+}
+
+/* 查看密码对话框样式 */
+.view-pwd-content {
+  padding: 8px 0;
+}
+.pwd-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #909399;
+  justify-content: center;
+  padding: 20px 0;
+}
+.pwd-user-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.pwd-username {
+  font-size: 15px;
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 4px;
+}
+.pwd-old-account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #e6a23c;
+  font-size: 14px;
+  background: #fdf6ec;
+  padding: 12px 16px;
+  border-radius: 8px;
+}
+.pwd-display-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f5f7fa;
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+.pwd-label {
+  font-size: 13px;
+  color: #606266;
+  font-weight: 500;
+}
+.pwd-value-wrap {
+  display: flex;
+  align-items: center;
+}
+.pwd-value {
+  font-family: 'Courier New', monospace;
+  font-size: 16px;
+  font-weight: 700;
+  color: #1a1a2e;
+  letter-spacing: 1px;
+}
+.pwd-hidden {
+  letter-spacing: 3px;
+  font-size: 18px;
 }
 </style>

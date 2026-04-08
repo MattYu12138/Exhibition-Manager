@@ -40,7 +40,11 @@
               </div>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item command="logout">
+                  <el-dropdown-item command="changePassword">
+                    <el-icon><Lock /></el-icon> {{ t('userMgmt.changePwdTitle') }}
+                  </el-dropdown-item>
+                  <el-divider style="margin: 4px 0" />
+                  <el-dropdown-item command="logout" style="color: #f56c6c">
                     {{ t('nav.logout') }}
                   </el-dropdown-item>
                 </el-dropdown-menu>
@@ -86,6 +90,9 @@
                   </el-dropdown-item>
 
                   <el-divider v-if="authStore.isLoggedIn" style="margin: 4px 0" />
+                  <el-dropdown-item v-if="authStore.isLoggedIn" command="changePassword">
+                    <el-icon><Lock /></el-icon> {{ t('userMgmt.changePwdTitle') }}
+                  </el-dropdown-item>
                   <el-dropdown-item v-if="authStore.isLoggedIn" command="logout" style="color: #f56c6c">
                     <el-icon><SwitchButton /></el-icon> {{ t('nav.logout') }}
                   </el-dropdown-item>
@@ -105,19 +112,66 @@
         </router-view>
       </el-main>
     </div>
+
+    <!-- 修改密码对话框（全局，任意页面可用） -->
+    <el-dialog
+      v-model="changePwdVisible"
+      :title="t('userMgmt.changePwdTitle')"
+      width="400px"
+      :close-on-click-modal="false"
+    >
+      <el-form
+        ref="changePwdFormRef"
+        :model="changePwdForm"
+        :rules="changePwdRules"
+        label-position="top"
+      >
+        <el-form-item :label="t('userMgmt.fieldOldPwd')" prop="oldPassword">
+          <el-input
+            v-model="changePwdForm.oldPassword"
+            type="password"
+            show-password
+            :placeholder="t('userMgmt.oldPwdPlaceholder')"
+          />
+        </el-form-item>
+        <el-form-item :label="t('userMgmt.fieldNewPwd')" prop="newPassword">
+          <el-input
+            v-model="changePwdForm.newPassword"
+            type="password"
+            show-password
+            :placeholder="t('userMgmt.newPwdPlaceholder')"
+          />
+        </el-form-item>
+        <el-form-item :label="t('userMgmt.fieldConfirmPwd')" prop="confirmPassword">
+          <el-input
+            v-model="changePwdForm.confirmPassword"
+            type="password"
+            show-password
+            :placeholder="t('userMgmt.confirmPwdPlaceholder')"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="changePwdVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="changePwdSubmitting" @click="handleChangePassword">
+          {{ t('common.confirm') }}
+        </el-button>
+      </template>
+    </el-dialog>
   </el-config-provider>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import en from 'element-plus/es/locale/lang/en'
+import axios from 'axios'
 import LangSwitch from '@/components/LangSwitch.vue'
 import { useAuthStore } from '@/stores/auth'
-import { Box, List, UserFilled, ArrowDown, Switch, SwitchButton } from '@element-plus/icons-vue'
+import { Box, List, UserFilled, ArrowDown, Switch, SwitchButton, Lock } from '@element-plus/icons-vue'
 
 const { t, locale } = useI18n()
 const route = useRoute()
@@ -132,11 +186,64 @@ const roleTagType = computed(() => {
   return map[authStore.user?.role] || 'info'
 })
 
+// ─── 修改密码 ──────────────────────────────────────────────────
+const changePwdVisible = ref(false)
+const changePwdSubmitting = ref(false)
+const changePwdFormRef = ref(null)
+const changePwdForm = ref({ oldPassword: '', newPassword: '', confirmPassword: '' })
+
+const changePwdRules = computed(() => ({
+  oldPassword: [{ required: true, message: t('userMgmt.oldPwdRequired'), trigger: 'blur' }],
+  newPassword: [
+    { required: true, message: t('userMgmt.newPwdRequired'), trigger: 'blur' },
+    { min: 4, message: t('userMgmt.passwordMinLength'), trigger: 'blur' },
+  ],
+  confirmPassword: [
+    { required: true, message: t('userMgmt.newPwdRequired'), trigger: 'blur' },
+    {
+      validator: (rule, value, callback) => {
+        if (value !== changePwdForm.value.newPassword) {
+          callback(new Error(t('userMgmt.confirmPwdMismatch')))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur',
+    },
+  ],
+}))
+
+function openChangePwd() {
+  changePwdForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' }
+  changePwdVisible.value = true
+}
+
+async function handleChangePassword() {
+  const valid = await changePwdFormRef.value?.validate().catch(() => false)
+  if (!valid) return
+  changePwdSubmitting.value = true
+  try {
+    await axios.patch('/api/users/me/password', {
+      oldPassword: changePwdForm.value.oldPassword,
+      newPassword: changePwdForm.value.newPassword,
+    }, { withCredentials: true })
+    ElMessage.success(t('userMgmt.pwdChanged'))
+    changePwdVisible.value = false
+  } catch (err) {
+    ElMessage.error(err.response?.data?.message || t('userMgmt.pwdChanged') + '失败')
+  } finally {
+    changePwdSubmitting.value = false
+  }
+}
+
+// ─── 用户命令处理 ──────────────────────────────────────────────
 async function handleUserCommand(cmd) {
   if (cmd === 'logout') {
     await authStore.logout()
     ElMessage.success(t('nav.logoutSuccess'))
     router.push('/login')
+  } else if (cmd === 'changePassword') {
+    openChangePwd()
   }
 }
 
@@ -152,6 +259,8 @@ async function handleMobileCommand(cmd) {
     await authStore.logout()
     ElMessage.success(t('nav.logoutSuccess'))
     router.push('/login')
+  } else if (cmd === 'changePassword') {
+    openChangePwd()
   }
 }
 </script>

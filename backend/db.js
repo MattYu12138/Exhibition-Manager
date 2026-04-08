@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const bcrypt = require('bcryptjs');
 const path = require('path');
+const { encrypt } = require('./utils/crypto');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'exhibition.db');
 const db = new Database(DB_PATH);
@@ -71,6 +72,8 @@ const migrations = [
   'ALTER TABLE exhibition_items ADD COLUMN last_synced_quantity INTEGER DEFAULT NULL',
   'ALTER TABLE exhibition_items ADD COLUMN rack_quantity INTEGER DEFAULT 5',
   'ALTER TABLE exhibition_items ADD COLUMN stock_quantity INTEGER DEFAULT 5',
+  // 新增加密密码字段（AES-256-CBC 对称加密）
+  'ALTER TABLE users ADD COLUMN password_encrypted TEXT',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (e) { /* 字段已存在，忽略 */ }
