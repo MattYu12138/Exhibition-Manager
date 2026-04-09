@@ -9,7 +9,7 @@ const db = new Database(DB_PATH);
 // 启用 WAL 模式提升性能
 db.pragma('journal_mode = WAL');
 
-// 初始化数据表（新建库使用雪花 ID）
+// 初始化数据表（所有 id 均为 TEXT 类型，支持自定义格式如 EX0001、P000000000001）
 db.exec(`
   -- 展会活动表
   CREATE TABLE IF NOT EXISTS exhibitions (
@@ -66,6 +66,61 @@ db.exec(`
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 `);
+
+// 自动迁移：将旧 INTEGER id 表迁移为 TEXT id（兼容旧数据库）
+function migrateTableIdToText(tableName, idPrefix, padLength, fkUpdateSql) {
+  try {
+    const info = db.pragma(`table_info(${tableName})`);
+    const idCol = info.find(c => c.name === 'id');
+    if (!idCol || idCol.type.toUpperCase() === 'TEXT') return; // 已是 TEXT，跳过
+
+    console.log(`[DB Migration] Migrating ${tableName}.id from INTEGER to TEXT...`);
+    db.pragma('foreign_keys = OFF');
+
+    // 获取旧数据
+    const rows = db.prepare(`SELECT * FROM ${tableName}`).all();
+
+    // 重建表（TEXT id）
+    const createSql = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name=?`).get(tableName);
+    const newSql = createSql.sql
+      .replace(new RegExp(`(\\bid\\b\\s+)INTEGER`, 'i'), '$1TEXT')
+      .replace(new RegExp(`CREATE TABLE ${tableName}`, 'i'), `CREATE TABLE ${tableName}_new`);
+    db.exec(newSql);
+
+    // 迁移数据
+    if (rows.length > 0) {
+      const cols = Object.keys(rows[0]);
+      const placeholders = cols.map(() => '?').join(', ');
+      const insert = db.prepare(`INSERT INTO ${tableName}_new (${cols.join(', ')}) VALUES (${placeholders})`);
+      for (const row of rows) {
+        const vals = cols.map(c => {
+          if (c === 'id') return idPrefix + String(row[c]).padStart(padLength, '0');
+          return row[c];
+        });
+        insert.run(...vals);
+      }
+    }
+
+    // 更新外键引用
+    if (fkUpdateSql) db.exec(fkUpdateSql);
+
+    // 替换表
+    db.exec(`DROP TABLE ${tableName}; ALTER TABLE ${tableName}_new RENAME TO ${tableName};`);
+    db.pragma('foreign_keys = ON');
+    console.log(`[DB Migration] ${tableName} migration complete, ${rows.length} rows migrated.`);
+  } catch (e) {
+    db.pragma('foreign_keys = ON');
+    console.error(`[DB Migration] ${tableName} migration failed:`, e.message);
+  }
+}
+
+// 执行迁移（顺序：先 exhibitions，再 exhibition_items，最后 inventory_snapshots）
+migrateTableIdToText('exhibitions', 'EX', 4,
+  `UPDATE exhibition_items SET exhibition_id = 'EX' || printf('%04d', CAST(exhibition_id AS INTEGER)) WHERE exhibition_id NOT LIKE 'EX%';
+   UPDATE inventory_snapshots SET exhibition_id = 'EX' || printf('%04d', CAST(exhibition_id AS INTEGER)) WHERE exhibition_id NOT LIKE 'EX%';`
+);
+migrateTableIdToText('exhibition_items', 'P', 12, null);
+migrateTableIdToText('inventory_snapshots', 'IS', 8, null);
 
 // 迁移：为已有数据库添加新字段（若字段已存在则忽略）
 const migrations = [
