@@ -5,8 +5,8 @@
       <div class="header-left">
         <el-icon size="22" color="#e74c3c"><DataBoard /></el-icon>
         <div>
-          <h2>数据库管理</h2>
-          <p>直接查看和编辑数据库中的所有数据表</p>
+          <h2>{{ t('dbAdmin.pageTitle') }}</h2>
+          <p>{{ t('dbAdmin.pageDesc') }}</p>
         </div>
       </div>
     </div>
@@ -14,22 +14,22 @@
     <div class="db-layout">
       <!-- 左侧：表列表 -->
       <div class="table-sidebar">
-        <div class="sidebar-title">数据表</div>
+        <div class="sidebar-title">{{ t('dbAdmin.sidebarTitle') }}</div>
         <div v-if="loadingTables" class="sidebar-loading">
-          <el-icon class="is-loading"><Loading /></el-icon> 加载中...
+          <el-icon class="is-loading"><Loading /></el-icon> {{ t('dbAdmin.loading') }}
         </div>
         <div
-          v-for="t in tables"
-          :key="t.name"
+          v-for="tbl in tables"
+          :key="tbl.name"
           class="table-item"
-          :class="{ active: currentTable === t.name }"
-          @click="selectTable(t)"
+          :class="{ active: currentTable === tbl.name }"
+          @click="selectTable(tbl)"
         >
           <div class="table-item-name">
             <el-icon><Grid /></el-icon>
-            {{ t.name }}
+            {{ tbl.name }}
           </div>
-          <el-tag size="small" type="info">{{ t.row_count }}</el-tag>
+          <el-tag size="small" type="info">{{ tbl.row_count }}</el-tag>
         </div>
       </div>
 
@@ -38,7 +38,7 @@
         <!-- 未选择表时的提示 -->
         <div v-if="!currentTable" class="empty-hint">
           <el-icon size="48" color="#ddd"><Grid /></el-icon>
-          <p>请从左侧选择一个数据表</p>
+          <p>{{ t('dbAdmin.selectHint') }}</p>
         </div>
 
         <template v-else>
@@ -46,12 +46,12 @@
           <div class="toolbar">
             <div class="toolbar-left">
               <span class="table-name-badge">{{ currentTable }}</span>
-              <el-tag type="info" size="small">共 {{ total }} 条</el-tag>
+              <el-tag type="info" size="small">{{ t('dbAdmin.total', { n: total }) }}</el-tag>
             </div>
             <div class="toolbar-right">
               <el-input
                 v-model="searchText"
-                placeholder="搜索..."
+                :placeholder="t('dbAdmin.searchPlaceholder')"
                 clearable
                 size="small"
                 style="width: 200px"
@@ -60,10 +60,10 @@
                 <template #prefix><el-icon><Search /></el-icon></template>
               </el-input>
               <el-button size="small" @click="loadRows" :loading="loadingRows">
-                <el-icon><Refresh /></el-icon> 刷新
+                <el-icon><Refresh /></el-icon> {{ t('dbAdmin.refresh') }}
               </el-button>
               <el-button type="primary" size="small" @click="openAddDialog">
-                <el-icon><Plus /></el-icon> 新增
+                <el-icon><Plus /></el-icon> {{ t('dbAdmin.addRow') }}
               </el-button>
             </div>
           </div>
@@ -72,14 +72,16 @@
           <div class="sql-bar">
             <el-input
               v-model="sqlQuery"
-              placeholder="自定义 SELECT 查询（仅限 SELECT）..."
+              :placeholder="t('dbAdmin.sqlPlaceholder')"
               size="small"
               clearable
               @keyup.enter="runSqlQuery"
             >
-              <template #prepend>SQL</template>
+              <template #prepend>{{ t('dbAdmin.sqlLabel') }}</template>
               <template #append>
-                <el-button size="small" @click="runSqlQuery" :loading="sqlRunning">执行</el-button>
+                <el-button size="small" @click="runSqlQuery" :loading="sqlRunning">
+                  {{ t('dbAdmin.sqlRun') }}
+                </el-button>
               </template>
             </el-input>
           </div>
@@ -93,26 +95,25 @@
               stripe
               size="small"
               height="100%"
-              :row-class-name="rowClassName"
             >
               <!-- 操作列（非 SQL 模式） -->
-              <el-table-column v-if="!sqlResult" label="操作" width="120" fixed="left">
+              <el-table-column v-if="!sqlResult" :label="t('common.edit') + '/' + t('common.delete')" width="120" fixed="left">
                 <template #default="{ row }">
                   <el-button
                     link
                     type="primary"
                     size="small"
                     @click="openEditDialog(row)"
-                  >编辑</el-button>
+                  >{{ t('dbAdmin.actionEdit') }}</el-button>
                   <el-popconfirm
-                    title="确定要删除这条记录吗？"
-                    confirm-button-text="删除"
-                    cancel-button-text="取消"
+                    :title="t('dbAdmin.deleteConfirm')"
+                    :confirm-button-text="t('dbAdmin.deleteConfirmOk')"
+                    :cancel-button-text="t('dbAdmin.deleteConfirmCancel')"
                     confirm-button-type="danger"
                     @confirm="deleteRow(row)"
                   >
                     <template #reference>
-                      <el-button link type="danger" size="small">删除</el-button>
+                      <el-button link type="danger" size="small">{{ t('dbAdmin.actionDelete') }}</el-button>
                     </template>
                   </el-popconfirm>
                 </template>
@@ -149,8 +150,10 @@
             />
           </div>
           <div v-else class="sql-result-bar">
-            <el-tag type="success">SQL 查询结果：{{ sqlResult.length }} 条</el-tag>
-            <el-button link size="small" @click="sqlResult = null; sqlQuery = ''">清除结果</el-button>
+            <el-tag type="success">{{ t('dbAdmin.sqlResult', { n: sqlResult.length }) }}</el-tag>
+            <el-button link size="small" @click="sqlResult = null; sqlQuery = ''">
+              {{ t('dbAdmin.clearResult') }}
+            </el-button>
           </div>
         </template>
       </div>
@@ -159,7 +162,7 @@
     <!-- 新增/编辑对话框 -->
     <el-dialog
       v-model="dialogVisible"
-      :title="isEditing ? '编辑记录' : '新增记录'"
+      :title="isEditing ? t('dbAdmin.editRow') : t('dbAdmin.addRowTitle')"
       width="600px"
       :close-on-click-modal="false"
       destroy-on-close
@@ -168,20 +171,20 @@
         <el-form-item
           v-for="col in editableColumns"
           :key="col.name"
-          :label="col.name + (col.pk ? ' (主键)' : '') + (col.type ? ` [${col.type}]` : '')"
+          :label="col.name + (col.pk ? ' ' + t('dbAdmin.pkLabel') : '') + (col.type ? ` [${col.type}]` : '')"
         >
           <el-input
             v-model="formData[col.name]"
-            :placeholder="col.dflt_value !== null ? `默认: ${col.dflt_value}` : ''"
+            :placeholder="col.dflt_value !== null ? t('dbAdmin.defaultLabel', { v: col.dflt_value }) : ''"
             :disabled="isEditing && col.pk === 1"
             clearable
           />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" :loading="submitting" @click="submitForm">
-          {{ isEditing ? '保存' : '新增' }}
+          {{ isEditing ? t('common.save') : t('dbAdmin.addRow') }}
         </el-button>
       </template>
     </el-dialog>
@@ -190,9 +193,12 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
 import { DataBoard, Grid, Search, Refresh, Plus, Loading } from '@element-plus/icons-vue'
+
+const { t } = useI18n()
 
 // ─── 状态 ────────────────────────────────────────────────────────
 const tables = ref([])
@@ -235,7 +241,7 @@ async function loadTables() {
     const res = await axios.get('/api/dbadmin/tables')
     tables.value = res.data.data
   } catch (e) {
-    ElMessage.error('加载表列表失败: ' + (e.response?.data?.message || e.message))
+    ElMessage.error(t('dbAdmin.loadFailed') + ': ' + (e.response?.data?.message || e.message))
   } finally {
     loadingTables.value = false
   }
@@ -260,12 +266,11 @@ async function loadRows() {
     })
     rows.value = res.data.data
     total.value = res.data.total
-    // 更新列信息
     if (currentTableInfo.value) {
       currentTableInfo.value.columns = res.data.columns
     }
   } catch (e) {
-    ElMessage.error('加载数据失败: ' + (e.response?.data?.message || e.message))
+    ElMessage.error(t('dbAdmin.dataFailed') + ': ' + (e.response?.data?.message || e.message))
   } finally {
     loadingRows.value = false
   }
@@ -285,9 +290,9 @@ async function runSqlQuery() {
   try {
     const res = await axios.post('/api/dbadmin/query', { sql: sqlQuery.value })
     sqlResult.value = res.data.data
-    ElMessage.success(`查询完成，返回 ${res.data.count} 条`)
+    ElMessage.success(t('dbAdmin.sqlSuccess', { n: res.data.count }))
   } catch (e) {
-    ElMessage.error('查询失败: ' + (e.response?.data?.message || e.message))
+    ElMessage.error(t('dbAdmin.sqlFailed') + ': ' + (e.response?.data?.message || e.message))
   } finally {
     sqlRunning.value = false
   }
@@ -302,7 +307,6 @@ function openAddDialog() {
 function openEditDialog(row) {
   isEditing.value = true
   formData.value = { ...row }
-  // 找主键
   const pkCol = currentTableInfo.value?.columns?.find(c => c.pk === 1)
   editingId.value = pkCol ? row[pkCol.name] : row.id
   dialogVisible.value = true
@@ -312,21 +316,21 @@ async function submitForm() {
   submitting.value = true
   try {
     if (isEditing.value) {
-      // 过滤掉主键列（不允许修改）
       const pkCol = currentTableInfo.value?.columns?.find(c => c.pk === 1)
       const updateData = { ...formData.value }
       if (pkCol) delete updateData[pkCol.name]
       await axios.put(`/api/dbadmin/tables/${currentTable.value}/rows/${editingId.value}`, updateData)
-      ElMessage.success('更新成功')
+      ElMessage.success(t('dbAdmin.updateSuccess'))
     } else {
       await axios.post(`/api/dbadmin/tables/${currentTable.value}/rows`, formData.value)
-      ElMessage.success('新增成功')
+      ElMessage.success(t('dbAdmin.addSuccess'))
     }
     dialogVisible.value = false
     await loadRows()
-    await loadTables() // 刷新行数
+    await loadTables()
   } catch (e) {
-    ElMessage.error((isEditing.value ? '更新' : '新增') + '失败: ' + (e.response?.data?.message || e.message))
+    const msg = isEditing.value ? t('dbAdmin.updateFailed') : t('dbAdmin.addFailed')
+    ElMessage.error(msg + ': ' + (e.response?.data?.message || e.message))
   } finally {
     submitting.value = false
   }
@@ -337,11 +341,11 @@ async function deleteRow(row) {
   const id = pkCol ? row[pkCol.name] : row.id
   try {
     await axios.delete(`/api/dbadmin/tables/${currentTable.value}/rows/${id}`)
-    ElMessage.success('删除成功')
+    ElMessage.success(t('dbAdmin.deleteSuccess'))
     await loadRows()
     await loadTables()
   } catch (e) {
-    ElMessage.error('删除失败: ' + (e.response?.data?.message || e.message))
+    ElMessage.error(t('dbAdmin.deleteFailed') + ': ' + (e.response?.data?.message || e.message))
   }
 }
 
@@ -351,10 +355,6 @@ function getColWidth(col) {
   if (col.name === 'id') return 160
   if (['created_at', 'updated_at', 'synced_at'].includes(col.name)) return 160
   return 120
-}
-
-function rowClassName({ rowIndex }) {
-  return rowIndex % 2 === 0 ? '' : 'stripe-row'
 }
 
 onMounted(loadTables)
@@ -407,7 +407,6 @@ onMounted(loadTables)
   height: calc(100vh - 180px);
 }
 
-/* 左侧侧边栏 */
 .table-sidebar {
   width: 200px;
   flex-shrink: 0;
@@ -446,14 +445,8 @@ onMounted(loadTables)
   border-left: 3px solid transparent;
 }
 
-.table-item:hover {
-  background: #f0f4ff;
-}
-
-.table-item.active {
-  background: #ecf0ff;
-  border-left-color: #409eff;
-}
+.table-item:hover { background: #f0f4ff; }
+.table-item.active { background: #ecf0ff; border-left-color: #409eff; }
 
 .table-item-name {
   display: flex;
@@ -464,7 +457,6 @@ onMounted(loadTables)
   font-weight: 500;
 }
 
-/* 右侧内容区 */
 .table-content {
   flex: 1;
   background: #fff;
@@ -496,17 +488,8 @@ onMounted(loadTables)
   flex-shrink: 0;
 }
 
-.toolbar-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+.toolbar-left { display: flex; align-items: center; gap: 10px; }
+.toolbar-right { display: flex; align-items: center; gap: 8px; }
 
 .table-name-badge {
   font-size: 14px;
@@ -560,11 +543,5 @@ onMounted(loadTables)
   font-size: 12px;
 }
 
-:deep(.el-table .stripe-row) {
-  background: #fafafa;
-}
-
-:deep(.el-table .el-table__cell) {
-  font-size: 12px;
-}
+:deep(.el-table .el-table__cell) { font-size: 12px; }
 </style>
