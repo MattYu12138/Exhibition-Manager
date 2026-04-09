@@ -23,6 +23,7 @@ export default {
     title: 'Exhibition Manager',
     lang: '中文',
     userManagement: 'Account Management',
+    dbAdmin: 'DB Admin',
     logout: 'Logout',
     logoutSuccess: 'Logged out successfully',
   },

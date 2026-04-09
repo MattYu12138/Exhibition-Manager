@@ -23,6 +23,7 @@ export default {
     title: '展会管理',
     lang: 'EN',
     userManagement: '账号管理',
+    dbAdmin: '数据库管理',
     logout: '退出登录',
     logoutSuccess: '已成功退出登录',
   },

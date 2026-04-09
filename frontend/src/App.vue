@@ -25,6 +25,15 @@
               <el-icon><UserFilled /></el-icon> {{ t('nav.userManagement') }}
             </el-button>
 
+            <el-button
+              v-if="authStore.isAdmin"
+              text
+              :style="{ color: '#fff' }"
+              @click="$router.push('/dbadmin')"
+            >
+              <el-icon><DataBoard /></el-icon> {{ t('nav.dbAdmin') }}
+            </el-button>
+
             <LangSwitch />
 
             <el-dropdown v-if="authStore.isLoggedIn" @command="handleUserCommand">
@@ -82,6 +91,10 @@
 
                   <el-dropdown-item v-if="authStore.isAdmin" command="users">
                     <el-icon><UserFilled /></el-icon> {{ t('nav.userManagement') }}
+                  </el-dropdown-item>
+
+                  <el-dropdown-item v-if="authStore.isAdmin" command="dbadmin">
+                    <el-icon><DataBoard /></el-icon> {{ t('nav.dbAdmin') }}
                   </el-dropdown-item>
 
                   <el-dropdown-item command="lang">
@@ -171,7 +184,7 @@ import en from 'element-plus/es/locale/lang/en'
 import axios from 'axios'
 import LangSwitch from '@/components/LangSwitch.vue'
 import { useAuthStore } from '@/stores/auth'
-import { Box, List, UserFilled, ArrowDown, Switch, SwitchButton, Lock } from '@element-plus/icons-vue'
+import { Box, List, UserFilled, ArrowDown, Switch, SwitchButton, Lock, DataBoard } from '@element-plus/icons-vue'
 
 const { t, locale } = useI18n()
 const route = useRoute()
@@ -252,6 +265,8 @@ async function handleMobileCommand(cmd) {
     router.push('/exhibitions')
   } else if (cmd === 'users') {
     router.push('/users')
+  } else if (cmd === 'dbadmin') {
+    router.push('/dbadmin')
   } else if (cmd === 'lang') {
     locale.value = locale.value === 'zh' ? 'en' : 'zh'
     localStorage.setItem('lang', locale.value)

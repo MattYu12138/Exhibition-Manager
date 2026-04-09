@@ -54,6 +54,12 @@ const routes = [
     component: () => import('@/views/UserManagement.vue'),
     meta: { title: '账号管理', requireAdmin: true },
   },
+  {
+    path: '/dbadmin',
+    name: 'DatabaseAdmin',
+    component: () => import('@/views/DatabaseAdmin.vue'),
+    meta: { title: '数据库管理', requireAdmin: true },
+  },
 ]
 
 const router = createRouter({
