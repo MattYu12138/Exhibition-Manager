@@ -58,7 +58,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    shopify_configured: !!(process.env.SHOPIFY_STORE_DOMAIN && process.env.SHOPIFY_ACCESS_TOKEN),
+    shopify_configured: !!(process.env.SHOPIFY_STORE_DOMAIN || process.env.SHOPIFY_SHOP),
     square_configured: !!(process.env.SQUARE_ACCESS_TOKEN && process.env.SQUARE_LOCATION_ID),
   });
 });
@@ -101,7 +101,9 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`\n🚀 展会管理后端服务已启动`);
   console.log(`   地址: http://localhost:${PORT}`);
-  console.log(`   Shopify: ${process.env.SHOPIFY_STORE_DOMAIN || '未配置'}`);
+  const shopifyDomain = process.env.SHOPIFY_STORE_DOMAIN ||
+    (process.env.SHOPIFY_SHOP ? `${process.env.SHOPIFY_SHOP}.myshopify.com` : null);
+  console.log(`   Shopify: ${shopifyDomain || '未配置'}`);
   console.log(`   Square: ${process.env.SQUARE_ENVIRONMENT || 'sandbox'} 环境\n`);
 });
 
