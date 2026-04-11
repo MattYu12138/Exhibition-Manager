@@ -1,3 +1,9 @@
 node_modules
-.env.example
+# 环境变量文件绝不打包进镜像，由 docker-compose env_file 在运行时注入
+.env
+.env.*
+*.env
+# 数据库文件
+*.db
+*.sqlite
 exhibition.db
