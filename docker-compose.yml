@@ -1,11 +1,62 @@
 services:
-  backend:
+  # ─────────────────────────────────────────────
+  # Shared data volume for all SQLite databases
+  # ─────────────────────────────────────────────
+
+  # ─────────────────────────────────────────────
+  # Exhibition Manager (existing)
+  # ─────────────────────────────────────────────
+  exhibition-backend:
     build: ./backend
     restart: always
     env_file:
       - ./backend/.env
     volumes:
       - /data/exhibition-app/database:/data/exhibition-app/database
-      - /home/ubuntu/Exhibition-Manager/frontend/dist:/frontend/dist:ro
+      - ./frontend/dist:/frontend/dist:ro
     ports:
       - '127.0.0.1:3001:3001'
+
+  # ─────────────────────────────────────────────
+  # Platform (Main Entry)
+  # ─────────────────────────────────────────────
+  platform-backend:
+    build: ./platform-backend
+    restart: always
+    env_file:
+      - ./platform-backend/.env
+    volumes:
+      - /data/lummi-platform:/data
+    ports:
+      - '127.0.0.1:3000:3000'
+
+  platform-frontend:
+    build: ./platform-frontend
+    restart: always
+    ports:
+      - '127.0.0.1:8080:80'
+    depends_on:
+      - platform-backend
+
+  # ─────────────────────────────────────────────
+  # Inventory Manager
+  # ─────────────────────────────────────────────
+  inventory-backend:
+    build: ./inventory-backend
+    restart: always
+    env_file:
+      - ./inventory-backend/.env
+    volumes:
+      - /data/lummi-platform:/data
+    ports:
+      - '127.0.0.1:3002:3002'
+    depends_on:
+      - platform-backend
+
+  inventory-frontend:
+    build: ./inventory-frontend
+    restart: always
+    ports:
+      - '127.0.0.1:8082:80'
+    depends_on:
+      - inventory-backend

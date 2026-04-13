@@ -1,0 +1,42 @@
+export default {
+  platform: {
+    title: 'Lummi in Colour',
+    subtitle: 'Management Platform',
+    login: 'Login',
+    logout: 'Logout',
+    username: 'Username',
+    password: 'Password',
+    loginBtn: 'Sign In',
+    loginError: 'Invalid username or password',
+    welcome: 'Welcome back',
+    selectSystem: 'Select a System',
+    selectSystemDesc: 'Choose a management system to get started',
+    noAccess: 'No systems available. Please contact your administrator.',
+    admin: 'Admin',
+    staff: 'Staff',
+    readOnly: 'Read Only',
+    readWrite: 'Read & Write',
+    noPermission: 'No Access'
+  },
+  users: {
+    title: 'User Management',
+    addUser: 'Add User',
+    editUser: 'Edit User',
+    deleteUser: 'Delete User',
+    displayName: 'Display Name',
+    role: 'Role',
+    status: 'Status',
+    active: 'Active',
+    inactive: 'Inactive',
+    permissions: 'Permissions',
+    savePermissions: 'Save Permissions',
+    confirmDelete: 'Are you sure you want to delete this user?',
+    canRead: 'Read',
+    canWrite: 'Write',
+    newPassword: 'New Password (leave blank to keep current)',
+    createSuccess: 'User created successfully',
+    updateSuccess: 'User updated successfully',
+    deleteSuccess: 'User deleted successfully',
+    permSaved: 'Permissions saved'
+  }
+}

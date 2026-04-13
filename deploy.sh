@@ -60,9 +60,30 @@ echo "✓ 代码已更新到最新版本"
 echo ""
 
 echo "===== [2/5] 注入生产环境配置 ====="
-# 从永久存储位置复制生产配置到 backend/.env
+# Exhibition Manager
 cp "$PROD_ENV_FILE" "$BACKEND_DIR/.env"
-echo "✓ 生产环境配置已注入 (来源: $PROD_ENV_FILE)"
+echo "✓ Exhibition Manager 配置已注入"
+
+# Platform Backend
+if [ -f /home/ubuntu/.env.platform.production ]; then
+  cp /home/ubuntu/.env.platform.production "$APP_DIR/platform-backend/.env"
+  echo "✓ Platform Backend 配置已注入"
+else
+  echo "⚠ 未找到 /home/ubuntu/.env.platform.production，使用示例配置"
+  cp "$APP_DIR/platform-backend/.env.example" "$APP_DIR/platform-backend/.env" 2>/dev/null || true
+fi
+
+# Inventory Backend
+if [ -f /home/ubuntu/.env.inventory.production ]; then
+  cp /home/ubuntu/.env.inventory.production "$APP_DIR/inventory-backend/.env"
+  echo "✓ Inventory Backend 配置已注入"
+else
+  echo "⚠ 未找到 /home/ubuntu/.env.inventory.production，使用示例配置"
+  cp "$APP_DIR/inventory-backend/.env.example" "$APP_DIR/inventory-backend/.env" 2>/dev/null || true
+fi
+
+# 确保数据目录存在
+mkdir -p /data/lummi-platform
 echo ""
 
 echo "===== [3/5] 构建前端 ====="

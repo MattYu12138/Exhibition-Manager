@@ -1,0 +1,42 @@
+export default {
+  platform: {
+    title: 'Lummi in Colour',
+    subtitle: '管理平台',
+    login: '登录',
+    logout: '退出登录',
+    username: '用户名',
+    password: '密码',
+    loginBtn: '登录',
+    loginError: '用户名或密码错误',
+    welcome: '欢迎回来',
+    selectSystem: '选择系统',
+    selectSystemDesc: '请选择要使用的管理系统',
+    noAccess: '暂无可用系统，请联系管理员。',
+    admin: '管理员',
+    staff: '员工',
+    readOnly: '只读',
+    readWrite: '读写',
+    noPermission: '无权限'
+  },
+  users: {
+    title: '用户管理',
+    addUser: '添加用户',
+    editUser: '编辑用户',
+    deleteUser: '删除用户',
+    displayName: '显示名称',
+    role: '角色',
+    status: '状态',
+    active: '启用',
+    inactive: '禁用',
+    permissions: '权限设置',
+    savePermissions: '保存权限',
+    confirmDelete: '确定要删除该用户吗？',
+    canRead: '读取',
+    canWrite: '写入',
+    newPassword: '新密码（留空则不修改）',
+    createSuccess: '用户创建成功',
+    updateSuccess: '用户更新成功',
+    deleteSuccess: '用户删除成功',
+    permSaved: '权限已保存'
+  }
+}

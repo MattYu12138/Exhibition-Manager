@@ -1,0 +1,40 @@
+const Database = require('better-sqlite3');
+const path = require('path');
+
+// Check permission against platform database
+function requirePermission(permission = 'read') {
+  return (req, res, next) => {
+    if (!req.session || !req.session.userId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { userId, role } = req.session;
+
+    // Admin always has full access
+    if (role === 'admin') return next();
+
+    // Check platform permissions for inventory-manager system
+    try {
+      const dbPath = process.env.DB_PATH || path.join(__dirname, '../../../data/platform.db');
+      const db = new Database(dbPath, { readonly: true });
+      const perm = db.prepare(`
+        SELECT p.can_read, p.can_write
+        FROM platform_permissions p
+        JOIN platform_systems s ON s.id = p.system_id
+        WHERE p.user_id = ? AND s.name = 'inventory-manager'
+      `).get(userId);
+      db.close();
+
+      if (!perm) return res.status(403).json({ error: 'No access to Inventory Manager' });
+      if (permission === 'read' && !perm.can_read) return res.status(403).json({ error: 'Read permission required' });
+      if (permission === 'write' && !perm.can_write) return res.status(403).json({ error: 'Write permission required' });
+
+      next();
+    } catch (err) {
+      console.error('Permission check error:', err);
+      res.status(500).json({ error: 'Permission check failed' });
+    }
+  };
+}
+
+module.exports = { requirePermission };

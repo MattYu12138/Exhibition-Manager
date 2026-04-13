@@ -1,8 +1,12 @@
-# ─── 环境变量（绝不提交到 git）─────────────────────────────────
+# ─── 环境变量（绝不提交到 git）─────────────────────────────
 backend/.env
 backend/.env.local
 backend/.env.production
 backend/.env.development
+platform-backend/.env
+platform-backend/.env.local
+inventory-backend/.env
+inventory-backend/.env.local
 
 # ─── 前端构建产物 ──────────────────────────────────────────────
 frontend/dist/
