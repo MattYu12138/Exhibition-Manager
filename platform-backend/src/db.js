@@ -4,7 +4,9 @@ const fs = require('fs');
 const bcrypt = require('bcryptjs');
 
 // 统一使用 Exhibition 数据库，共享 users 表
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/exhibition.db');
+// 本地开发默认路径：platform-backend/data/exhibition.db
+// 生产环境通过 DB_PATH 环境变量指定
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../data/exhibition.db');
 
 let db;
 
@@ -22,6 +24,16 @@ function getDb() {
 
 function initSchema() {
   db.exec(`
+    -- 共享用户表（与 exhibition-backend 保持完全一致）
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'staff',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS platform_systems (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -45,6 +57,17 @@ function initSchema() {
       UNIQUE(user_id, system_id)
     );
   `);
+
+  // Seed default admin user if not exists
+  const adminUser = db.prepare("SELECT COUNT(*) as cnt FROM users WHERE username = 'admin'").get();
+  if (adminUser.cnt === 0) {
+    const hash = bcrypt.hashSync('123456', 10);
+    db.prepare(`
+      INSERT INTO users (id, username, password_hash, role)
+      VALUES ('USR000000000001', 'admin', ?, 'admin')
+    `).run(hash);
+    console.log('✅ Default admin user created (username: admin, password: 123456)');
+  }
 
   // Seed default systems if not exists
   const systems = db.prepare('SELECT COUNT(*) as cnt FROM platform_systems').get();
