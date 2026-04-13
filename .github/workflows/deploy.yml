@@ -21,13 +21,13 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/exhibition-key.pem
-          chmod 600 ~/.ssh/exhibition-key.pem
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H 54.206.101.190 >> ~/.ssh/known_hosts
 
       - name: Deploy to server
         run: |
-          ssh -i ~/.ssh/exhibition-key.pem ubuntu@54.206.101.190 << 'ENDSSH'
+          ssh -i ~/.ssh/deploy_key ubuntu@54.206.101.190 << 'ENDSSH'
             set -e
             cd /home/ubuntu/Exhibition-Manager
 
