@@ -20,7 +20,7 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          printf '%s' "${{ secrets.SSH_PRIVATE_KEY_EXHIBITION_MANAGER_KEY }}" > ~/.ssh/exhibition-key.pem
+          echo "${{ secrets.SSH_PRIVATE_KEY_EXHIBITION_MANAGER_KEY }}" | base64 -d > ~/.ssh/exhibition-key.pem
           chmod 600 ~/.ssh/exhibition-key.pem
           ssh-keyscan -H 54.206.101.190 >> ~/.ssh/known_hosts
 
