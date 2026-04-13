@@ -1,26 +1,27 @@
-# ─── 环境变量（绝不提交到 git）─────────────────────────────
-exhibition-backend/.env
-exhibition-backend/.env.local
-exhibition-backend/.env.production
-exhibition-backend/.env.development
-platform-backend/.env
-platform-backend/.env.local
-inventory-backend/.env
-inventory-backend/.env.local
+# ─── 依赖（全局覆盖所有子目录）────────────────────────────────
+node_modules/
+**/node_modules/
 
-# ─── 前端构建产物 ──────────────────────────────────────────────
-exhibition-frontend/dist/
-exhibition-frontend/node_modules/
+# ─── 构建产物（全局覆盖所有子目录）──────────────────────────
+dist/
+**/dist/
 
-# ─── 后端依赖 ──────────────────────────────────────────────────
-exhibition-backend/node_modules/
-exhibition-backend/*.db
-exhibition-backend/*.sqlite
+# ─── 环境变量（绝不提交到 git）────────────────────────────────
+**/.env
+**/.env.local
+**/.env.production
+**/.env.development
 
-# ─── 系统文件 ──────────────────────────────────────────────────
-.DS_Store
-Thumbs.db
+# ─── 数据库文件 ────────────────────────────────────────────────
+*.db
+*.sqlite
+**/*.db
+**/*.sqlite
 
 # ─── 日志 ──────────────────────────────────────────────────────
 *.log
 npm-debug.log*
+
+# ─── 系统文件 ──────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
