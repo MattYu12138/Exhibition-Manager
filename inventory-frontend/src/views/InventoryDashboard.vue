@@ -4,7 +4,7 @@
     <header class="bg-white shadow-sm sticky top-0 z-10">
       <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
         <div class="flex items-center gap-3">
-          <a :href="platformUrl" class="text-sm text-gray-400 hover:text-gray-600">{{ t('inventory.backToPlatform') }}</a>
+          <a href="#" class="text-sm text-gray-400 hover:text-gray-600" @click.prevent="backToPlatform">{{ t('inventory.backToPlatform') }}</a>
           <span class="text-gray-300">|</span>
           <span class="text-xl">📦</span>
           <div>
@@ -239,7 +239,20 @@ import axios from 'axios'
 const { t, locale } = useI18n()
 const api = axios.create({ baseURL: '/api', withCredentials: true })
 
-const platformUrl = import.meta.env.VITE_PLATFORM_URL || '/'
+const platformUrl = import.meta.env.VITE_PLATFORM_URL || 'http://localhost:5174'
+
+async function backToPlatform() {
+  try {
+    const res = await api.post('/sso/return-token')
+    if (res.data.success) {
+      window.location.href = `${platformUrl}/?sso_token=${res.data.token}`
+    } else {
+      window.location.href = platformUrl
+    }
+  } catch {
+    window.location.href = platformUrl
+  }
+}
 const products = ref([])
 const summary = ref({ total: 0, withDuplicates: 0, duplicateSKUs: 0, duplicateBarcodes: 0 })
 const lastSync = ref(null)

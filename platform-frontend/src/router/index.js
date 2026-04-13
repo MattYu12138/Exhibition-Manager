@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import axios from 'axios'
 
 const routes = [
   {
@@ -35,6 +36,23 @@ const router = createRouter({
 
 router.beforeEach(async (to, from, next) => {
   const auth = useAuthStore()
+
+  // SSO 自动登录：子系统返回 platform 时携带 sso_token
+  const ssoToken = to.query.sso_token
+  if (ssoToken && !auth.isLoggedIn) {
+    try {
+      const res = await axios.post('/api/sso/login', { token: ssoToken }, { withCredentials: true })
+      if (res.data.success) {
+        auth.user = res.data.user
+        const cleanQuery = { ...to.query }
+        delete cleanQuery.sso_token
+        return next({ path: to.path, query: cleanQuery, replace: true })
+      }
+    } catch (err) {
+      console.warn('[SSO] platform 自动登录失败', err.message)
+    }
+  }
+
   if (!auth.user) {
     await auth.fetchMe()
   }

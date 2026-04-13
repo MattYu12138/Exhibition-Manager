@@ -9,6 +9,7 @@ const router = express.Router();
 const PLATFORM_BACKEND_URL = process.env.PLATFORM_BACKEND_URL || 'http://localhost:3000';
 const SSO_SECRET = process.env.SSO_SECRET || 'lummi-sso-secret-2026';
 
+
 /**
  * POST /api/sso/login
  * Body: { token }
@@ -48,6 +49,33 @@ router.post('/login', async (req, res) => {
     });
   } catch (err) {
     console.error('[SSO] 验证失败:', err.message);
+    res.status(500).json({ success: false, message: 'SSO 服务连接失败' });
+  }
+});
+
+/**
+ * POST /api/sso/return-token
+ * 已登录用户请求一个返回 platform 的一次性 SSO token
+ * 子系统前端点击"返回平台"时调用此接口，获取 token 后携带跳转到 platform
+ */
+router.post('/return-token', async (req, res) => {
+  const user = req.session?.user;
+  if (!user) {
+    return res.status(401).json({ success: false, message: '未登录' });
+  }
+  try {
+    const response = await fetch(`${PLATFORM_BACKEND_URL}/api/sso/issue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user, secret: SSO_SECRET }),
+    });
+    const data = await response.json();
+    if (!data.success) {
+      return res.status(500).json({ success: false, message: 'token 申请失败' });
+    }
+    res.json({ success: true, token: data.token });
+  } catch (err) {
+    console.error('[SSO] return-token 失败:', err.message);
     res.status(500).json({ success: false, message: 'SSO 服务连接失败' });
   }
 });

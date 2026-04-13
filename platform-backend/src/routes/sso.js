@@ -88,4 +88,54 @@ router.post('/verify', (req, res) => {
   res.json({ success: true, user: data.user });
 });
 
+/**
+ * POST /api/sso/issue
+ * 子系统后端调用此接口，代表已登录用户申请一个返回 platform 的一次性 token
+ * Body: { user, secret }
+ */
+router.post('/issue', (req, res) => {
+  const { user, secret } = req.body;
+  const SSO_SECRET = process.env.SSO_SECRET || 'lummi-sso-secret-2026';
+  if (secret !== SSO_SECRET) {
+    return res.status(403).json({ success: false, message: '无效的服务密鑰' });
+  }
+  if (!user || !user.id) {
+    return res.status(400).json({ success: false, message: '缺少用户信息' });
+  }
+  const token = crypto.randomBytes(32).toString('hex');
+  ssoTokens.set(token, {
+    user,
+    system: 'platform',
+    expiresAt: Date.now() + 30 * 1000,
+  });
+  res.json({ success: true, token });
+});
+
+/**
+ * POST /api/sso/login
+ * platform 前端使用此接口验证一次性 token，建立 platform 本地 session
+ * Body: { token }
+ */
+router.post('/login', (req, res) => {
+  const { token } = req.body;
+  if (!token) {
+    return res.status(400).json({ success: false, message: '缺少 token' });
+  }
+  const data = ssoTokens.get(token);
+  if (!data) {
+    return res.status(401).json({ success: false, message: 'token 不存在或已过期' });
+  }
+  if (data.expiresAt < Date.now()) {
+    ssoTokens.delete(token);
+    return res.status(401).json({ success: false, message: 'token 已过期' });
+  }
+  ssoTokens.delete(token);
+  req.session.user = {
+    id: data.user.id,
+    username: data.user.username,
+    role: data.user.role,
+  };
+  res.json({ success: true, user: req.session.user });
+});
+
 module.exports = router;

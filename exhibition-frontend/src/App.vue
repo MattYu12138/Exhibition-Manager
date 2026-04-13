@@ -12,7 +12,7 @@
 
           <!-- 桌面端导航 -->
           <div class="header-nav desktop-nav">
-            <a :href="platformUrl" class="back-to-platform-link">{{ t('nav.backToPlatform') }}</a>
+            <a href="#" class="back-to-platform-link" @click.prevent="backToPlatform">{{ t('nav.backToPlatform') }}</a>
             <span style="color: rgba(255,255,255,0.3); margin: 0 4px;">|</span>
             <el-button text :style="{ color: '#fff' }" @click="$router.push('/exhibitions')">
               <el-icon><List /></el-icon> {{ t('nav.exhibitions') }}
@@ -196,6 +196,19 @@ const authStore = useAuthStore()
 const elLocale = computed(() => locale.value === 'zh' ? zhCn : en)
 const isLoginPage = computed(() => route.name === 'Login')
 const platformUrl = import.meta.env.VITE_PLATFORM_URL || 'http://localhost:5174'
+
+async function backToPlatform() {
+  try {
+    const res = await axios.post('/api/sso/return-token', {}, { withCredentials: true })
+    if (res.data.success) {
+      window.location.href = `${platformUrl}/?sso_token=${res.data.token}`
+    } else {
+      window.location.href = platformUrl
+    }
+  } catch {
+    window.location.href = platformUrl
+  }
+}
 
 const roleTagType = computed(() => {
   const map = { admin: 'danger', staff: 'primary', guest: 'info' }

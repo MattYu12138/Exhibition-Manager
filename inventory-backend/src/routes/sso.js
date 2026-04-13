@@ -52,4 +52,30 @@ router.post('/login', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/sso/return-token
+ * 已登录用户请求一个返回 platform 的一次性 SSO token
+ */
+router.post('/return-token', async (req, res) => {
+  const user = req.session?.user;
+  if (!user) {
+    return res.status(401).json({ success: false, message: '未登录' });
+  }
+  try {
+    const response = await fetch(`${PLATFORM_BACKEND_URL}/api/sso/issue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user, secret: SSO_SECRET }),
+    });
+    const data = await response.json();
+    if (!data.success) {
+      return res.status(500).json({ success: false, message: 'token 申请失败' });
+    }
+    res.json({ success: true, token: data.token });
+  } catch (err) {
+    console.error('[SSO] return-token 失败:', err.message);
+    res.status(500).json({ success: false, message: 'SSO 服务连接失败' });
+  }
+});
+
 module.exports = router;
