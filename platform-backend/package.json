@@ -14,7 +14,8 @@
     "express": "^4.18.2",
     "express-session": "^1.17.3",
     "connect-sqlite3": "^0.9.13",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "svg-captcha": "^1.4.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

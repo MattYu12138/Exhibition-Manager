@@ -1,86 +1,197 @@
 <template>
-  <div class="min-h-screen bg-gradient-to-br from-purple-50 to-indigo-100 flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
-      <!-- Logo / Title -->
-      <div class="text-center mb-8">
-        <div class="text-5xl mb-3">🌈</div>
-        <h1 class="text-2xl font-bold text-gray-800">{{ t('platform.title') }}</h1>
-        <p class="text-gray-500 mt-1">{{ t('platform.subtitle') }}</p>
+  <div class="login-page">
+    <div class="login-card">
+      <!-- Logo -->
+      <div class="login-logo">
+        <img class="login-logo-img" src="@/assets/LIC_Logo.png" alt="logo">
+        <h1>{{ t('nav.appTitle') }}</h1>
       </div>
 
-      <!-- Login Form -->
-      <form @submit.prevent="handleLogin" class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('platform.username') }}</label>
-          <input
+      <el-form
+        ref="formRef"
+        :model="form"
+        :rules="rules"
+        label-position="top"
+        @submit.prevent="handleLogin"
+      >
+        <!-- 用户名 -->
+        <el-form-item :label="t('login.username')" prop="username">
+          <el-input
             v-model="form.username"
-            type="text"
-            required
-            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-            :placeholder="t('platform.username')"
+            :placeholder="t('login.usernamePlaceholder')"
+            size="large"
+            prefix-icon="User"
+            autocomplete="username"
           />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">{{ t('platform.password') }}</label>
-          <input
+        </el-form-item>
+
+        <!-- 密码 -->
+        <el-form-item :label="t('login.password')" prop="password">
+          <el-input
             v-model="form.password"
             type="password"
-            required
-            class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-            :placeholder="t('platform.password')"
+            :placeholder="t('login.passwordPlaceholder')"
+            size="large"
+            prefix-icon="Lock"
+            show-password
+            autocomplete="current-password"
           />
-        </div>
+        </el-form-item>
 
-        <div v-if="error" class="text-red-500 text-sm text-center">{{ error }}</div>
+        <!-- 验证码 -->
+        <el-form-item :label="t('login.captcha')" prop="captcha">
+          <div class="captcha-row">
+            <el-input
+              v-model="form.captcha"
+              :placeholder="t('login.captchaPlaceholder')"
+              size="large"
+              style="flex: 1"
+              @keyup.enter="handleLogin"
+            />
+            <div class="captcha-img" @click="refreshCaptcha" :title="t('login.refreshCaptcha')">
+              <img v-if="captchaUrl" :src="captchaUrl" alt="captcha" />
+              <div v-else class="captcha-loading">
+                <el-icon class="is-loading"><Loading /></el-icon>
+              </div>
+            </div>
+          </div>
+        </el-form-item>
 
-        <button
-          type="submit"
-          :disabled="loading"
-          class="w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2.5 rounded-lg transition disabled:opacity-50"
-        >
-          {{ loading ? '...' : t('platform.loginBtn') }}
-        </button>
-      </form>
-
-      <!-- Language Toggle -->
-      <div class="mt-6 text-center">
-        <button @click="toggleLang" class="text-sm text-gray-400 hover:text-gray-600">
-          {{ locale === 'zh' ? 'English' : '中文' }}
-        </button>
-      </div>
+        <!-- 登录按钮 -->
+        <el-form-item>
+          <el-button
+            type="primary"
+            size="large"
+            :loading="authStore.loading"
+            style="width: 100%; margin-top: 8px"
+            @click="handleLogin"
+          >
+            {{ t('login.loginBtn') }}
+          </el-button>
+        </el-form-item>
+      </el-form>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '../stores/auth'
+import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
+import { useAuthStore } from '@/stores/auth'
 
-const { t, locale } = useI18n()
+const { t } = useI18n()
 const router = useRouter()
-const auth = useAuthStore()
+const authStore = useAuthStore()
 
-const form = ref({ username: '', password: '' })
-const error = ref('')
-const loading = ref(false)
+const formRef = ref(null)
+const captchaUrl = ref('')
+const form = ref({ username: '', password: '', captcha: '' })
 
-function toggleLang() {
-  locale.value = locale.value === 'zh' ? 'en' : 'zh'
-  localStorage.setItem('lang', locale.value)
+const rules = {
+  username: [{ required: true, message: t('login.usernameRequired'), trigger: 'blur' }],
+  password: [{ required: true, message: t('login.passwordRequired'), trigger: 'blur' }],
+  captcha: [{ required: true, message: t('login.captchaRequired'), trigger: 'blur' }],
+}
+
+function refreshCaptcha() {
+  captchaUrl.value = `/api/auth/captcha?t=${Date.now()}`
+  form.value.captcha = ''
 }
 
 async function handleLogin() {
-  error.value = ''
-  loading.value = true
-  try {
-    await auth.login(form.value.username, form.value.password)
+  const valid = await formRef.value?.validate().catch(() => false)
+  if (!valid) return
+
+  const result = await authStore.login(form.value.username, form.value.password, form.value.captcha)
+  if (result.success) {
     router.push('/')
-  } catch {
-    error.value = t('platform.loginError')
-  } finally {
-    loading.value = false
+  } else {
+    ElMessage.error(result.message || t('login.loginFailed'))
+    refreshCaptcha()
   }
 }
+
+onMounted(() => {
+  refreshCaptcha()
+})
 </script>
+
+<style scoped>
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #F5EFE6;
+}
+
+.login-logo-img {
+  width: 100px;
+  height: 100px;
+  object-fit: contain;
+}
+
+.login-card {
+  background: #fff;
+  border-color: #EFE7DD;
+  border-radius: 16px;
+  padding: 40px 36px;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.06);
+}
+
+.login-logo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.login-logo h1 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1a1a2e;
+  text-align: center;
+}
+
+.captcha-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+}
+
+.captcha-img {
+  width: 120px;
+  height: 40px;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f0f4ff;
+  transition: opacity 0.2s;
+}
+
+.captcha-img:hover {
+  opacity: 0.8;
+}
+
+.captcha-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.captcha-loading {
+  color: #909399;
+  font-size: 20px;
+}
+</style>

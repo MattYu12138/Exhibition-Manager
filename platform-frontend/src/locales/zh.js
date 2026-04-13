@@ -1,4 +1,21 @@
 export default {
+  nav: {
+    appTitle: 'Lummi in Colour 管理平台',
+  },
+  login: {
+    username: '用户名',
+    usernamePlaceholder: '请输入用户名',
+    usernameRequired: '请输入用户名',
+    password: '密码',
+    passwordPlaceholder: '请输入密码',
+    passwordRequired: '请输入密码',
+    captcha: '验证码',
+    captchaPlaceholder: '请输入验证码',
+    captchaRequired: '请输入验证码',
+    refreshCaptcha: '点击刷新验证码',
+    loginBtn: '登录',
+    loginFailed: '登录失败，请重试',
+  },
   platform: {
     title: 'Lummi in Colour',
     subtitle: '管理平台',

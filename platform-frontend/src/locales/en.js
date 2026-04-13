@@ -1,4 +1,21 @@
 export default {
+  nav: {
+    appTitle: 'Lummi in Colour Management Platform',
+  },
+  login: {
+    username: 'Username',
+    usernamePlaceholder: 'Enter your username',
+    usernameRequired: 'Please enter your username',
+    password: 'Password',
+    passwordPlaceholder: 'Enter your password',
+    passwordRequired: 'Please enter your password',
+    captcha: 'Captcha',
+    captchaPlaceholder: 'Enter captcha',
+    captchaRequired: 'Please enter the captcha',
+    refreshCaptcha: 'Click to refresh captcha',
+    loginBtn: 'Sign In',
+    loginFailed: 'Login failed, please try again',
+  },
   platform: {
     title: 'Lummi in Colour',
     subtitle: 'Management Platform',
