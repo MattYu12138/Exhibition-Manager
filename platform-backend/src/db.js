@@ -6,7 +6,7 @@ const bcrypt = require('bcryptjs');
 // 统一使用 Exhibition 数据库，共享 users 表
 // 本地开发默认路径：指向 exhibition-backend 的数据库文件
 // 生产环境通过 DB_PATH 环境变量指定
-const DB_PATH = process.env.DB_PATH || '/data/database/exhibition.db';
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/database/exhibition.db');
 
 let db;
 

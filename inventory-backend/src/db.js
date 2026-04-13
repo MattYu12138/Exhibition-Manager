@@ -5,7 +5,7 @@ const fs = require('fs');
 // Shared database - use exhibition.db as the unified database
 // Local dev default: point to exhibition-backend's database file
 // Production: set DB_PATH env var to the shared path
-const DB_PATH = process.env.DB_PATH || '/data/database/exhibition.db';
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/database/exhibition.db');
 
 let db;
 
