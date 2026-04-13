@@ -54,6 +54,21 @@
         </div>
       </div>
 
+      <!-- Status Tabs -->
+      <div class="flex gap-1 mb-4 border-b border-gray-200">
+        <button
+          v-for="tab in statusTabs"
+          :key="tab.value"
+          @click="switchStatus(tab.value)"
+          class="px-4 py-2 text-sm font-medium rounded-t-lg transition-colors"
+          :class="activeStatus === tab.value
+            ? 'bg-white border border-b-white border-gray-200 text-purple-700 -mb-px'
+            : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'"
+        >
+          {{ tab.label }}
+        </button>
+      </div>
+
       <!-- Filters -->
       <div class="flex gap-3 mb-4">
         <input
@@ -84,6 +99,10 @@
         ✅ {{ t('inventory.noDuplicates') }}
       </div>
 
+      <div v-else-if="filteredProducts.length === 0" class="text-center text-gray-400 py-20">
+        {{ t('inventory.noProducts') }}
+      </div>
+
       <div v-else class="space-y-3">
         <div
           v-for="product in filteredProducts"
@@ -98,7 +117,7 @@
               <span v-if="product.hasDuplicate" class="text-orange-500 text-lg">⚠</span>
               <div>
                 <div class="font-medium text-gray-800">{{ product.title }}</div>
-                <div class="text-xs text-gray-500">{{ product.vendor }} · {{ product.product_type }} · {{ product.status }}</div>
+                <div class="text-xs text-gray-500">{{ product.vendor }} · {{ product.product_type }} · <span :class="statusBadgeClass(product._computed_status || product.status)">{{ product._computed_status || product.status }}</span></div>
               </div>
             </div>
             <div class="flex items-center gap-3">
@@ -253,6 +272,7 @@ async function backToPlatform() {
     window.location.href = platformUrl
   }
 }
+
 const products = ref([])
 const summary = ref({ total: 0, withDuplicates: 0, duplicateSKUs: 0, duplicateBarcodes: 0 })
 const lastSync = ref(null)
@@ -261,6 +281,7 @@ const syncing = ref(false)
 const searchQuery = ref('')
 const showDuplicatesOnly = ref(false)
 const expandedProducts = ref(new Set())
+const activeStatus = ref('all')
 
 const editingProduct = ref(null)
 const editingVariant = ref(null)
@@ -268,6 +289,24 @@ const productForm = ref({})
 const variantForm = ref({})
 const saving = ref(false)
 const saveError = ref('')
+
+const statusTabs = computed(() => [
+  { value: 'all', label: t('inventory.statusAll') },
+  { value: 'active', label: t('inventory.statusActive') },
+  { value: 'draft', label: t('inventory.statusDraft') },
+  { value: 'archived', label: t('inventory.statusArchived') },
+  { value: 'unlisted', label: t('inventory.statusUnlisted') },
+])
+
+function statusBadgeClass(status) {
+  const map = {
+    active: 'text-green-600 font-medium',
+    draft: 'text-yellow-600 font-medium',
+    archived: 'text-gray-500 font-medium',
+    unlisted: 'text-blue-500 font-medium',
+  }
+  return map[status] || 'text-gray-600'
+}
 
 function toggleLang() {
   locale.value = locale.value === 'zh' ? 'en' : 'zh'
@@ -280,6 +319,14 @@ function toggleProduct(id) {
   } else {
     expandedProducts.value.add(id)
   }
+}
+
+async function switchStatus(status) {
+  activeStatus.value = status
+  searchQuery.value = ''
+  showDuplicatesOnly.value = false
+  expandedProducts.value = new Set()
+  await fetchProducts()
 }
 
 const filteredProducts = computed(() => {
@@ -297,8 +344,10 @@ const filteredProducts = computed(() => {
 })
 
 async function fetchProducts() {
+  loading.value = true
   try {
-    const res = await api.get('/products')
+    const params = activeStatus.value !== 'all' ? { status: activeStatus.value } : {}
+    const res = await api.get('/products', { params })
     products.value = res.data.products
     summary.value = res.data.summary
     // Auto-expand products with duplicates

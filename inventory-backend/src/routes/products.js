@@ -30,9 +30,11 @@ router.post('/sync', requirePermission('write'), async (req, res) => {
 
     const txn = db.transaction(() => {
       for (const p of products) {
+        // Use _computed_status for unlisted detection, fall back to p.status
+        const computedStatus = p._computed_status || p.status;
         upsert.run(
           String(p.id), p.title, p.vendor, p.product_type,
-          p.status, p.handle, p.tags,
+          computedStatus, p.handle, p.tags,
           JSON.stringify(p)
         );
       }
@@ -56,7 +58,14 @@ router.post('/sync', requirePermission('write'), async (req, res) => {
  */
 router.get('/', requirePermission('read'), (req, res) => {
   const db = getDb();
-  const rows = db.prepare('SELECT * FROM inventory_products_cache ORDER BY cached_at DESC').all();
+  const { status } = req.query;
+
+  let rows;
+  if (status && status !== 'all') {
+    rows = db.prepare('SELECT * FROM inventory_products_cache WHERE status = ? ORDER BY cached_at DESC').all(status);
+  } else {
+    rows = db.prepare('SELECT * FROM inventory_products_cache ORDER BY cached_at DESC').all();
+  }
 
   const products = rows.map(r => JSON.parse(r.raw_json));
 

@@ -91,29 +91,59 @@ function getStoreDomain() {
 }
 
 /**
- * Fetch all products from Shopify with pagination
+ * Fetch products from Shopify for a given status with pagination
  */
-async function fetchAllProducts() {
-  const domain = getStoreDomain();
-  const baseURL = `https://${domain}/admin/api/${API_VERSION}`;
+async function fetchProductsByStatus(baseURL, statusParam, publishedStatus = null) {
   const products = [];
-  let url = `${baseURL}/products.json?limit=250&fields=id,title,vendor,product_type,status,handle,tags,variants`;
-
+  const fields = 'id,title,vendor,product_type,status,handle,tags,variants,published_at';
+  let url;
+  if (publishedStatus === 'unlisted') {
+    url = `${baseURL}/products.json?limit=250&fields=${fields}&status=active&published_status=unlisted`;
+  } else {
+    url = `${baseURL}/products.json?limit=250&fields=${fields}&status=${statusParam}`;
+  }
   while (url) {
     const headers = await getHeaders();
     const res = await axios.get(url, { headers });
     products.push(...res.data.products);
-
     const linkHeader = res.headers['link'];
     url = null;
     if (linkHeader) {
       const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
-      if (match) {
-        url = match[1];
-      }
+      if (match) url = match[1];
     }
   }
   return products;
+}
+
+/**
+ * Fetch ALL products from Shopify (active, draft, archived, unlisted)
+ * Each product gets a _computed_status field for frontend filtering
+ */
+async function fetchAllProducts() {
+  const domain = getStoreDomain();
+  const baseURL = `https://${domain}/admin/api/${API_VERSION}`;
+
+  // Fetch all statuses in parallel
+  const [activeProducts, draftProducts, archivedProducts, unlistedProducts] = await Promise.all([
+    fetchProductsByStatus(baseURL, 'active'),
+    fetchProductsByStatus(baseURL, 'draft'),
+    fetchProductsByStatus(baseURL, 'archived'),
+    fetchProductsByStatus(baseURL, 'active', 'unlisted'),
+  ]);
+
+  // Unlisted = active but published_at is null
+  const unlistedIds = new Set(unlistedProducts.map(p => String(p.id)));
+
+  // True active = active products that are NOT unlisted
+  const trueActive = activeProducts.filter(p => !unlistedIds.has(String(p.id)));
+
+  return [
+    ...trueActive.map(p => ({ ...p, _computed_status: 'active' })),
+    ...draftProducts.map(p => ({ ...p, _computed_status: 'draft' })),
+    ...archivedProducts.map(p => ({ ...p, _computed_status: 'archived' })),
+    ...unlistedProducts.map(p => ({ ...p, _computed_status: 'unlisted' })),
+  ];
 }
 
 /**
