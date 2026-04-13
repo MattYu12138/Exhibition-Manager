@@ -4,11 +4,11 @@
 # 用法: ./deploy.sh
 #
 # 【环境分离说明】
-#   本地开发: 使用 backend/.env（从 .env.development.example 复制修改）
+#   本地开发: 使用 exhibition-backend/.env（从 .env.development.example 复制修改）
 #   生产服务器: 使用 /home/ubuntu/.env.exhibition.production（永久保存在 git 仓库外）
 #
 #   首次部署前请先执行:
-#     cp backend/.env.production.example /home/ubuntu/.env.exhibition.production
+#     cp exhibition-backend/.env.production.example /home/ubuntu/.env.exhibition.production
 #     nano /home/ubuntu/.env.exhibition.production   # 填入真实密钥
 #
 #   之后每次 ./deploy.sh 会自动从该文件注入配置，git pull 不会影响它
@@ -16,8 +16,8 @@
 set -e
 
 APP_DIR="/home/ubuntu/Exhibition-Manager"
-FRONTEND_DIR="$APP_DIR/frontend"
-BACKEND_DIR="$APP_DIR/backend"
+FRONTEND_DIR="$APP_DIR/exhibition-frontend"
+BACKEND_DIR="$APP_DIR/exhibition-backend"
 DATA_DIR="/data/exhibition-app"
 BACKUP_DIR="$DATA_DIR/backups"
 

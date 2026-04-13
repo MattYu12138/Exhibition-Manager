@@ -7,13 +7,13 @@ services:
   # Exhibition Manager (existing)
   # ─────────────────────────────────────────────
   exhibition-backend:
-    build: ./backend
+    build: ./exhibition-backend
     restart: always
     env_file:
-      - ./backend/.env
+      - ./exhibition-backend/.env
     volumes:
       - /data/exhibition-app/database:/data/exhibition-app/database
-      - ./frontend/dist:/frontend/dist:ro
+      - ./exhibition-frontend/dist:/frontend/dist:ro
     ports:
       - '127.0.0.1:3001:3001'
 
