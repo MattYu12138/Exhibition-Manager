@@ -12,6 +12,8 @@
 
           <!-- 桌面端导航 -->
           <div class="header-nav desktop-nav">
+            <a :href="platformUrl" class="back-to-platform-link">{{ t('nav.backToPlatform') }}</a>
+            <span style="color: rgba(255,255,255,0.3); margin: 0 4px;">|</span>
             <el-button text :style="{ color: '#fff' }" @click="$router.push('/exhibitions')">
               <el-icon><List /></el-icon> {{ t('nav.exhibitions') }}
             </el-button>
@@ -193,6 +195,7 @@ const authStore = useAuthStore()
 
 const elLocale = computed(() => locale.value === 'zh' ? zhCn : en)
 const isLoginPage = computed(() => route.name === 'Login')
+const platformUrl = import.meta.env.VITE_PLATFORM_URL || 'http://localhost:5174'
 
 const roleTagType = computed(() => {
   const map = { admin: 'danger', staff: 'primary', guest: 'info' }
@@ -338,6 +341,16 @@ body {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+}
+
+.back-to-platform-link {
+  color: rgba(255, 255, 255, 0.6);
+  text-decoration: none;
+  font-size: 13px;
+  transition: color 0.2s;
+}
+.back-to-platform-link:hover {
+  color: #fff;
 }
 
 /* 手机端汉堡菜单 - 默认隐藏 */

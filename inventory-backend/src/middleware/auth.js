@@ -1,21 +1,25 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 
-// Check permission against platform database
+// Check permission against exhibition database (shared user DB)
 function requirePermission(permission = 'read') {
   return (req, res, next) => {
-    if (!req.session || !req.session.userId) {
+    // Support both req.session.user (SSO login) and req.session.userId (legacy)
+    const sessionUser = req.session?.user;
+    const userId = sessionUser?.id || req.session?.userId;
+    const role = sessionUser?.role || req.session?.role;
+
+    if (!req.session || !userId) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
-
-    const { userId, role } = req.session;
 
     // Admin always has full access
     if (role === 'admin') return next();
 
     // Check platform permissions for inventory-manager system
+    // Use exhibition.db as the shared database (contains platform_permissions table)
     try {
-      const dbPath = process.env.DB_PATH || path.join(__dirname, '../../../data/platform.db');
+      const dbPath = process.env.DB_PATH || path.join(__dirname, '../../../data/exhibition-app/database/exhibition.db');
       const db = new Database(dbPath, { readonly: true });
       const perm = db.prepare(`
         SELECT p.can_read, p.can_write

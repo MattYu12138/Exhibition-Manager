@@ -26,6 +26,7 @@ export default {
     dbAdmin: '数据库管理',
     logout: '退出登录',
     logoutSuccess: '已成功退出登录',
+    backToPlatform: '← 返回平台',
   },
 
   // 登录页

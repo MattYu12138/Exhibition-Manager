@@ -2,8 +2,8 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
-// Shared database with platform
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/platform.db');
+// Shared database - use exhibition.db as the unified database
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/exhibition-app/database/exhibition.db');
 
 let db;
 

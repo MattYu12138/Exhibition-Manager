@@ -10,6 +10,7 @@ const authRouter = require('./routes/auth');
 const systemsRouter = require('./routes/systems');
 const usersRouter = require('./routes/users');
 const ssoRouter = require('./routes/sso');
+const dbadminRouter = require('./routes/dbadmin');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -36,7 +37,7 @@ app.use(session({
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    maxAge: 3 * 60 * 60 * 1000 // 3 hours
   }
 }));
 
@@ -44,6 +45,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/systems', systemsRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/sso', ssoRouter);
+app.use('/api/dbadmin', dbadminRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'platform-backend', timestamp: new Date().toISOString() });

@@ -3,7 +3,8 @@ const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/platform.db');
+// 统一使用 Exhibition 数据库，共享 users 表
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/exhibition.db');
 
 let db;
 
@@ -21,17 +22,6 @@ function getDb() {
 
 function initSchema() {
   db.exec(`
-    CREATE TABLE IF NOT EXISTS platform_users (
-      id TEXT PRIMARY KEY,
-      username TEXT UNIQUE NOT NULL,
-      display_name TEXT NOT NULL,
-      password_hash TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'staff',
-      is_active INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-
     CREATE TABLE IF NOT EXISTS platform_systems (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -52,22 +42,9 @@ function initSchema() {
       can_write INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES platform_users(id) ON DELETE CASCADE,
-      FOREIGN KEY (system_id) REFERENCES platform_systems(id) ON DELETE CASCADE,
       UNIQUE(user_id, system_id)
     );
   `);
-
-  // Seed default admin user if not exists
-  const admin = db.prepare('SELECT id FROM platform_users WHERE username = ?').get('admin');
-  if (!admin) {
-    const passwordHash = bcrypt.hashSync('123456', 10);
-    db.prepare(`
-      INSERT INTO platform_users (id, username, display_name, password_hash, role)
-      VALUES ('U0000001', 'admin', 'Administrator', ?, 'admin')
-    `).run(passwordHash);
-    console.log('✅ Default admin user created (username: admin, password: 123456)');
-  }
 
   // Seed default systems if not exists
   const systems = db.prepare('SELECT COUNT(*) as cnt FROM platform_systems').get();

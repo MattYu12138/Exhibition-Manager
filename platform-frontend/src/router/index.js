@@ -19,6 +19,12 @@ const routes = [
     name: 'UserManagement',
     component: () => import('../views/UserManagementView.vue'),
     meta: { requiresAuth: true, requiresAdmin: true }
+  },
+  {
+    path: '/admin/database',
+    name: 'DatabaseAdmin',
+    component: () => import('../views/DatabaseAdminView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true }
   }
 ]
 

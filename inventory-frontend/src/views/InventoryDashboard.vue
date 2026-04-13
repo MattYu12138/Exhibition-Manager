@@ -19,7 +19,7 @@
           <button
             @click="syncProducts"
             :disabled="syncing"
-            class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg disabled:opacity-50 flex items-center gap-2"
+            class="bg-purple-600 hover:bg-purple-700 text-white text-sm px-4 py-2 rounded-lg disabled:opacity-50 flex items-center gap-2"
           >
             <span v-if="syncing" class="animate-spin">⟳</span>
             {{ syncing ? t('inventory.syncing') : t('inventory.syncNow') }}
@@ -63,7 +63,7 @@
         />
         <button
           @click="showDuplicatesOnly = false"
-          :class="!showDuplicatesOnly ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border'"
+          :class="!showDuplicatesOnly ? 'bg-purple-600 text-white' : 'bg-white text-gray-600 border'"
           class="px-4 py-2 rounded-lg text-sm"
         >{{ t('inventory.allProducts') }}</button>
         <button
@@ -103,7 +103,7 @@
             </div>
             <div class="flex items-center gap-3">
               <span class="text-xs text-gray-400">{{ product.variants?.length }} {{ t('inventory.variants') }}</span>
-              <button @click.stop="openEditProduct(product)" class="text-xs text-blue-500 hover:underline">{{ t('inventory.edit') }}</button>
+              <button @click.stop="openEditProduct(product)" class="text-xs text-purple-600 hover:underline">{{ t('inventory.edit') }}</button>
               <span class="text-gray-400">{{ expandedProducts.has(product.id) ? '▲' : '▼' }}</span>
             </div>
           </div>
@@ -142,7 +142,7 @@
                     <span v-if="variant.hasDuplicateBarcode" class="bg-red-100 text-red-600 px-1.5 py-0.5 rounded">{{ t('inventory.dupBarcode') }}</span>
                   </td>
                   <td class="px-4 py-2">
-                    <button @click="openEditVariant(product, variant)" class="text-blue-500 hover:underline">{{ t('inventory.edit') }}</button>
+                    <button @click="openEditVariant(product, variant)" class="text-purple-600 hover:underline">{{ t('inventory.edit') }}</button>
                   </td>
                 </tr>
               </tbody>
@@ -184,7 +184,7 @@
         </div>
         <div v-if="saveError" class="text-red-500 text-sm mt-2">{{ saveError }}</div>
         <div class="flex gap-3 mt-4">
-          <button @click="saveProduct" :disabled="saving" class="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+          <button @click="saveProduct" :disabled="saving" class="flex-1 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50">
             {{ saving ? '...' : t('inventory.save') }}
           </button>
           <button @click="editingProduct = null" class="flex-1 border py-2 rounded-lg hover:bg-gray-50">{{ t('inventory.cancel') }}</button>
@@ -221,7 +221,7 @@
         </div>
         <div v-if="saveError" class="text-red-500 text-sm mt-2">{{ saveError }}</div>
         <div class="flex gap-3 mt-4">
-          <button @click="saveVariant" :disabled="saving" class="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+          <button @click="saveVariant" :disabled="saving" class="flex-1 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50">
             {{ saving ? '...' : t('inventory.save') }}
           </button>
           <button @click="editingVariant = null" class="flex-1 border py-2 rounded-lg hover:bg-gray-50">{{ t('inventory.cancel') }}</button>

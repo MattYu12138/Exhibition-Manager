@@ -21,7 +21,10 @@
             {{ locale === 'zh' ? 'EN' : '中文' }}
           </button>
           <router-link v-if="auth.isAdmin" to="/admin/users" class="text-sm text-purple-600 hover:underline">
-            {{ t('users.title') }}
+            {{ t('userMgmt.pageTitle') }}
+          </router-link>
+          <router-link v-if="auth.isAdmin" to="/admin/database" class="text-sm text-red-600 hover:underline">
+            {{ t('dbAdmin.pageTitle') }}
           </router-link>
           <button @click="handleLogout" class="text-sm text-gray-500 hover:text-red-500">
             {{ t('platform.logout') }}

@@ -1,0 +1,170 @@
+/**
+ * Platform Backend - Database Admin Route
+ * 移植自 exhibition-backend，允许 admin 对所有数据表进行增删查改
+ */
+const express = require('express');
+const router = express.Router();
+const { getDb } = require('../db');
+const { requireAdmin } = require('../middleware/auth');
+
+// 允许访问的表白名单（包含 exhibition + platform 的所有表）
+const ALLOWED_TABLES = [
+  'users',
+  'exhibitions',
+  'exhibition_items',
+  'inventory_snapshots',
+  'platform_systems',
+  'platform_permissions',
+  'inventory_sync_log',
+  'inventory_products_cache',
+];
+
+// 获取所有允许的表名及其结构
+router.get('/tables', requireAdmin, (req, res) => {
+  const db = getDb();
+  try {
+    const tables = ALLOWED_TABLES.map(tableName => {
+      try {
+        const columns = db.pragma(`table_info(${tableName})`);
+        const count = db.prepare(`SELECT COUNT(*) as cnt FROM ${tableName}`).get();
+        return {
+          name: tableName,
+          columns: columns.map(c => ({
+            name: c.name,
+            type: c.type,
+            notnull: c.notnull,
+            dflt_value: c.dflt_value,
+            pk: c.pk,
+          })),
+          row_count: count.cnt,
+        };
+      } catch {
+        // 表不存在时跳过
+        return null;
+      }
+    }).filter(Boolean);
+    res.json({ success: true, data: tables });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 查询表数据（支持分页、搜索）
+router.get('/tables/:table/rows', requireAdmin, (req, res) => {
+  const db = getDb();
+  try {
+    const { table } = req.params;
+    if (!ALLOWED_TABLES.includes(table)) {
+      return res.status(403).json({ success: false, message: '不允许访问该表' });
+    }
+    const page = parseInt(req.query.page) || 1;
+    const pageSize = parseInt(req.query.pageSize) || 50;
+    const search = req.query.search || '';
+    const offset = (page - 1) * pageSize;
+
+    const columns = db.pragma(`table_info(${table})`);
+    const textCols = columns.filter(c => c.type.toUpperCase().includes('TEXT') || c.type === '').map(c => c.name);
+
+    let whereClause = '';
+    let params = [];
+    if (search && textCols.length > 0) {
+      const conditions = textCols.map(col => `${col} LIKE ?`).join(' OR ');
+      whereClause = `WHERE ${conditions}`;
+      params = textCols.map(() => `%${search}%`);
+    }
+
+    const total = db.prepare(`SELECT COUNT(*) as cnt FROM ${table} ${whereClause}`).get(...params);
+    const rows = db.prepare(`SELECT * FROM ${table} ${whereClause} ORDER BY rowid DESC LIMIT ? OFFSET ?`).all(...params, pageSize, offset);
+    res.json({
+      success: true,
+      data: rows,
+      total: total.cnt,
+      page,
+      pageSize,
+      columns: columns.map(c => ({ name: c.name, type: c.type, pk: c.pk })),
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 新增一行
+router.post('/tables/:table/rows', requireAdmin, (req, res) => {
+  const db = getDb();
+  try {
+    const { table } = req.params;
+    if (!ALLOWED_TABLES.includes(table)) {
+      return res.status(403).json({ success: false, message: '不允许访问该表' });
+    }
+    const data = req.body;
+    if (!data || Object.keys(data).length === 0) {
+      return res.status(400).json({ success: false, message: '请提供数据' });
+    }
+    const cols = Object.keys(data);
+    const placeholders = cols.map(() => '?').join(', ');
+    const values = Object.values(data);
+    db.prepare(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`).run(...values);
+    res.json({ success: true, message: '新增成功' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 更新一行（按主键）
+router.put('/tables/:table/rows/:id', requireAdmin, (req, res) => {
+  const db = getDb();
+  try {
+    const { table, id } = req.params;
+    if (!ALLOWED_TABLES.includes(table)) {
+      return res.status(403).json({ success: false, message: '不允许访问该表' });
+    }
+    const data = req.body;
+    if (!data || Object.keys(data).length === 0) {
+      return res.status(400).json({ success: false, message: '请提供更新数据' });
+    }
+    const pkInfo = db.pragma(`table_info(${table})`).find(c => c.pk === 1);
+    const pkCol = pkInfo ? pkInfo.name : 'id';
+    const setClauses = Object.keys(data).map(k => `${k} = ?`).join(', ');
+    const values = [...Object.values(data), id];
+    db.prepare(`UPDATE ${table} SET ${setClauses} WHERE ${pkCol} = ?`).run(...values);
+    res.json({ success: true, message: '更新成功' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 删除一行（按主键）
+router.delete('/tables/:table/rows/:id', requireAdmin, (req, res) => {
+  const db = getDb();
+  try {
+    const { table, id } = req.params;
+    if (!ALLOWED_TABLES.includes(table)) {
+      return res.status(403).json({ success: false, message: '不允许访问该表' });
+    }
+    const pkInfo = db.pragma(`table_info(${table})`).find(c => c.pk === 1);
+    const pkCol = pkInfo ? pkInfo.name : 'id';
+    db.prepare(`DELETE FROM ${table} WHERE ${pkCol} = ?`).run(id);
+    res.json({ success: true, message: '删除成功' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// 执行自定义 SQL（仅限 SELECT）
+router.post('/query', requireAdmin, (req, res) => {
+  const db = getDb();
+  try {
+    const { sql } = req.body;
+    if (!sql) return res.status(400).json({ success: false, message: '请提供 SQL 语句' });
+    const trimmed = sql.trim().toUpperCase();
+    if (!trimmed.startsWith('SELECT')) {
+      return res.status(403).json({ success: false, message: '仅允许 SELECT 查询' });
+    }
+    const rows = db.prepare(sql).all();
+    res.json({ success: true, data: rows, count: rows.length });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+module.exports = router;

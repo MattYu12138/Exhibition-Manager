@@ -26,6 +26,7 @@ export default {
     dbAdmin: 'DB Admin',
     logout: 'Logout',
     logoutSuccess: 'Logged out successfully',
+    backToPlatform: '← Back to Platform',
   },
 
   // Login Page

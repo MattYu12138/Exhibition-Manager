@@ -41,7 +41,8 @@ router.post('/login', (req, res) => {
   req.session.captcha = null;
 
   const db = getDb();
-  const user = db.prepare('SELECT * FROM platform_users WHERE username = ? AND is_active = 1').get(username);
+  // 统一使用 exhibition 的 users 表
+  const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
   if (!user) {
     return res.status(401).json({ success: false, message: '用户名或密码错误' });
   }
@@ -54,7 +55,7 @@ router.post('/login', (req, res) => {
   req.session.user = {
     id: user.id,
     username: user.username,
-    displayName: user.display_name || user.username,
+    displayName: user.username,
     role: user.role,
   };
 
@@ -63,7 +64,7 @@ router.post('/login', (req, res) => {
     user: {
       id: user.id,
       username: user.username,
-      displayName: user.display_name || user.username,
+      displayName: user.username,
       role: user.role,
     },
   });
