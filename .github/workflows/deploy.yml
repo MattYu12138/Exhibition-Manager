@@ -1,5 +1,4 @@
 name: Deploy to Production
-
 # 仅手动触发，git push 不会自动部署
 on:
   workflow_dispatch:
@@ -21,7 +20,7 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY_EXHIBITION_MANAGER_KEY }}" > ~/.ssh/exhibition-key.pem
+          printf '%s' "${{ secrets.SSH_PRIVATE_KEY_EXHIBITION_MANAGER_KEY }}" > ~/.ssh/exhibition-key.pem
           chmod 600 ~/.ssh/exhibition-key.pem
           ssh-keyscan -H 54.206.101.190 >> ~/.ssh/known_hosts
 
