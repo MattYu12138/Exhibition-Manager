@@ -1,0 +1,67 @@
+name: Deploy to Production
+
+# 仅手动触发，git push 不会自动部署
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: '确认部署到生产服务器（输入 yes）'
+        required: true
+        default: 'yes'
+
+jobs:
+  deploy:
+    name: Deploy to 54.206.101.190
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/exhibition-key.pem
+          chmod 600 ~/.ssh/exhibition-key.pem
+          ssh-keyscan -H 54.206.101.190 >> ~/.ssh/known_hosts
+
+      - name: Deploy to server
+        run: |
+          ssh -i ~/.ssh/exhibition-key.pem ubuntu@54.206.101.190 << 'ENDSSH'
+            set -e
+            cd /home/ubuntu/Exhibition-Manager
+
+            echo "=== [1/5] 拉取最新代码 ==="
+            git pull origin main
+
+            echo "=== [2/5] 恢复生产环境配置 ==="
+            cp /home/ubuntu/.env.exhibition.production backend/.env
+
+            echo "=== [3/5] 构建前端 ==="
+            cd frontend
+            npm install --legacy-peer-deps
+            npm run build
+            cd ..
+
+            echo "=== [4/5] 重建 Docker 镜像 ==="
+            docker compose build --no-cache
+
+            echo "=== [5/5] 重启容器 ==="
+            docker compose down
+            docker compose up -d
+
+            echo ""
+            echo "✅ 部署完成！"
+            docker logs exhibition-manager-backend-1 2>&1 | grep -E "🚀|Shopify|Square"
+          ENDSSH
+
+      - name: Verify deployment
+        run: |
+          sleep 5
+          STATUS=$(curl -s https://exhibition.lummiincolour.com.au/api/health | python3 -c "import sys,json; d=json.load(sys.stdin ); print('OK' if d.get('status')=='ok' else 'FAIL')" 2>/dev/null || echo "FAIL")
+          if [ "$STATUS" = "OK" ]; then
+            echo "✅ 健康检查通过，网站正常运行"
+          else
+            echo "❌ 健康检查失败，请检查服务器日志"
+            exit 1
+          fi
