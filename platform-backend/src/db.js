@@ -61,12 +61,12 @@ function initSchema() {
   // Seed default admin user if not exists
   const admin = db.prepare('SELECT id FROM platform_users WHERE username = ?').get('admin');
   if (!admin) {
-    const passwordHash = bcrypt.hashSync('admin123', 10);
+    const passwordHash = bcrypt.hashSync('123456', 10);
     db.prepare(`
       INSERT INTO platform_users (id, username, display_name, password_hash, role)
       VALUES ('U0000001', 'admin', 'Administrator', ?, 'admin')
     `).run(passwordHash);
-    console.log('✅ Default admin user created (username: admin, password: admin123)');
+    console.log('✅ Default admin user created (username: admin, password: 123456)');
   }
 
   // Seed default systems if not exists
