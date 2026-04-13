@@ -13,7 +13,7 @@ const { getDb } = require('./db');
 const app = express();
 const PORT = process.env.PORT || 3002;
 
-const SESSION_DB_PATH = process.env.SESSION_DB_PATH || path.join(__dirname, '../../data/platform-sessions.db');
+const SESSION_DB_PATH = process.env.SESSION_DB_PATH || '/data/database/inventory-sessions.db';
 const SESSION_DB_DIR = path.dirname(SESSION_DB_PATH);
 const SESSION_DB_FILE = path.basename(SESSION_DB_PATH);
 

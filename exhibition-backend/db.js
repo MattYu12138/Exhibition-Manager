@@ -3,7 +3,7 @@ const bcrypt = require('bcryptjs');
 const path = require('path');
 const { encrypt } = require('./utils/crypto');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'exhibition.db');
+const DB_PATH = process.env.DB_PATH || '/data/database/exhibition.db';
 const db = new Database(DB_PATH);
 
 // 启用 WAL 模式提升性能

@@ -37,7 +37,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Session 配置（3 小时有效期）
 // connect-sqlite3 需要 dir（目录）+ db（文件名）分开传，不支持完整路径
-const sessionDbFull = process.env.SESSION_DB_PATH || path.join(__dirname, 'sessions.db');
+const sessionDbFull = process.env.SESSION_DB_PATH || '/data/database/sessions.db';
 const sessionDbDir = path.dirname(sessionDbFull);
 const sessionDbFile = path.basename(sessionDbFull);
 app.use(session({
