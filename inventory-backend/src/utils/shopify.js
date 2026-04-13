@@ -1,48 +1,118 @@
+/**
+ * Shopify 工具函数（inventory-backend）
+ * 支持两种认证方式（自动选择）：
+ *   1. SHOPIFY_ACCESS_TOKEN 已填写 → 直接使用（兼容旧版 Legacy App）
+ *   2. SHOPIFY_SHOP + SHOPIFY_CLIENT_ID + SHOPIFY_CLIENT_SECRET → client_credentials grant 自动换取 Token
+ */
 const axios = require('axios');
+const { URLSearchParams } = require('url');
 
-const SHOPIFY_STORE = process.env.SHOPIFY_STORE; // e.g. mystore.myshopify.com
-const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 const API_VERSION = process.env.SHOPIFY_API_VERSION || '2024-01';
 
-function shopifyClient() {
-  if (!SHOPIFY_STORE || !SHOPIFY_ACCESS_TOKEN) {
-    throw new Error('SHOPIFY_STORE and SHOPIFY_ACCESS_TOKEN must be set in environment variables');
+// Token 缓存（用于 client_credentials grant）
+let cachedToken = null;
+let tokenExpiresAt = 0;
+
+/**
+ * 获取有效的 Shopify Access Token
+ */
+async function getAccessToken() {
+  // 优先使用静态 Token（Legacy App 或手动填写的 Token）
+  if (process.env.SHOPIFY_ACCESS_TOKEN) {
+    return process.env.SHOPIFY_ACCESS_TOKEN;
   }
-  return axios.create({
-    baseURL: `https://${SHOPIFY_STORE}/admin/api/${API_VERSION}`,
-    headers: {
-      'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
-      'Content-Type': 'application/json'
+
+  // 使用 client_credentials grant（Dev Dashboard App）
+  const shop = process.env.SHOPIFY_SHOP;
+  const clientId = process.env.SHOPIFY_CLIENT_ID;
+  const clientSecret = process.env.SHOPIFY_CLIENT_SECRET;
+
+  if (!shop || !clientId || !clientSecret) {
+    throw new Error(
+      '缺少 Shopify 认证配置。请在 .env 中填写以下任一组合：\n' +
+      '  方式1（旧版）: SHOPIFY_ACCESS_TOKEN\n' +
+      '  方式2（Dev Dashboard App）: SHOPIFY_SHOP + SHOPIFY_CLIENT_ID + SHOPIFY_CLIENT_SECRET'
+    );
+  }
+
+  // 距离过期还有 60 秒以上则返回缓存
+  if (cachedToken && Date.now() < tokenExpiresAt - 60_000) {
+    return cachedToken;
+  }
+
+  // POST 换取新 Token
+  const response = await fetch(
+    `https://${shop}.myshopify.com/admin/oauth/access_token`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+        client_id: clientId,
+        client_secret: clientSecret,
+      }),
     }
-  });
+  );
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Shopify Token 获取失败 (${response.status}): ${text}`);
+  }
+
+  const data = await response.json();
+  cachedToken = data.access_token;
+  tokenExpiresAt = Date.now() + (data.expires_in || 3600) * 1000;
+  return cachedToken;
+}
+
+/**
+ * 获取 Shopify 请求 headers
+ */
+async function getHeaders() {
+  const token = await getAccessToken();
+  return {
+    'X-Shopify-Access-Token': token,
+    'Content-Type': 'application/json',
+  };
+}
+
+/**
+ * 获取 Shopify store 域名
+ */
+function getStoreDomain() {
+  if (process.env.SHOPIFY_STORE) {
+    const store = process.env.SHOPIFY_STORE;
+    return store.includes('.myshopify.com') ? store : `${store}.myshopify.com`;
+  }
+  if (process.env.SHOPIFY_SHOP) {
+    return `${process.env.SHOPIFY_SHOP}.myshopify.com`;
+  }
+  throw new Error('缺少 SHOPIFY_STORE 或 SHOPIFY_SHOP 环境变量');
 }
 
 /**
  * Fetch all products from Shopify with pagination
  */
 async function fetchAllProducts() {
-  const client = shopifyClient();
+  const domain = getStoreDomain();
+  const baseURL = `https://${domain}/admin/api/${API_VERSION}`;
   const products = [];
-  let url = '/products.json?limit=250&fields=id,title,vendor,product_type,status,handle,tags,variants';
+  let url = `${baseURL}/products.json?limit=250&fields=id,title,vendor,product_type,status,handle,tags,variants`;
 
   while (url) {
-    const res = await client.get(url);
+    const headers = await getHeaders();
+    const res = await axios.get(url, { headers });
     products.push(...res.data.products);
 
-    // Handle pagination via Link header
     const linkHeader = res.headers['link'];
     url = null;
     if (linkHeader) {
       const match = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
       if (match) {
-        // Extract just the path+query from the full URL
-        const fullUrl = match[1];
-        const urlObj = new URL(fullUrl);
-        url = urlObj.pathname.replace(`/admin/api/${API_VERSION}`, '') + urlObj.search;
+        url = match[1];
       }
     }
   }
-
   return products;
 }
 
@@ -50,8 +120,10 @@ async function fetchAllProducts() {
  * Update a product variant on Shopify
  */
 async function updateVariant(variantId, data) {
-  const client = shopifyClient();
-  const res = await client.put(`/variants/${variantId}.json`, { variant: data });
+  const domain = getStoreDomain();
+  const baseURL = `https://${domain}/admin/api/${API_VERSION}`;
+  const headers = await getHeaders();
+  const res = await axios.put(`${baseURL}/variants/${variantId}.json`, { variant: data }, { headers });
   return res.data.variant;
 }
 
@@ -59,8 +131,10 @@ async function updateVariant(variantId, data) {
  * Update a product on Shopify
  */
 async function updateProduct(productId, data) {
-  const client = shopifyClient();
-  const res = await client.put(`/products/${productId}.json`, { product: data });
+  const domain = getStoreDomain();
+  const baseURL = `https://${domain}/admin/api/${API_VERSION}`;
+  const headers = await getHeaders();
+  const res = await axios.put(`${baseURL}/products/${productId}.json`, { product: data }, { headers });
   return res.data.product;
 }
 
