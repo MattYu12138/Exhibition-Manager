@@ -3,7 +3,7 @@
     <div class="login-card">
       <!-- Logo -->
       <div class="login-logo">
-        <el-icon size="36" color="#0f3460"><Box /></el-icon>
+        <img class="login-logo-img" src="@/assets/LIC_Logo.png" alt="logo">
         <h1>{{ t('nav.appTitle') }}</h1>
       </div>
 
@@ -124,23 +124,31 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  background: #F5EFE6;
 }
+
+.login-logo-img {
+  width: 100px;
+  height: 100px;
+  object-fit: contain;
+}
+
 
 .login-card {
   background: #fff;
+  border-color: #EFE7DD;
   border-radius: 16px;
   padding: 40px 36px;
   width: 100%;
   max-width: 420px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.06);
 }
 
 .login-logo {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 12px;;
   margin-bottom: 32px;
 }
 
