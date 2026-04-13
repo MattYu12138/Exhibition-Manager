@@ -10,6 +10,7 @@ const shopifyRouter = require('./routes/shopify');
 const squareRouter = require('./routes/square');
 const authRouter = require('./routes/auth');
 const usersRouter = require('./routes/users');
+const ssoRouter = require('./routes/sso');
 const dbadminRouter = require('./routes/dbadmin');
 const { requireLogin, requireStaff } = require('./middleware/auth');
 
@@ -65,6 +66,9 @@ app.get('/api/health', (req, res) => {
 
 // 认证路由（无需登录）
 app.use('/api/auth', authRouter);
+
+// SSO 单点登录（无需登录）
+app.use('/api/sso', ssoRouter);
 
 // 账号管理路由（仅管理员）
 app.use('/api/users', usersRouter);

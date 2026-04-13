@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import axios from 'axios'
 
 const routes = [
   {
@@ -74,6 +75,25 @@ router.beforeEach(async (to) => {
   if (to.meta.public) return true
 
   const authStore = useAuthStore()
+
+  // ── SSO 自动登录 ──────────────────────────────────────────────
+  // 如果 URL 中携带了 sso_token，先用它向后端换取 session
+  const ssoToken = to.query.sso_token
+  if (ssoToken && !authStore.isLoggedIn) {
+    try {
+      const res = await axios.post('/api/sso/login', { token: ssoToken }, { withCredentials: true })
+      if (res.data.success) {
+        authStore.user = res.data.user
+        // 移除 URL 中的 sso_token 参数，保持 URL 干净
+        const cleanQuery = { ...to.query }
+        delete cleanQuery.sso_token
+        return { ...to, query: cleanQuery, replace: true }
+      }
+    } catch (err) {
+      console.warn('[SSO] 自动登录失败，回退到手动登录', err.message)
+    }
+  }
+  // ─────────────────────────────────────────────────────────────
 
   // 如果 store 中没有用户信息，尝试从后端恢复 session
   if (!authStore.isLoggedIn) {

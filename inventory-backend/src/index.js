@@ -6,6 +6,7 @@ const cors = require('cors');
 const path = require('path');
 
 const productsRouter = require('./routes/products');
+const ssoRouter = require('./routes/sso');
 const { getDb } = require('./db');
 
 const app = express();
@@ -34,6 +35,9 @@ app.use(session({
 
 // Initialize DB
 getDb();
+
+// SSO 单点登录（无需登录）
+app.use('/api/sso', ssoRouter);
 
 app.use('/api/products', productsRouter);
 

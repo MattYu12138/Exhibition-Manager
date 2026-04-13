@@ -8,6 +8,7 @@ const path = require('path');
 const authRouter = require('./routes/auth');
 const systemsRouter = require('./routes/systems');
 const usersRouter = require('./routes/users');
+const ssoRouter = require('./routes/sso');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -35,6 +36,7 @@ app.use(session({
 app.use('/api/auth', authRouter);
 app.use('/api/systems', systemsRouter);
 app.use('/api/users', usersRouter);
+app.use('/api/sso', ssoRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'platform-backend', timestamp: new Date().toISOString() });
