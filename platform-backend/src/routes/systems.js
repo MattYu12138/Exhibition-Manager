@@ -7,7 +7,7 @@ const router = express.Router();
 // GET /api/systems - get all systems with user's permissions
 router.get('/', requireLogin, (req, res) => {
   const db = getDb();
-  const { userId, role } = req.session;
+  const { id: userId, role } = req.session.user;
 
   const systems = db.prepare('SELECT * FROM platform_systems WHERE is_active = 1 ORDER BY sort_order').all();
 
