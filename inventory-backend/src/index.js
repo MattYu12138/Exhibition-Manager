@@ -4,19 +4,21 @@ const session = require('express-session');
 const SQLiteStore = require('connect-sqlite3')(session);
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 
 const productsRouter = require('./routes/products');
 const ssoRouter = require('./routes/sso');
 const { getDb } = require('./db');
 
-const fs = require('fs');
-
 const app = express();
 const PORT = process.env.PORT || 3002;
+
 const SESSION_DB_PATH = process.env.SESSION_DB_PATH || path.join(__dirname, '../../data/platform-sessions.db');
+const SESSION_DB_DIR = path.dirname(SESSION_DB_PATH);
+const SESSION_DB_FILE = path.basename(SESSION_DB_PATH);
 
 // 自动创建数据库目录
-fs.mkdirSync(path.dirname(SESSION_DB_PATH), { recursive: true });
+fs.mkdirSync(SESSION_DB_DIR, { recursive: true });
 
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5175',
@@ -25,9 +27,8 @@ app.use(cors({
 
 app.use(express.json());
 
-// Share session store with platform-backend so login carries over
 app.use(session({
-  store: new SQLiteStore({ db: SESSION_DB_PATH, dir: '.' }),
+  store: new SQLiteStore({ db: SESSION_DB_FILE, dir: SESSION_DB_DIR }),
   secret: process.env.SESSION_SECRET || 'lummi-platform-secret-change-in-production',
   resave: false,
   saveUninitialized: false,
