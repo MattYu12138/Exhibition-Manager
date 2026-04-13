@@ -9,9 +9,14 @@ const productsRouter = require('./routes/products');
 const ssoRouter = require('./routes/sso');
 const { getDb } = require('./db');
 
+const fs = require('fs');
+
 const app = express();
 const PORT = process.env.PORT || 3002;
 const SESSION_DB_PATH = process.env.SESSION_DB_PATH || path.join(__dirname, '../../data/platform-sessions.db');
+
+// 自动创建数据库目录
+fs.mkdirSync(path.dirname(SESSION_DB_PATH), { recursive: true });
 
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5175',
