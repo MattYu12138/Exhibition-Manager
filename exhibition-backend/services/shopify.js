@@ -75,7 +75,7 @@ class ShopifyService {
       (process.env.SHOPIFY_SHOP ? `${process.env.SHOPIFY_SHOP}.myshopify.com` : null);
 
     this.domain = shopDomain;
-    this.apiVersion = '2024-01';
+    this.apiVersion = '2025-10';
     this.baseUrl = `https://${this.domain}/admin/api/${this.apiVersion}`;
   }
 
@@ -100,20 +100,12 @@ class ShopifyService {
     let pageInfo = null;
     let hasMore = true;
 
-    // 处理 unlisted：Shopify REST API 用 published_status=unlisted
-    // 其他状态（active/draft/archived）用 status 参数
+    // API 2025-10+ 原生支持 status=unlisted，无需旧的 published_status 变通方案
     const baseParams = {
       limit: 250,
       fields: 'id,title,variants,images,options,status,published_at',
+      status: params.status || 'active',
     };
-
-    if (params.published_status === 'unlisted') {
-      // unlisted = active 但 published_at 为 null（未在任何渠道发布）
-      baseParams.status = 'active';
-      baseParams.published_status = 'unlisted';
-    } else {
-      baseParams.status = params.status || 'active';
-    }
 
     while (hasMore) {
       const headers = await this._getHeaders();
@@ -158,11 +150,9 @@ class ShopifyService {
     const headers = await this._getHeaders();
     let url;
 
-    if (publishedStatus === 'unlisted') {
-      url = `${this.baseUrl}/products.json?title=${encodeURIComponent(query)}&limit=50&status=active&published_status=unlisted`;
-    } else {
-      url = `${this.baseUrl}/products.json?title=${encodeURIComponent(query)}&limit=50&status=${status}`;
-    }
+    // API 2025-10+ 原生支持 status=unlisted
+    const effectiveStatus = publishedStatus === 'unlisted' ? 'unlisted' : (status || 'active');
+    url = `${this.baseUrl}/products.json?title=${encodeURIComponent(query)}&limit=50&status=${effectiveStatus}`;
 
     const response = await axios.get(url, { headers });
     return this._formatProducts(response.data.products);

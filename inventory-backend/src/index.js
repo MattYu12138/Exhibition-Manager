@@ -8,6 +8,7 @@ const fs = require('fs');
 
 const productsRouter = require('./routes/products');
 const ssoRouter = require('./routes/sso');
+const authRouter = require('./routes/auth');
 const { getDb } = require('./db');
 
 const app = express();
@@ -44,6 +45,8 @@ getDb();
 
 // SSO 单点登录（无需登录）
 app.use('/api/sso', ssoRouter);
+// 独立登录（captcha + 用户名密码）
+app.use('/api/auth', authRouter);
 
 app.use('/api/products', productsRouter);
 

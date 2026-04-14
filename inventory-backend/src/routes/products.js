@@ -60,20 +60,15 @@ router.get('/', requirePermission('read'), (req, res) => {
   const db = getDb();
   const { status } = req.query;
 
-  let rows;
-  if (status && status !== 'all') {
-    rows = db.prepare('SELECT * FROM inventory_products_cache WHERE status = ? ORDER BY cached_at DESC').all(status);
-  } else {
-    rows = db.prepare('SELECT * FROM inventory_products_cache ORDER BY cached_at DESC').all();
-  }
+  // Always load ALL products for global cross-product duplicate analysis
+  const allRows = db.prepare('SELECT * FROM inventory_products_cache ORDER BY cached_at DESC').all();
+  const allProducts = allRows.map(r => JSON.parse(r.raw_json));
 
-  const products = rows.map(r => JSON.parse(r.raw_json));
-
-  // Analyze duplicates
+  // Build global SKU/barcode maps across ALL products (all statuses)
   const skuMap = {};
   const barcodeMap = {};
 
-  for (const product of products) {
+  for (const product of allProducts) {
     for (const variant of (product.variants || [])) {
       if (variant.sku) {
         if (!skuMap[variant.sku]) skuMap[variant.sku] = [];
@@ -94,32 +89,49 @@ router.get('/', requirePermission('read'), (req, res) => {
     .filter(([, v]) => v.length > 1)
     .map(([barcode, variants]) => ({ barcode, variants }));
 
-  // Mark products with duplicate flags
+  // Mark which products/variants have duplicates (globally)
   const duplicateProductIds = new Set();
-  const duplicateVariantIds = new Set();
-
   [...duplicateSKUs, ...duplicateBarcodes].forEach(d => {
     (d.variants || []).forEach(v => {
       duplicateProductIds.add(String(v.productId));
-      duplicateVariantIds.add(String(v.variantId));
     });
   });
 
-  const enriched = products.map(p => ({
+  // Now filter products by requested status for display
+  const filteredProducts = (status && status !== 'all')
+    ? allProducts.filter(p => (p._computed_status || p.status) === status)
+    : allProducts;
+
+  // Enrich filtered products with cross-product duplicate flags
+  const enriched = filteredProducts.map(p => ({
     ...p,
     hasDuplicate: duplicateProductIds.has(String(p.id)),
-    variants: (p.variants || []).map(v => ({
-      ...v,
-      hasDuplicateSKU: !!(v.sku && skuMap[v.sku]?.length > 1),
-      hasDuplicateBarcode: !!(v.barcode && barcodeMap[v.barcode]?.length > 1)
-    }))
+    variants: (p.variants || []).map(v => {
+      const skuDups = v.sku ? (skuMap[v.sku] || []) : [];
+      const barcodeDups = v.barcode ? (barcodeMap[v.barcode] || []) : [];
+      const hasDuplicateSKU = skuDups.length > 1;
+      const hasDuplicateBarcode = barcodeDups.length > 1;
+      // Cross-product: duplicate exists in a DIFFERENT product
+      const crossProductSKU = hasDuplicateSKU && skuDups.some(d => String(d.productId) !== String(p.id));
+      const crossProductBarcode = hasDuplicateBarcode && barcodeDups.some(d => String(d.productId) !== String(p.id));
+      return {
+        ...v,
+        hasDuplicateSKU,
+        hasDuplicateBarcode,
+        crossProductSKU,
+        crossProductBarcode,
+        // Duplicate details for tooltip
+        duplicateSKUProducts: crossProductSKU ? skuDups.filter(d => String(d.productId) !== String(p.id)).map(d => d.productTitle) : [],
+        duplicateBarcodeProducts: crossProductBarcode ? barcodeDups.filter(d => String(d.productId) !== String(p.id)).map(d => d.productTitle) : [],
+      };
+    })
   }));
 
   res.json({
     products: enriched,
     summary: {
-      total: products.length,
-      withDuplicates: duplicateProductIds.size,
+      total: filteredProducts.length,
+      withDuplicates: enriched.filter(p => p.hasDuplicate).length,
       duplicateSKUs: duplicateSKUs.length,
       duplicateBarcodes: duplicateBarcodes.length
     },

@@ -189,9 +189,17 @@
                     </span>
                     <span v-else>${{ variant.price }}</span>
                   </td>
-                  <td class="px-4 py-2">
-                    <span v-if="variant.hasDuplicateSKU" class="bg-red-100 text-red-600 px-1.5 py-0.5 rounded mr-1">{{ t('inventory.dupSKU') }}</span>
-                    <span v-if="variant.hasDuplicateBarcode" class="bg-red-100 text-red-600 px-1.5 py-0.5 rounded">{{ t('inventory.dupBarcode') }}</span>
+                  <td class="px-4 py-2 space-y-0.5">
+                    <span v-if="variant.hasDuplicateSKU"
+                      class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded mr-1 cursor-help"
+                      :title="variant.crossProductSKU ? t('inventory.dupSKU') + ' (跨产品: ' + variant.duplicateSKUProducts.join(', ') + ')' : t('inventory.dupSKU')">
+                      {{ t('inventory.dupSKU') }}<span v-if="variant.crossProductSKU" class="ml-0.5 text-orange-600">⚠</span>
+                    </span>
+                    <span v-if="variant.hasDuplicateBarcode"
+                      class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded cursor-help"
+                      :title="variant.crossProductBarcode ? t('inventory.dupBarcode') + ' (跨产品: ' + variant.duplicateBarcodeProducts.join(', ') + ')' : t('inventory.dupBarcode')">
+                      {{ t('inventory.dupBarcode') }}<span v-if="variant.crossProductBarcode" class="ml-0.5 text-orange-600">⚠</span>
+                    </span>
                   </td>
                   <td class="px-4 py-2">
                     <button @click="openEditVariant(product, variant)" class="text-purple-600 hover:underline">{{ t('inventory.edit') }}</button>
@@ -401,7 +409,7 @@ const syncing = ref(false)
 const searchQuery = ref('')
 const showDuplicatesOnly = ref(false)
 const expandedProducts = ref(new Set())
-const activeStatus = ref('all')
+const activeStatus = ref('active')
 
 // ─── Staged changes (pre-edit, not yet sent to Shopify) ──────────────────────
 // stagedProducts: { [productId]: { title?, vendor?, product_type?, tags?, status? } }
@@ -435,7 +443,6 @@ const commitError = ref('')
 
 // ─── Status tabs ─────────────────────────────────────────────────────────────
 const statusTabs = computed(() => [
-  { value: 'all', label: t('inventory.statusAll') },
   { value: 'active', label: t('inventory.statusActive') },
   { value: 'draft', label: t('inventory.statusDraft') },
   { value: 'archived', label: t('inventory.statusArchived') },
@@ -467,7 +474,7 @@ function toggleProduct(id) {
 
 async function switchStatus(status) {
   activeStatus.value = status
-  searchQuery.value = ''
+  // Preserve searchQuery — do NOT clear it on tab switch
   showDuplicatesOnly.value = false
   expandedProducts.value = new Set()
   await fetchProducts()
@@ -684,14 +691,28 @@ async function commitChanges() {
       }
     }
 
-    await api.post('/products/batch-update', { productUpdates, variantUpdates })
+    const res = await api.post('/products/batch-update', { productUpdates, variantUpdates })
 
-    // Clear staged changes and refresh
+    // Partial refresh: only reload the products that were updated
+    const updatedProductIds = new Set([
+      ...productUpdates.map(u => String(u.productId)),
+      ...variantUpdates.map(u => String(u.productId)),
+    ])
+
+    // Clear staged changes
     stagedProducts.value = {}
     stagedVariants.value = {}
     showCommitModal.value = false
+
+    // Fetch fresh data for updated products from backend
+    // We reload all products in current status (lightweight, keeps context)
     await fetchProducts()
-    alert(t('inventory.commitSuccess'))
+
+    if (res.data.errors && res.data.errors.length > 0) {
+      alert(t('inventory.commitError') + ':\n' + res.data.errors.map(e => `${e.type} ${e.variantId || e.productId}: ${JSON.stringify(e.error)}`).join('\n'))
+    } else {
+      alert(t('inventory.commitSuccess'))
+    }
   } catch (err) {
     commitError.value = t('inventory.commitError') + ': ' + (err.response?.data?.error || err.message)
   } finally {
