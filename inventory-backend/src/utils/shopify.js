@@ -7,7 +7,8 @@
 const axios = require('axios');
 const { URLSearchParams } = require('url');
 
-const API_VERSION = process.env.SHOPIFY_API_VERSION || '2024-01';
+// 2025-10+ 原生支持 unlisted 状态（旧版本 2024-01 会把 unlisted 商品返回为 active）
+const API_VERSION = process.env.SHOPIFY_API_VERSION || '2025-10';
 
 // Token 缓存（用于 client_credentials grant）
 let cachedToken = null;
@@ -92,16 +93,12 @@ function getStoreDomain() {
 
 /**
  * Fetch products from Shopify for a given status with pagination
+ * API 2025-10+ 原生支持 status=unlisted
  */
-async function fetchProductsByStatus(baseURL, statusParam, publishedStatus = null) {
+async function fetchProductsByStatus(baseURL, statusParam) {
   const products = [];
   const fields = 'id,title,vendor,product_type,status,handle,tags,variants,published_at';
-  let url;
-  if (publishedStatus === 'unlisted') {
-    url = `${baseURL}/products.json?limit=250&fields=${fields}&status=active&published_status=unlisted`;
-  } else {
-    url = `${baseURL}/products.json?limit=250&fields=${fields}&status=${statusParam}`;
-  }
+  let url = `${baseURL}/products.json?limit=250&fields=${fields}&status=${statusParam}`;
   while (url) {
     const headers = await getHeaders();
     const res = await axios.get(url, { headers });
@@ -118,28 +115,23 @@ async function fetchProductsByStatus(baseURL, statusParam, publishedStatus = nul
 
 /**
  * Fetch ALL products from Shopify (active, draft, archived, unlisted)
- * Each product gets a _computed_status field for frontend filtering
+ * Each product gets a _computed_status field for frontend filtering.
+ * Requires API version 2025-10+ for native unlisted status support.
  */
 async function fetchAllProducts() {
   const domain = getStoreDomain();
   const baseURL = `https://${domain}/admin/api/${API_VERSION}`;
 
-  // Fetch all statuses in parallel
+  // Fetch all four statuses in parallel (2025-10+ supports status=unlisted natively)
   const [activeProducts, draftProducts, archivedProducts, unlistedProducts] = await Promise.all([
     fetchProductsByStatus(baseURL, 'active'),
     fetchProductsByStatus(baseURL, 'draft'),
     fetchProductsByStatus(baseURL, 'archived'),
-    fetchProductsByStatus(baseURL, 'active', 'unlisted'),
+    fetchProductsByStatus(baseURL, 'unlisted'),
   ]);
 
-  // Unlisted = active but published_at is null
-  const unlistedIds = new Set(unlistedProducts.map(p => String(p.id)));
-
-  // True active = active products that are NOT unlisted
-  const trueActive = activeProducts.filter(p => !unlistedIds.has(String(p.id)));
-
   return [
-    ...trueActive.map(p => ({ ...p, _computed_status: 'active' })),
+    ...activeProducts.map(p => ({ ...p, _computed_status: 'active' })),
     ...draftProducts.map(p => ({ ...p, _computed_status: 'draft' })),
     ...archivedProducts.map(p => ({ ...p, _computed_status: 'archived' })),
     ...unlistedProducts.map(p => ({ ...p, _computed_status: 'unlisted' })),
