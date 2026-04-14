@@ -191,14 +191,22 @@
                   </td>
                   <td class="px-4 py-2 space-y-0.5">
                     <span v-if="variant.hasDuplicateSKU"
-                      class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded mr-1 cursor-help"
-                      :title="variant.crossProductSKU ? t('inventory.dupSKU') + ' (跨产品: ' + variant.duplicateSKUProducts.join(', ') + ')' : t('inventory.dupSKU')">
-                      {{ t('inventory.dupSKU') }}<span v-if="variant.crossProductSKU" class="ml-0.5 text-orange-600">⚠</span>
+                      class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded mr-1 text-xs leading-tight">
+                      <template v-if="variant.crossProductSKU && variant.duplicateSKUProducts?.length">
+                        SKU 与「{{ variant.duplicateSKUProducts.join('」「') }}」冲突
+                      </template>
+                      <template v-else>
+                        {{ t('inventory.dupSKU') }}
+                      </template>
                     </span>
                     <span v-if="variant.hasDuplicateBarcode"
-                      class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded cursor-help"
-                      :title="variant.crossProductBarcode ? t('inventory.dupBarcode') + ' (跨产品: ' + variant.duplicateBarcodeProducts.join(', ') + ')' : t('inventory.dupBarcode')">
-                      {{ t('inventory.dupBarcode') }}<span v-if="variant.crossProductBarcode" class="ml-0.5 text-orange-600">⚠</span>
+                      class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded text-xs leading-tight">
+                      <template v-if="variant.crossProductBarcode && variant.duplicateBarcodeProducts?.length">
+                        Barcode 与「{{ variant.duplicateBarcodeProducts.join('」「') }}」冲突
+                      </template>
+                      <template v-else>
+                        {{ t('inventory.dupBarcode') }}
+                      </template>
                     </span>
                   </td>
                   <td class="px-4 py-2">
@@ -402,6 +410,8 @@ async function backToPlatform() {
 
 // ─── Core data ───────────────────────────────────────────────────────────────
 const products = ref([])
+// Global cache: { [productId]: product } — persists across tab switches for commit modal label lookup
+const allProductsCache = ref({})
 const summary = ref({ total: 0, withDuplicates: 0, duplicateSKUs: 0, duplicateBarcodes: 0 })
 const lastSync = ref(null)
 const loading = ref(true)
@@ -502,28 +512,29 @@ function getStagedVariantField(productId, variantId, field) {
 
 function getProductTitle(productId) {
   const pid = String(productId)
-  const p = products.value.find(x => String(x.id) === pid)
+  // Check current tab first, then fall back to global cache (for cross-tab staged changes)
+  const p = products.value.find(x => String(x.id) === pid) || allProductsCache.value[pid]
   return p?.title || pid
 }
 
 function getVariantTitle(productId, variantId) {
   const pid = String(productId)
   const vid = String(variantId)
-  const p = products.value.find(x => String(x.id) === pid)
+  const p = products.value.find(x => String(x.id) === pid) || allProductsCache.value[pid]
   const v = p?.variants?.find(x => String(x.id) === vid)
   return v?.title || vid
 }
 
 function getOriginalProductField(productId, field) {
   const pid = String(productId)
-  const p = products.value.find(x => String(x.id) === pid)
+  const p = products.value.find(x => String(x.id) === pid) || allProductsCache.value[pid]
   return p ? p[field] : ''
 }
 
 function getOriginalVariantField(productId, variantId, field) {
   const pid = String(productId)
   const vid = String(variantId)
-  const p = products.value.find(x => String(x.id) === pid)
+  const p = products.value.find(x => String(x.id) === pid) || allProductsCache.value[pid]
   const v = p?.variants?.find(x => String(x.id) === vid)
   return v ? v[field] : ''
 }
@@ -570,6 +581,8 @@ async function fetchProducts() {
     products.value = res.data.products
     summary.value = res.data.summary
     res.data.products.filter(p => p.hasDuplicate).forEach(p => expandedProducts.value.add(p.id))
+    // Update global cache so commit modal can resolve labels across all tabs
+    res.data.products.forEach(p => { allProductsCache.value[String(p.id)] = p })
   } finally {
     loading.value = false
   }
