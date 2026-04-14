@@ -28,7 +28,11 @@ router.post('/sync', requirePermission('write'), async (req, res) => {
         cached_at = excluded.cached_at
     `);
 
+    // Build set of all Shopify product IDs returned in this sync
+    const shopifyIds = new Set(products.map(p => String(p.id)));
+
     const txn = db.transaction(() => {
+      // Upsert all products from Shopify
       for (const p of products) {
         // Use _computed_status for unlisted detection, fall back to p.status
         const computedStatus = p._computed_status || p.status;
@@ -37,6 +41,17 @@ router.post('/sync', requirePermission('write'), async (req, res) => {
           computedStatus, p.handle, p.tags,
           JSON.stringify(p)
         );
+      }
+
+      // Delete cached products that no longer exist in Shopify
+      const cachedIds = db.prepare('SELECT shopify_product_id FROM inventory_products_cache').all()
+        .map(r => r.shopify_product_id);
+      const toDelete = cachedIds.filter(id => !shopifyIds.has(id));
+      if (toDelete.length > 0) {
+        const placeholders = toDelete.map(() => '?').join(',');
+        db.prepare(`DELETE FROM inventory_products_cache WHERE shopify_product_id IN (${placeholders})`)
+          .run(...toDelete);
+        console.log(`Sync: removed ${toDelete.length} deleted product(s) from cache:`, toDelete);
       }
     });
     txn();
