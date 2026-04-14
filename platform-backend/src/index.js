@@ -22,8 +22,10 @@ const SESSION_DB_FILE = path.basename(SESSION_DB_PATH);
 // 自动创建数据库目录
 fs.mkdirSync(SESSION_DB_DIR, { recursive: true });
 
+const isProduction = process.env.NODE_ENV === 'production';
+
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: process.env.FRONTEND_URL || 'http://localhost:5174',
   credentials: true
 }));
 
@@ -35,9 +37,12 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    maxAge: 3 * 60 * 60 * 1000 // 3 hours
+    maxAge: 3 * 60 * 60 * 1000, // 3 hours
+    // sameSite: 'lax' 确保浏览器前进/后退时 cookie 正常发送
+    sameSite: 'lax',
+    // 本地开发（http）不能用 secure:true，否则 cookie 不会被发送
+    secure: isProduction,
   }
 }));
 
