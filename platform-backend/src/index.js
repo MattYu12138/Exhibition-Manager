@@ -32,6 +32,8 @@ app.use(cors({
 app.use(express.json());
 
 app.use(session({
+  // 使用独立的 cookie 名称，避免与 exhibition/inventory 的 connect.sid 相互覆盖
+  name: 'platform.sid',
   store: new SQLiteStore({ db: SESSION_DB_FILE, dir: SESSION_DB_DIR }),
   secret: process.env.SESSION_SECRET || 'lummi-platform-secret-change-in-production',
   resave: false,
@@ -39,9 +41,7 @@ app.use(session({
   cookie: {
     httpOnly: true,
     maxAge: 3 * 60 * 60 * 1000, // 3 hours
-    // sameSite: 'lax' 确保浏览器前进/后退时 cookie 正常发送
     sameSite: 'lax',
-    // 本地开发（http）不能用 secure:true，否则 cookie 不会被发送
     secure: isProduction,
   }
 }));

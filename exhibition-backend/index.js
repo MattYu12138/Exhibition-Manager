@@ -41,6 +41,8 @@ const sessionDbFull = process.env.SESSION_DB_PATH || path.join(__dirname, '../da
 const sessionDbDir = path.dirname(sessionDbFull);
 const sessionDbFile = path.basename(sessionDbFull);
 app.use(session({
+  // 使用独立的 cookie 名称，避免与 platform/inventory 的 session cookie 相互覆盖
+  name: 'exhibition.sid',
   store: new SQLiteStore({ db: sessionDbFile, dir: sessionDbDir, table: 'sessions' }),
   secret: process.env.SESSION_SECRET || 'exhibition-manager-secret-2026',
   resave: false,
