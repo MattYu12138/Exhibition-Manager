@@ -42,6 +42,23 @@ export default {
     syncSuccess: '同步完成',
     syncError: '同步失败',
     noProducts: '暂无商品数据，请点击"从 Shopify 同步"加载商品。',
-    noDuplicates: '未发现重复问题，库存数据干净！'
+    noDuplicates: '未发现重复问题，库存数据干净！',
+    // Staged edit flow
+    editStagedNote: '修改将暂存在本地，点击"更新商品"统一提交到 Shopify',
+    stageEdit: '暂存修改',
+    commitChanges: '更新商品',
+    commitTitle: '确认更新商品',
+    commitSubtitle: '共 {count} 处修改将写入 Shopify，请确认以下变更内容',
+    commitWarning: '确认后将立即同步到 Shopify，此操作不可撤销',
+    confirmCommit: '确认提交',
+    committing: '提交中...',
+    commitSuccess: '所有修改已成功同步到 Shopify',
+    commitError: '提交失败',
+    productChange: '商品字段',
+    variantChange: '变体字段',
+    field: '字段',
+    before: '修改前',
+    after: '修改后',
+    discard: '丢弃此项'
   }
 }

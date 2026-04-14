@@ -42,6 +42,23 @@ export default {
     syncSuccess: 'Sync complete',
     syncError: 'Sync failed',
     noProducts: 'No products found. Click "Sync from Shopify" to load products.',
-    noDuplicates: 'No duplicates found. Your inventory is clean!'
+    noDuplicates: 'No duplicates found. Your inventory is clean!',
+    // Staged edit flow
+    editStagedNote: 'Changes are staged locally. Click "Update Products" to commit all changes to Shopify.',
+    stageEdit: 'Stage Edit',
+    commitChanges: 'Update Products',
+    commitTitle: 'Confirm Product Updates',
+    commitSubtitle: '{count} change(s) will be written to Shopify. Please review before confirming.',
+    commitWarning: 'This will immediately sync all changes to Shopify and cannot be undone.',
+    confirmCommit: 'Confirm & Submit',
+    committing: 'Submitting...',
+    commitSuccess: 'All changes have been successfully synced to Shopify',
+    commitError: 'Commit failed',
+    productChange: 'Product',
+    variantChange: 'Variant',
+    field: 'Field',
+    before: 'Before',
+    after: 'After',
+    discard: 'Discard'
   }
 }

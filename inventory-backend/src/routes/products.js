@@ -138,6 +138,61 @@ router.get('/last-sync', requirePermission('read'), (req, res) => {
 });
 
 /**
+ * POST /api/products/batch-update
+ * Batch update products and variants, then sync all to Shopify
+ * Body: { productUpdates: [{ productId, changes }], variantUpdates: [{ productId, variantId, changes }] }
+ */
+router.post('/batch-update', requirePermission('write'), async (req, res) => {
+  const { productUpdates = [], variantUpdates = [] } = req.body;
+
+  if (!Array.isArray(productUpdates) || !Array.isArray(variantUpdates)) {
+    return res.status(400).json({ error: 'productUpdates and variantUpdates must be arrays' });
+  }
+
+  const results = { products: [], variants: [], errors: [] };
+
+  // Process product updates sequentially to avoid rate limiting
+  for (const { productId, changes } of productUpdates) {
+    try {
+      const updateData = { id: productId, ...changes };
+      const updated = await updateProduct(productId, updateData);
+      results.products.push({ productId, success: true, updated });
+    } catch (err) {
+      const errMsg = err.response?.data?.errors || err.message;
+      console.error(`Batch update product ${productId} error:`, errMsg);
+      results.errors.push({ type: 'product', productId, error: errMsg });
+    }
+  }
+
+  // Process variant updates sequentially
+  for (const { productId, variantId, changes } of variantUpdates) {
+    try {
+      const updateData = {};
+      if (changes.sku !== undefined) updateData.sku = changes.sku;
+      if (changes.barcode !== undefined) updateData.barcode = changes.barcode;
+      if (changes.price !== undefined) updateData.price = changes.price;
+      if (changes.compare_at_price !== undefined) updateData.compare_at_price = changes.compare_at_price;
+      const updated = await updateVariant(variantId, updateData);
+      results.variants.push({ variantId, success: true, updated });
+    } catch (err) {
+      const errMsg = err.response?.data?.errors || err.message;
+      console.error(`Batch update variant ${variantId} error:`, errMsg);
+      results.errors.push({ type: 'variant', variantId, error: errMsg });
+    }
+  }
+
+  if (results.errors.length > 0) {
+    return res.status(207).json({
+      success: false,
+      message: `${results.errors.length} update(s) failed`,
+      ...results
+    });
+  }
+
+  res.json({ success: true, ...results });
+});
+
+/**
  * PUT /api/products/:productId/variants/:variantId
  * Update a variant and sync back to Shopify
  */
