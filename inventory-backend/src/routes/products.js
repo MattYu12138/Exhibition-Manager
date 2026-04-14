@@ -70,13 +70,14 @@ router.get('/', requirePermission('read'), (req, res) => {
 
   for (const product of allProducts) {
     for (const variant of (product.variants || [])) {
+      const productStatus = product._computed_status || product.status || 'unknown';
       if (variant.sku) {
         if (!skuMap[variant.sku]) skuMap[variant.sku] = [];
-        skuMap[variant.sku].push({ productId: product.id, productTitle: product.title, variantId: variant.id, variantTitle: variant.title });
+        skuMap[variant.sku].push({ productId: product.id, productTitle: product.title, productStatus, variantId: variant.id, variantTitle: variant.title });
       }
       if (variant.barcode) {
         if (!barcodeMap[variant.barcode]) barcodeMap[variant.barcode] = [];
-        barcodeMap[variant.barcode].push({ productId: product.id, productTitle: product.title, variantId: variant.id, variantTitle: variant.title });
+        barcodeMap[variant.barcode].push({ productId: product.id, productTitle: product.title, productStatus, variantId: variant.id, variantTitle: variant.title });
       }
     }
   }
@@ -120,9 +121,13 @@ router.get('/', requirePermission('read'), (req, res) => {
         hasDuplicateBarcode,
         crossProductSKU,
         crossProductBarcode,
-        // Duplicate details for tooltip
-        duplicateSKUProducts: crossProductSKU ? skuDups.filter(d => String(d.productId) !== String(p.id)).map(d => d.productTitle) : [],
-        duplicateBarcodeProducts: crossProductBarcode ? barcodeDups.filter(d => String(d.productId) !== String(p.id)).map(d => d.productTitle) : [],
+        // Duplicate details for Issues column: { title, status } objects
+        duplicateSKUProducts: crossProductSKU
+          ? skuDups.filter(d => String(d.productId) !== String(p.id)).map(d => ({ title: d.productTitle, status: d.productStatus }))
+          : [],
+        duplicateBarcodeProducts: crossProductBarcode
+          ? barcodeDups.filter(d => String(d.productId) !== String(p.id)).map(d => ({ title: d.productTitle, status: d.productStatus }))
+          : [],
       };
     })
   }));

@@ -193,7 +193,7 @@
                     <span v-if="variant.hasDuplicateSKU"
                       class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded mr-1 text-xs leading-tight">
                       <template v-if="variant.crossProductSKU && variant.duplicateSKUProducts?.length">
-                        SKU 与「{{ variant.duplicateSKUProducts.join('」「') }}」冲突
+                        SKU 与「{{ variant.duplicateSKUProducts.map(d => `${statusLabel(d.status)} · ${d.title}`).join('」「') }}」冲突
                       </template>
                       <template v-else>
                         {{ t('inventory.dupSKU') }}
@@ -202,7 +202,7 @@
                     <span v-if="variant.hasDuplicateBarcode"
                       class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded text-xs leading-tight">
                       <template v-if="variant.crossProductBarcode && variant.duplicateBarcodeProducts?.length">
-                        Barcode 与「{{ variant.duplicateBarcodeProducts.join('」「') }}」冲突
+                        Barcode 与「{{ variant.duplicateBarcodeProducts.map(d => `${statusLabel(d.status)} · ${d.title}`).join('」「') }}」冲突
                       </template>
                       <template v-else>
                         {{ t('inventory.dupBarcode') }}
@@ -459,6 +459,17 @@ const statusTabs = computed(() => [
   { value: 'unlisted', label: t('inventory.statusUnlisted') },
 ])
 
+// Map raw status code to display label
+function statusLabel(status) {
+  const map = {
+    active: t('inventory.statusActive'),
+    draft: t('inventory.statusDraft'),
+    archived: t('inventory.statusArchived'),
+    unlisted: t('inventory.statusUnlisted'),
+  }
+  return map[status] || status
+}
+
 function statusBadgeClass(status) {
   const map = {
     active: 'text-green-600 font-medium',
@@ -711,20 +722,34 @@ async function commitChanges() {
 
     const res = await api.post('/products/batch-update', { productUpdates, variantUpdates })
 
-    // Partial refresh: only reload the products that were updated
-    const updatedProductIds = new Set([
-      ...productUpdates.map(u => String(u.productId)),
-      ...variantUpdates.map(u => String(u.productId)),
-    ])
+    // ── Optimistic update: merge staged changes into products.value ──
+    // Apply product-level changes
+    for (const { productId, changes } of productUpdates) {
+      const pid = String(productId)
+      const idx = products.value.findIndex(p => String(p.id) === pid)
+      if (idx !== -1) {
+        products.value[idx] = { ...products.value[idx], ...changes }
+        allProductsCache.value[pid] = products.value[idx]
+      }
+    }
+    // Apply variant-level changes
+    for (const { productId, variantId, changes } of variantUpdates) {
+      const pid = String(productId)
+      const vid = String(variantId)
+      const product = products.value.find(p => String(p.id) === pid)
+      if (product) {
+        const vIdx = product.variants?.findIndex(v => String(v.id) === vid)
+        if (vIdx !== undefined && vIdx !== -1) {
+          product.variants[vIdx] = { ...product.variants[vIdx], ...changes }
+        }
+        allProductsCache.value[pid] = product
+      }
+    }
 
     // Clear staged changes
     stagedProducts.value = {}
     stagedVariants.value = {}
     showCommitModal.value = false
-
-    // Fetch fresh data for updated products from backend
-    // We reload all products in current status (lightweight, keeps context)
-    await fetchProducts()
 
     if (res.data.errors && res.data.errors.length > 0) {
       alert(t('inventory.commitError') + ':\n' + res.data.errors.map(e => `${e.type} ${e.variantId || e.productId}: ${JSON.stringify(e.error)}`).join('\n'))
