@@ -562,12 +562,17 @@ const filteredProducts = computed(() => {
   let list = products.value
   if (showDuplicatesOnly.value) list = list.filter(p => p.hasDuplicate)
   if (searchQuery.value) {
-    const q = searchQuery.value.toLowerCase()
-    list = list.filter(p =>
-      p.title?.toLowerCase().includes(q) ||
-      p.vendor?.toLowerCase().includes(q) ||
-      p.variants?.some(v => v.sku?.toLowerCase().includes(q) || v.barcode?.toLowerCase().includes(q))
-    )
+    const raw = searchQuery.value.trim().toLowerCase()
+    const keywords = raw.split(/\s+/).filter(Boolean)
+    list = list.filter(p => {
+      const titleLower = (p.title || '').toLowerCase()
+      const vendorLower = (p.vendor || '').toLowerCase()
+      const variantTexts = (p.variants || []).map(
+        v => `${v.sku || ''} ${v.barcode || ''} ${v.title || ''}`.toLowerCase()
+      ).join(' ')
+      const searchTarget = `${titleLower} ${vendorLower} ${variantTexts}`
+      return keywords.every(kw => searchTarget.includes(kw))
+    })
   }
   return list
 })
