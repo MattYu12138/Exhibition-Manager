@@ -134,9 +134,17 @@ async function openSystem(system) {
 }
 
 onMounted(async () => {
+  // 确保 session 已恢复（从其他子系统返回时 Pinia store 可能已有 user，
+  // 但也可能是刚刚由 router guard 的 fetchMe 恢复的，这里再确认一次）
+  if (!auth.user) {
+    await auth.fetchMe()
+  }
   try {
     const res = await api.get('/systems')
     systems.value = res.data
+  } catch (err) {
+    // 如果 401，说明 session 真的失效了，router guard 会处理跳转
+    console.warn('[Dashboard] 加载系统列表失败:', err.message)
   } finally {
     loading.value = false
   }

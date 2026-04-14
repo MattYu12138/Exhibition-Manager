@@ -53,6 +53,19 @@ router.post('/login', (req, res) => {
     return res.status(401).json({ success: false, message: '用户名或密码错误' });
   }
 
+  // 权限检查：非管理员必须拥有 exhibition-manager 的读权限才能登录
+  if (user.role !== 'admin') {
+    const system = db.prepare("SELECT id FROM platform_systems WHERE name = 'exhibition-manager' LIMIT 1").get();
+    if (system) {
+      const perm = db.prepare(
+        'SELECT can_read FROM platform_permissions WHERE user_id = ? AND system_id = ?'
+      ).get(user.id, system.id);
+      if (!perm || !perm.can_read) {
+        return res.status(403).json({ success: false, message: '您没有访问展会管理系统的权限，请联系管理员' });
+      }
+    }
+  }
+
   req.session.user = { id: user.id, username: user.username, role: user.role };
 
   res.json({

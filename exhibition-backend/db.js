@@ -68,6 +68,31 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  -- 平台系统表（与 platform-backend 共享）
+  CREATE TABLE IF NOT EXISTS platform_systems (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    description TEXT,
+    url TEXT NOT NULL,
+    icon TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- 平台权限表（与 platform-backend 共享）
+  CREATE TABLE IF NOT EXISTS platform_permissions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    system_id TEXT NOT NULL,
+    can_read INTEGER NOT NULL DEFAULT 0,
+    can_write INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, system_id)
+  );
 `);
 
 // 自动迁移：将旧 INTEGER id 表迁移为 TEXT id（兼容旧数据库）
