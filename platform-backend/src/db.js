@@ -75,8 +75,8 @@ function initSchema() {
     db.prepare(`
       INSERT INTO platform_systems (id, name, display_name, description, url, icon, sort_order)
       VALUES
-        ('SYS001', 'exhibition-manager', 'Exhibition Manager', '展会管理系统，管理展会商品、库存快照和 Square 集成', 'http://localhost:5173', '🎪', 1),
-        ('SYS002', 'inventory-manager', 'Inventory Manager', '库存管理系统，检测重复 Barcode/SKU，同步 Shopify 商品数据', 'http://localhost:5175', '📦', 2)
+        ('SYS001', 'exhibition-manager', 'Exhibition Manager', '展会管理系统，管理展会商品、库存快照和 Square 集成', 'https://exhibition.lummiincolour.com.au', '🎪', 1),
+        ('SYS002', 'inventory-manager', 'Inventory Manager', '库存管理系统，检测重复 Barcode/SKU，同步 Shopify 商品数据', 'https://inventory.lummiincolour.com.au', '📦', 2)
     `).run();
     console.log('✅ Default systems seeded');
   }
