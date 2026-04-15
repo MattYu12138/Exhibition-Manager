@@ -16,9 +16,19 @@ services:
       - DB_PATH=/data/lic/database/LIC_DB.db
     volumes:
       - /data/lic:/data/lic
-      - ./exhibition-frontend/dist:/frontend/dist:ro
     ports:
       - '127.0.0.1:3001:3001'
+
+  exhibition-frontend:
+    build:
+      context: ./exhibition-frontend
+      args:
+        VITE_PLATFORM_URL: https://licplatform.lummiincolour.com.au
+    restart: always
+    ports:
+      - '127.0.0.1:8081:80'
+    depends_on:
+      - exhibition-backend
 
   # ─────────────────────────────────────────────
   # Platform (Main Entry)

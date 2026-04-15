@@ -97,7 +97,7 @@ function getStoreDomain() {
  */
 async function fetchProductsByStatus(baseURL, statusParam) {
   const products = [];
-  const fields = 'id,title,vendor,product_type,status,handle,tags,variants,published_at';
+  const fields = 'id,title,vendor,product_type,status,handle,tags,variants,images,published_at';
   let url = `${baseURL}/products.json?limit=250&fields=${fields}&status=${statusParam}`;
   while (url) {
     const headers = await getHeaders();

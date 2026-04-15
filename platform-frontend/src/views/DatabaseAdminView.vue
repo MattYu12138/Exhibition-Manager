@@ -8,6 +8,11 @@
           <p>{{ t('dbAdmin.pageDesc') }}</p>
         </div>
       </div>
+      <div class="header-right">
+        <el-button @click="$router.back()" size="small">
+          <el-icon><ArrowLeft /></el-icon> {{ t('common.back') }}
+        </el-button>
+      </div>
     </div>
     <div class="db-layout">
       <div class="table-sidebar">
@@ -172,7 +177,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
-import { DataBoard, Grid, Search, Refresh, Plus, Loading } from '@element-plus/icons-vue'
+import { DataBoard, Grid, Search, Refresh, Plus, Loading, ArrowLeft } from '@element-plus/icons-vue'
 
 const { t } = useI18n()
 const api = axios.create({ baseURL: '/api', withCredentials: true })

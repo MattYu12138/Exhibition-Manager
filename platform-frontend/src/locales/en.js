@@ -60,6 +60,7 @@ export default {
     cancel: 'Cancel',
     confirm: 'Confirm',
     save: 'Save',
+    back: 'Back',
   },
   userMgmt: {
     pageTitle: 'Account Management',

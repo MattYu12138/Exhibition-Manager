@@ -60,6 +60,7 @@ export default {
     cancel: '取消',
     confirm: '确认',
     save: '保存',
+    back: '返回',
   },
   userMgmt: {
     pageTitle: '账号管理',
