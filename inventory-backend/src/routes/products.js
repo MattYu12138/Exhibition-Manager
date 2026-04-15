@@ -52,20 +52,22 @@ router.post('/sync', requirePermission('write'), async (req, res) => {
         let productId;
         if (existing) {
           productId = existing.id;
+          const mainImage = p.images?.[0]?.src || null;
           db.prepare(`
             UPDATE products SET
               title = ?, vendor = ?, product_type = ?, status = ?,
-              handle = ?, tags = ?, raw_json = ?, cached_at = datetime('now')
+              handle = ?, tags = ?, main_image = ?, updated_at = datetime('now')
             WHERE id = ?
           `).run(p.title, p.vendor, p.product_type, computedStatus,
-                 p.handle, p.tags, JSON.stringify(p), productId);
+                 p.handle, p.tags, mainImage, productId);
         } else {
           productId = nextProductId(db);
+          const mainImageNew = p.images?.[0]?.src || null;
           db.prepare(`
-            INSERT INTO products (id, shopify_product_id, title, vendor, product_type, status, handle, tags, raw_json, cached_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+            INSERT INTO products (id, shopify_product_id, title, vendor, product_type, status, handle, tags, main_image)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(productId, shopifyProductId, p.title, p.vendor, p.product_type,
-                 computedStatus, p.handle, p.tags, JSON.stringify(p));
+                 computedStatus, p.handle, p.tags, mainImageNew);
         }
 
         // Upsert each variant into product_variants table
@@ -79,17 +81,20 @@ router.post('/sync', requirePermission('write'), async (req, res) => {
           if (existingVariant) {
             db.prepare(`
               UPDATE product_variants SET
-                product_id = ?, variant_title = ?, sku = ?, gtin = ?, price = ?, image_url = ?
+                product_id = ?, shopify_product_id = ?, variant_title = ?, sku = ?, gtin = ?,
+                price = ?, image_url = ?, inventory_quantity = ?, updated_at = datetime('now')
               WHERE id = ?
-            `).run(productId, v.title, v.sku || null, v.barcode || null,
-                   v.price || null, imageUrl, existingVariant.id);
+            `).run(productId, shopifyProductId, v.title, v.sku || null, v.barcode || null,
+                   parseFloat(v.price) || null, imageUrl,
+                   v.inventory_quantity ?? 0, existingVariant.id);
           } else {
             const variantId = nextVariantId(db);
             db.prepare(`
-              INSERT INTO product_variants (id, product_id, shopify_variant_id, variant_title, sku, gtin, price, image_url)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(variantId, productId, shopifyVariantId, v.title,
-                   v.sku || null, v.barcode || null, v.price || null, imageUrl);
+              INSERT INTO product_variants (id, product_id, shopify_product_id, shopify_variant_id, variant_title, sku, gtin, price, image_url, inventory_quantity)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(variantId, productId, shopifyProductId, shopifyVariantId, v.title,
+                   v.sku || null, v.barcode || null, parseFloat(v.price) || null, imageUrl,
+                   v.inventory_quantity ?? 0);
           }
         }
       }

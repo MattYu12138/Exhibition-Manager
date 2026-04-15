@@ -37,14 +37,15 @@ function initSchema() {
     CREATE TABLE IF NOT EXISTS products (
       id TEXT PRIMARY KEY,
       shopify_product_id TEXT UNIQUE,
-      title TEXT,
+      title TEXT NOT NULL,
       vendor TEXT,
       product_type TEXT,
-      status TEXT,
+      status TEXT DEFAULT 'active',
       handle TEXT,
       tags TEXT,
-      raw_json TEXT,
-      cached_at TEXT NOT NULL DEFAULT (datetime('now'))
+      main_image TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
     -- Product variant table
@@ -53,11 +54,15 @@ function initSchema() {
       id TEXT PRIMARY KEY,
       product_id TEXT NOT NULL,
       shopify_variant_id TEXT UNIQUE,
+      shopify_product_id TEXT,
       variant_title TEXT,
       sku TEXT,
       gtin TEXT,
-      price TEXT,
+      price REAL,
       image_url TEXT,
+      inventory_quantity INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
     );
   `);
