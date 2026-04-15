@@ -91,14 +91,18 @@ router.post('/:id/copy-to/:targetId', requireStaff, (req, res) => {
     }
 
     // 批量插入到目标展会（已存在的变体用 INSERT OR IGNORE 跳过）
+    // 复制 rack_quantity、stock_quantity、planned_quantity 实际值（以 Checklist 实际数量为准）
     const insertItem = db.prepare(`
       INSERT OR IGNORE INTO exhibition_items
-      (id, exhibition_id, shopify_product_id, shopify_variant_id, product_title, variant_title, sku, gtin, image_url, planned_quantity, checked)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+      (id, exhibition_id, shopify_product_id, shopify_variant_id, product_title, variant_title, sku, gtin, image_url, rack_quantity, stock_quantity, planned_quantity, checked)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
     `);
 
     const copyMany = db.transaction((items) => {
       for (const item of items) {
+        const rack = (item.rack_quantity !== undefined && item.rack_quantity !== null) ? item.rack_quantity : 5;
+        const stock = (item.stock_quantity !== undefined && item.stock_quantity !== null) ? item.stock_quantity : 5;
+        const planned = (item.planned_quantity !== undefined && item.planned_quantity !== null) ? item.planned_quantity : (rack + stock);
         insertItem.run(
           itemId(db),
           targetId,
@@ -109,7 +113,9 @@ router.post('/:id/copy-to/:targetId', requireStaff, (req, res) => {
           item.sku || '',
           item.gtin || '',
           item.image_url || '',
-          item.planned_quantity || 0
+          rack,
+          stock,
+          planned
         );
       }
     });
