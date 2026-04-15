@@ -1,18 +1,21 @@
 services:
   # ─────────────────────────────────────────────
-  # Shared data volume for all SQLite databases
+  # Shared SQLite database volume
+  # All backend services mount /data/lic to access LIC_DB.db
   # ─────────────────────────────────────────────
 
   # ─────────────────────────────────────────────
-  # Exhibition Manager (existing)
+  # Exhibition Manager
   # ─────────────────────────────────────────────
   exhibition-backend:
     build: ./exhibition-backend
     restart: always
     env_file:
       - ./exhibition-backend/.env
+    environment:
+      - DB_PATH=/data/lic/database/LIC_DB.db
     volumes:
-      - /data/exhibition-app/database:/data/exhibition-app/database
+      - /data/lic:/data/lic
       - ./exhibition-frontend/dist:/frontend/dist:ro
     ports:
       - '127.0.0.1:3001:3001'
@@ -25,8 +28,10 @@ services:
     restart: always
     env_file:
       - ./platform-backend/.env
+    environment:
+      - DB_PATH=/data/lic/database/LIC_DB.db
     volumes:
-      - /data/lummi-platform:/data
+      - /data/lic:/data/lic
     ports:
       - '127.0.0.1:3000:3000'
 
@@ -46,8 +51,10 @@ services:
     restart: always
     env_file:
       - ./inventory-backend/.env
+    environment:
+      - DB_PATH=/data/lic/database/LIC_DB.db
     volumes:
-      - /data/lummi-platform:/data
+      - /data/lic:/data/lic
     ports:
       - '127.0.0.1:3002:3002'
     depends_on:

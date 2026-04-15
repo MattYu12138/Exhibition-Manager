@@ -3,10 +3,10 @@ const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
 
-// 统一使用 Exhibition 数据库，共享 users 表
-// 本地开发默认路径：指向 exhibition-backend 的数据库文件
+// 统一使用 LIC_DB.db 作为全系统共享数据库
+// 本地开发默认路径：指向共享 data/database 目录
 // 生产环境通过 DB_PATH 环境变量指定
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/database/exhibition.db');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/database/LIC_DB.db');
 
 let db;
 

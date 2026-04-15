@@ -2,10 +2,10 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
-// Shared database - use exhibition.db as the unified database
-// Local dev default: point to exhibition-backend's database file
+// Shared database - LIC_DB.db is the unified database for all services
+// Local dev default: points to shared data/database directory
 // Production: set DB_PATH env var to the shared path
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/database/exhibition.db');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../data/database/LIC_DB.db');
 
 let db;
 

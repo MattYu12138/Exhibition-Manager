@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { encrypt } = require('./utils/crypto');
 
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../data/database/exhibition.db');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../data/database/LIC_DB.db');
 // 自动创建数据库目录
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 const db = new Database(DB_PATH);
