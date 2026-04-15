@@ -5,62 +5,113 @@ const { fetchAllProducts, updateVariant, updateProduct } = require('../utils/sho
 
 const router = express.Router();
 
+// ── ID generation helpers ──────────────────────────────────────────────────
+let _prCounter = null;
+let _vCounter = null;
+
+function nextProductId(db) {
+  if (_prCounter === null) {
+    const row = db.prepare("SELECT MAX(CAST(SUBSTR(id,3) AS INTEGER)) AS mx FROM products WHERE id LIKE 'PR%'").get();
+    _prCounter = (row?.mx || 0);
+  }
+  _prCounter += 1;
+  return 'PR' + String(_prCounter).padStart(12, '0');
+}
+
+function nextVariantId(db) {
+  if (_vCounter === null) {
+    const row = db.prepare("SELECT MAX(CAST(SUBSTR(id,2) AS INTEGER)) AS mx FROM product_variants WHERE id LIKE 'V%'").get();
+    _vCounter = (row?.mx || 0);
+  }
+  _vCounter += 1;
+  return 'V' + String(_vCounter).padStart(12, '0');
+}
+
 /**
- * GET /api/products/sync
- * Fetch all products from Shopify and cache them in the local DB
+ * POST /api/products/sync
+ * Fetch all products from Shopify and upsert into products + product_variants tables
  */
 router.post('/sync', requirePermission('write'), async (req, res) => {
   try {
-    const products = await fetchAllProducts();
+    const shopifyProducts = await fetchAllProducts();
     const db = getDb();
 
-    const upsert = db.prepare(`
-      INSERT INTO inventory_products_cache (shopify_product_id, title, vendor, product_type, status, handle, tags, raw_json, cached_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-      ON CONFLICT(shopify_product_id) DO UPDATE SET
-        title = excluded.title,
-        vendor = excluded.vendor,
-        product_type = excluded.product_type,
-        status = excluded.status,
-        handle = excluded.handle,
-        tags = excluded.tags,
-        raw_json = excluded.raw_json,
-        cached_at = excluded.cached_at
-    `);
+    // Reset in-memory counters so IDs are recalculated from DB state
+    _prCounter = null;
+    _vCounter = null;
 
-    // Build set of all Shopify product IDs returned in this sync
-    const shopifyIds = new Set(products.map(p => String(p.id)));
+    const shopifyProductIds = new Set(shopifyProducts.map(p => String(p.id)));
 
     const txn = db.transaction(() => {
-      // Upsert all products from Shopify
-      for (const p of products) {
-        // Use _computed_status for unlisted detection, fall back to p.status
+      for (const p of shopifyProducts) {
         const computedStatus = p._computed_status || p.status;
-        upsert.run(
-          String(p.id), p.title, p.vendor, p.product_type,
-          computedStatus, p.handle, p.tags,
-          JSON.stringify(p)
-        );
+        const shopifyProductId = String(p.id);
+
+        // Upsert into products table
+        const existing = db.prepare('SELECT id FROM products WHERE shopify_product_id = ?').get(shopifyProductId);
+        let productId;
+        if (existing) {
+          productId = existing.id;
+          db.prepare(`
+            UPDATE products SET
+              title = ?, vendor = ?, product_type = ?, status = ?,
+              handle = ?, tags = ?, raw_json = ?, cached_at = datetime('now')
+            WHERE id = ?
+          `).run(p.title, p.vendor, p.product_type, computedStatus,
+                 p.handle, p.tags, JSON.stringify(p), productId);
+        } else {
+          productId = nextProductId(db);
+          db.prepare(`
+            INSERT INTO products (id, shopify_product_id, title, vendor, product_type, status, handle, tags, raw_json, cached_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          `).run(productId, shopifyProductId, p.title, p.vendor, p.product_type,
+                 computedStatus, p.handle, p.tags, JSON.stringify(p));
+        }
+
+        // Upsert each variant into product_variants table
+        for (const v of (p.variants || [])) {
+          const shopifyVariantId = String(v.id);
+          const existingVariant = db.prepare('SELECT id FROM product_variants WHERE shopify_variant_id = ?').get(shopifyVariantId);
+          const imageUrl = v.image_id
+            ? (p.images?.find(img => img.id === v.image_id)?.src || null)
+            : (p.images?.[0]?.src || null);
+
+          if (existingVariant) {
+            db.prepare(`
+              UPDATE product_variants SET
+                product_id = ?, variant_title = ?, sku = ?, gtin = ?, price = ?, image_url = ?
+              WHERE id = ?
+            `).run(productId, v.title, v.sku || null, v.barcode || null,
+                   v.price || null, imageUrl, existingVariant.id);
+          } else {
+            const variantId = nextVariantId(db);
+            db.prepare(`
+              INSERT INTO product_variants (id, product_id, shopify_variant_id, variant_title, sku, gtin, price, image_url)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(variantId, productId, shopifyVariantId, v.title,
+                   v.sku || null, v.barcode || null, v.price || null, imageUrl);
+          }
+        }
       }
 
-      // Delete cached products that no longer exist in Shopify
-      const cachedIds = db.prepare('SELECT shopify_product_id FROM inventory_products_cache').all()
+      // Delete products (and their variants via CASCADE) that no longer exist in Shopify
+      const cachedShopifyIds = db.prepare('SELECT shopify_product_id FROM products').all()
         .map(r => r.shopify_product_id);
-      const toDelete = cachedIds.filter(id => !shopifyIds.has(id));
+      const toDelete = cachedShopifyIds.filter(id => !shopifyProductIds.has(id));
       if (toDelete.length > 0) {
         const placeholders = toDelete.map(() => '?').join(',');
-        db.prepare(`DELETE FROM inventory_products_cache WHERE shopify_product_id IN (${placeholders})`)
-          .run(...toDelete);
-        console.log(`Sync: removed ${toDelete.length} deleted product(s) from cache:`, toDelete);
+        db.prepare(`DELETE FROM products WHERE shopify_product_id IN (${placeholders})`).run(...toDelete);
+        console.log(`Sync: removed ${toDelete.length} deleted product(s):`, toDelete);
       }
     });
+
     txn();
 
-    const variantCount = products.reduce((sum, p) => sum + (p.variants?.length || 0), 0);
+    const variantCount = shopifyProducts.reduce((sum, p) => sum + (p.variants?.length || 0), 0);
     db.prepare(`INSERT INTO inventory_sync_log (product_count, variant_count, status) VALUES (?, ?, 'success')`)
-      .run(products.length, variantCount);
+      .run(shopifyProducts.length, variantCount);
 
-    res.json({ success: true, productCount: products.length, variantCount });
+    res.json({ success: true, productCount: shopifyProducts.length, variantCount });
   } catch (err) {
     console.error('Sync error:', err);
     res.status(500).json({ error: err.message });
@@ -69,15 +120,50 @@ router.post('/sync', requirePermission('write'), async (req, res) => {
 
 /**
  * GET /api/products
- * Return cached products with duplicate analysis
+ * Return products with variants and duplicate analysis
  */
 router.get('/', requirePermission('read'), (req, res) => {
   const db = getDb();
   const { status } = req.query;
 
-  // Always load ALL products for global cross-product duplicate analysis
-  const allRows = db.prepare('SELECT * FROM inventory_products_cache ORDER BY cached_at DESC').all();
-  const allProducts = allRows.map(r => JSON.parse(r.raw_json));
+  // Load all products with their variants for global duplicate analysis
+  const allProductRows = db.prepare('SELECT * FROM products ORDER BY cached_at DESC').all();
+  const allVariantRows = db.prepare('SELECT * FROM product_variants').all();
+
+  // Group variants by product_id
+  const variantsByProduct = {};
+  for (const v of allVariantRows) {
+    if (!variantsByProduct[v.product_id]) variantsByProduct[v.product_id] = [];
+    variantsByProduct[v.product_id].push(v);
+  }
+
+  // Build full product objects (merge DB rows with raw_json for Shopify-specific fields)
+  const allProducts = allProductRows.map(row => {
+    const raw = row.raw_json ? JSON.parse(row.raw_json) : {};
+    return {
+      ...raw,
+      id: row.id,                           // system ID (PR...)
+      shopify_product_id: row.shopify_product_id,
+      title: row.title,
+      vendor: row.vendor,
+      product_type: row.product_type,
+      status: row.status,
+      _computed_status: row.status,
+      handle: row.handle,
+      tags: row.tags,
+      cached_at: row.cached_at,
+      variants: (variantsByProduct[row.id] || []).map(v => ({
+        ...v,
+        id: v.id,                           // system ID (V...)
+        shopify_variant_id: v.shopify_variant_id,
+        title: v.variant_title,
+        sku: v.sku,
+        barcode: v.gtin,
+        price: v.price,
+        image_url: v.image_url,
+      })),
+    };
+  });
 
   // Build global SKU/barcode maps across ALL products (all statuses)
   const skuMap = {};
@@ -105,15 +191,13 @@ router.get('/', requirePermission('read'), (req, res) => {
     .filter(([, v]) => v.length > 1)
     .map(([barcode, variants]) => ({ barcode, variants }));
 
-  // Mark which products/variants have duplicates (globally)
+  // Mark which products have duplicates (globally)
   const duplicateProductIds = new Set();
   [...duplicateSKUs, ...duplicateBarcodes].forEach(d => {
-    (d.variants || []).forEach(v => {
-      duplicateProductIds.add(String(v.productId));
-    });
+    (d.variants || []).forEach(v => duplicateProductIds.add(String(v.productId)));
   });
 
-  // Now filter products by requested status for display
+  // Filter products by requested status for display
   const filteredProducts = (status && status !== 'all')
     ? allProducts.filter(p => (p._computed_status || p.status) === status)
     : allProducts;
@@ -127,7 +211,6 @@ router.get('/', requirePermission('read'), (req, res) => {
       const barcodeDups = v.barcode ? (barcodeMap[v.barcode] || []) : [];
       const hasDuplicateSKU = skuDups.length > 1;
       const hasDuplicateBarcode = barcodeDups.length > 1;
-      // Cross-product: duplicate exists in a DIFFERENT product
       const crossProductSKU = hasDuplicateSKU && skuDups.some(d => String(d.productId) !== String(p.id));
       const crossProductBarcode = hasDuplicateBarcode && barcodeDups.some(d => String(d.productId) !== String(p.id));
       return {
@@ -136,7 +219,6 @@ router.get('/', requirePermission('read'), (req, res) => {
         hasDuplicateBarcode,
         crossProductSKU,
         crossProductBarcode,
-        // Duplicate details for Issues column: { title, status } objects
         duplicateSKUProducts: crossProductSKU
           ? skuDups.filter(d => String(d.productId) !== String(p.id)).map(d => ({ title: d.productTitle, status: d.productStatus }))
           : [],
@@ -171,8 +253,7 @@ router.get('/last-sync', requirePermission('read'), (req, res) => {
 
 /**
  * POST /api/products/batch-update
- * Batch update products and variants, then sync all to Shopify
- * Body: { productUpdates: [{ productId, changes }], variantUpdates: [{ productId, variantId, changes }] }
+ * Batch update products and variants in Shopify (local DB updated on next sync)
  */
 router.post('/batch-update', requirePermission('write'), async (req, res) => {
   const { productUpdates = [], variantUpdates = [] } = req.body;
@@ -183,11 +264,14 @@ router.post('/batch-update', requirePermission('write'), async (req, res) => {
 
   const results = { products: [], variants: [], errors: [] };
 
-  // Process product updates sequentially to avoid rate limiting
   for (const { productId, changes } of productUpdates) {
     try {
-      const updateData = { id: productId, ...changes };
-      const updated = await updateProduct(productId, updateData);
+      // productId here is the system PR... id; get shopify_product_id for API call
+      const db = getDb();
+      const row = db.prepare('SELECT shopify_product_id FROM products WHERE id = ?').get(productId);
+      const shopifyId = row?.shopify_product_id || productId;
+      const updateData = { id: shopifyId, ...changes };
+      const updated = await updateProduct(shopifyId, updateData);
       results.products.push({ productId, success: true, updated });
     } catch (err) {
       const errMsg = err.response?.data?.errors || err.message;
@@ -196,15 +280,18 @@ router.post('/batch-update', requirePermission('write'), async (req, res) => {
     }
   }
 
-  // Process variant updates sequentially
   for (const { productId, variantId, changes } of variantUpdates) {
     try {
+      // variantId here is the system V... id; get shopify_variant_id for API call
+      const db = getDb();
+      const row = db.prepare('SELECT shopify_variant_id FROM product_variants WHERE id = ?').get(variantId);
+      const shopifyVariantId = row?.shopify_variant_id || variantId;
       const updateData = {};
       if (changes.sku !== undefined) updateData.sku = changes.sku;
       if (changes.barcode !== undefined) updateData.barcode = changes.barcode;
       if (changes.price !== undefined) updateData.price = changes.price;
       if (changes.compare_at_price !== undefined) updateData.compare_at_price = changes.compare_at_price;
-      const updated = await updateVariant(variantId, updateData);
+      const updated = await updateVariant(shopifyVariantId, updateData);
       results.variants.push({ variantId, success: true, updated });
     } catch (err) {
       const errMsg = err.response?.data?.errors || err.message;
@@ -226,20 +313,24 @@ router.post('/batch-update', requirePermission('write'), async (req, res) => {
 
 /**
  * PUT /api/products/:productId/variants/:variantId
- * Update a variant and sync back to Shopify
+ * Update a single variant and sync back to Shopify
  */
 router.put('/:productId/variants/:variantId', requirePermission('write'), async (req, res) => {
   const { variantId } = req.params;
-  const { sku, barcode, price, compare_at_price, inventory_quantity } = req.body;
+  const { sku, barcode, price, compare_at_price } = req.body;
 
   try {
+    const db = getDb();
+    const row = db.prepare('SELECT shopify_variant_id FROM product_variants WHERE id = ?').get(variantId);
+    const shopifyVariantId = row?.shopify_variant_id || variantId;
+
     const updateData = {};
     if (sku !== undefined) updateData.sku = sku;
     if (barcode !== undefined) updateData.barcode = barcode;
     if (price !== undefined) updateData.price = price;
     if (compare_at_price !== undefined) updateData.compare_at_price = compare_at_price;
 
-    const updated = await updateVariant(variantId, updateData);
+    const updated = await updateVariant(shopifyVariantId, updateData);
     res.json({ success: true, variant: updated });
   } catch (err) {
     console.error('Update variant error:', err.response?.data || err.message);
@@ -256,14 +347,18 @@ router.put('/:productId', requirePermission('write'), async (req, res) => {
   const { title, vendor, product_type, tags, status } = req.body;
 
   try {
-    const updateData = { id: productId };
+    const db = getDb();
+    const row = db.prepare('SELECT shopify_product_id FROM products WHERE id = ?').get(productId);
+    const shopifyId = row?.shopify_product_id || productId;
+
+    const updateData = { id: shopifyId };
     if (title !== undefined) updateData.title = title;
     if (vendor !== undefined) updateData.vendor = vendor;
     if (product_type !== undefined) updateData.product_type = product_type;
     if (tags !== undefined) updateData.tags = tags;
     if (status !== undefined) updateData.status = status;
 
-    const updated = await updateProduct(productId, updateData);
+    const updated = await updateProduct(shopifyId, updateData);
     res.json({ success: true, product: updated });
   } catch (err) {
     console.error('Update product error:', err.response?.data || err.message);

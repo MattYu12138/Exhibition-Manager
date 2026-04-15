@@ -32,16 +32,33 @@ function initSchema() {
       message TEXT
     );
 
-    CREATE TABLE IF NOT EXISTS inventory_products_cache (
-      shopify_product_id TEXT PRIMARY KEY,
+    -- Canonical product table (replaces inventory_products_cache)
+    -- id: PR + 12-digit system ID, e.g. PR000000000001
+    CREATE TABLE IF NOT EXISTS products (
+      id TEXT PRIMARY KEY,
+      shopify_product_id TEXT UNIQUE,
       title TEXT,
       vendor TEXT,
       product_type TEXT,
       status TEXT,
       handle TEXT,
       tags TEXT,
-      raw_json TEXT NOT NULL,
+      raw_json TEXT,
       cached_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    -- Product variant table
+    -- id: V + 12-digit system ID, e.g. V000000000001
+    CREATE TABLE IF NOT EXISTS product_variants (
+      id TEXT PRIMARY KEY,
+      product_id TEXT NOT NULL,
+      shopify_variant_id TEXT UNIQUE,
+      variant_title TEXT,
+      sku TEXT,
+      gtin TEXT,
+      price TEXT,
+      image_url TEXT,
+      FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
     );
   `);
 }

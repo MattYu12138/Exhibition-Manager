@@ -16,7 +16,8 @@ const ALLOWED_TABLES = [
   'platform_systems',
   'platform_permissions',
   'inventory_sync_log',
-  'inventory_products_cache',
+  'products',
+  'product_variants',
 ];
 
 // 获取所有允许的表名及其结构

@@ -93,7 +93,70 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(user_id, system_id)
   );
+
+  -- Canonical product table (maintained by inventory-backend, read-only for exhibition-backend)
+  CREATE TABLE IF NOT EXISTS products (
+    id TEXT PRIMARY KEY,
+    shopify_product_id TEXT UNIQUE,
+    title TEXT,
+    vendor TEXT,
+    product_type TEXT,
+    status TEXT,
+    handle TEXT,
+    tags TEXT,
+    raw_json TEXT,
+    cached_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  -- Product variant table (maintained by inventory-backend)
+  CREATE TABLE IF NOT EXISTS product_variants (
+    id TEXT PRIMARY KEY,
+    product_id TEXT NOT NULL,
+    shopify_variant_id TEXT UNIQUE,
+    variant_title TEXT,
+    sku TEXT,
+    gtin TEXT,
+    price TEXT,
+    image_url TEXT,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+  );
+
+  -- Sync log table (maintained by inventory-backend)
+  CREATE TABLE IF NOT EXISTS inventory_sync_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    synced_at TEXT NOT NULL DEFAULT (datetime('now')),
+    product_count INTEGER NOT NULL DEFAULT 0,
+    variant_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'success',
+    message TEXT
+  );
 `);
+
+// Create exhibition_items_view (encapsulates JOIN logic)
+try {
+  db.exec(`
+    CREATE VIEW IF NOT EXISTS exhibition_items_view AS
+    SELECT
+      ei.*,
+      pv.id AS pv_id,
+      pv.product_id AS pv_product_id,
+      pv.variant_title AS pv_variant_title,
+      pv.sku AS pv_sku,
+      pv.gtin AS pv_gtin,
+      pv.price AS pv_price,
+      pv.image_url AS pv_image_url,
+      p.id AS p_id,
+      p.title AS p_title,
+      p.vendor AS p_vendor,
+      p.product_type AS p_product_type,
+      p.status AS p_status,
+      p.handle AS p_handle,
+      p.tags AS p_tags
+    FROM exhibition_items ei
+    LEFT JOIN product_variants pv ON pv.shopify_variant_id = ei.shopify_variant_id
+    LEFT JOIN products p ON p.shopify_product_id = ei.shopify_product_id
+  `);
+} catch (e) { /* View already exists, ignore */ }
 
 // 自动迁移：将旧 INTEGER id 表迁移为 TEXT id（兼容旧数据库）
 function migrateTableIdToText(tableName, idPrefix, padLength, fkUpdateSql) {
