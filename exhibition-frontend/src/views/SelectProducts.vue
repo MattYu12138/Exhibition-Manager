@@ -423,6 +423,7 @@ async function loadProducts() {
     preselected[key] = {
       key,
       product_id: productId,
+      // Product info comes from exhibition_items_view (JOIN product_variants)
       product_title: item.product_title,
       variant_id: variantId,
       variant_title: item.variant_title,
@@ -453,15 +454,11 @@ async function saveToExhibition() {
       const totalQty = rackQty + stockQty
 
       if (!snapshot[variantId]) {
+        // action='add': only send IDs and quantities; product info resolved via VIEW on backend
         deltaItems.push({
           action: 'add',
           shopify_product_id: sel.product_id,
           shopify_variant_id: variantId,
-          product_title: sel.product_title,
-          variant_title: sel.variant_title,
-          sku: sel.sku,
-          gtin: sel.gtin,
-          image_url: sel.image_url,
           rack_quantity: rackQty,
           stock_quantity: stockQty,
           planned_quantity: totalQty,
@@ -469,15 +466,11 @@ async function saveToExhibition() {
       } else {
         const snap = snapshot[variantId]
         if (rackQty !== snap.rack_quantity || stockQty !== snap.stock_quantity) {
+          // action='update': only send IDs and quantities
           deltaItems.push({
             action: 'update',
             shopify_product_id: sel.product_id,
             shopify_variant_id: variantId,
-            product_title: sel.product_title,
-            variant_title: sel.variant_title,
-            sku: sel.sku,
-            gtin: sel.gtin,
-            image_url: sel.image_url,
             rack_quantity: rackQty,
             stock_quantity: stockQty,
             planned_quantity: totalQty,
@@ -494,12 +487,6 @@ async function saveToExhibition() {
         deltaItems.push({
           action: 'remove',
           shopify_variant_id: variantId,
-          shopify_product_id: '',
-          product_title: '',
-          variant_title: '',
-          rack_quantity: 0,
-          stock_quantity: 0,
-          planned_quantity: 0,
         })
       }
     }

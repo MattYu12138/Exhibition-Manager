@@ -25,23 +25,21 @@ db.exec(`
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
-  -- 展会商品清单表
+  -- 展会商品清单表（精简版：商品信息通过 exhibition_items_view JOIN product_variants 获取）
   CREATE TABLE IF NOT EXISTS exhibition_items (
     id TEXT PRIMARY KEY,
     exhibition_id TEXT NOT NULL,
-    shopify_product_id TEXT NOT NULL,
-    shopify_variant_id TEXT NOT NULL,
-    product_title TEXT NOT NULL,
-    variant_title TEXT,
-    sku TEXT,
-    gtin TEXT,
-    image_url TEXT,
+    shopify_product_id TEXT,
+    shopify_variant_id TEXT,
+    product_id TEXT,
+    variant_id TEXT,
     rack_quantity INTEGER DEFAULT 5,
     stock_quantity INTEGER DEFAULT 5,
     planned_quantity INTEGER DEFAULT 10,
     checked INTEGER DEFAULT 0,
     last_synced_quantity INTEGER DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(exhibition_id, shopify_variant_id),
     FOREIGN KEY (exhibition_id) REFERENCES exhibitions(id) ON DELETE CASCADE
   );
 
@@ -132,31 +130,38 @@ db.exec(`
   );
 `);
 
-// Create exhibition_items_view (encapsulates JOIN logic)
+// Create exhibition_items_view (encapsulates JOIN logic, provides product info via product_variants)
 try {
+  db.exec(`DROP VIEW IF EXISTS exhibition_items_view`);
   db.exec(`
-    CREATE VIEW IF NOT EXISTS exhibition_items_view AS
+    CREATE VIEW exhibition_items_view AS
     SELECT
-      ei.*,
-      pv.id AS pv_id,
-      pv.product_id AS pv_product_id,
-      pv.variant_title AS pv_variant_title,
-      pv.sku AS pv_sku,
-      pv.gtin AS pv_gtin,
-      pv.price AS pv_price,
-      pv.image_url AS pv_image_url,
-      p.id AS p_id,
-      p.title AS p_title,
-      p.vendor AS p_vendor,
-      p.product_type AS p_product_type,
-      p.status AS p_status,
-      p.handle AS p_handle,
-      p.tags AS p_tags
+      ei.id,
+      ei.exhibition_id,
+      ei.shopify_product_id,
+      ei.shopify_variant_id,
+      ei.product_id,
+      ei.variant_id,
+      ei.rack_quantity,
+      ei.stock_quantity,
+      ei.planned_quantity,
+      ei.checked,
+      ei.last_synced_quantity,
+      ei.created_at,
+      pv.variant_title,
+      pv.sku,
+      pv.gtin,
+      pv.price,
+      pv.image_url,
+      p.title AS product_title,
+      p.vendor,
+      p.product_type,
+      p.status AS product_status
     FROM exhibition_items ei
     LEFT JOIN product_variants pv ON pv.shopify_variant_id = ei.shopify_variant_id
-    LEFT JOIN products p ON p.shopify_product_id = ei.shopify_product_id
+    LEFT JOIN products p ON p.id = pv.product_id
   `);
-} catch (e) { /* View already exists, ignore */ }
+} catch (e) { console.error('[DB] VIEW creation failed:', e.message); }
 
 // 自动迁移：将旧 INTEGER id 表迁移为 TEXT id（兼容旧数据库）
 function migrateTableIdToText(tableName, idPrefix, padLength, fkUpdateSql) {
@@ -210,7 +215,7 @@ migrateTableIdToText('exhibitions', 'EX', 4,
   `UPDATE exhibition_items SET exhibition_id = 'EX' || printf('%04d', CAST(exhibition_id AS INTEGER)) WHERE exhibition_id NOT LIKE 'EX%';
    UPDATE inventory_snapshots SET exhibition_id = 'EX' || printf('%04d', CAST(exhibition_id AS INTEGER)) WHERE exhibition_id NOT LIKE 'EX%';`
 );
-migrateTableIdToText('exhibition_items', 'P', 12, null);
+migrateTableIdToText('exhibition_items', 'EI', 12, null);
 migrateTableIdToText('inventory_snapshots', 'IS', 8, null);
 
 // 迁移：为已有数据库添加新字段（若字段已存在则忽略）
@@ -218,6 +223,8 @@ const migrations = [
   'ALTER TABLE exhibition_items ADD COLUMN last_synced_quantity INTEGER DEFAULT NULL',
   'ALTER TABLE exhibition_items ADD COLUMN rack_quantity INTEGER DEFAULT 5',
   'ALTER TABLE exhibition_items ADD COLUMN stock_quantity INTEGER DEFAULT 5',
+  'ALTER TABLE exhibition_items ADD COLUMN product_id TEXT',
+  'ALTER TABLE exhibition_items ADD COLUMN variant_id TEXT',
   // 新增加密密码字段（AES-256-CBC 对称加密）
   'ALTER TABLE users ADD COLUMN password_encrypted TEXT',
 ];

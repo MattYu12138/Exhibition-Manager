@@ -14,6 +14,8 @@ const ALLOWED_TABLES = [
   'exhibition_items',
   'inventory_snapshots',
   'users',
+  'products',
+  'product_variants',
 ];
 
 // 获取所有允许的表名及其结构

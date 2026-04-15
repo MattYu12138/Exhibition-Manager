@@ -20,7 +20,7 @@ router.get('/:id', (req, res) => {
     const exhibition = db.prepare('SELECT * FROM exhibitions WHERE id = ?').get(req.params.id);
     if (!exhibition) return res.status(404).json({ success: false, message: '展会不存在' });
 
-    const items = db.prepare('SELECT * FROM exhibition_items WHERE exhibition_id = ?').all(req.params.id);
+    const items = db.prepare('SELECT * FROM exhibition_items_view WHERE exhibition_id = ?').all(req.params.id);
     res.json({ success: true, data: { ...exhibition, items } });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -94,8 +94,9 @@ router.post('/:id/copy-to/:targetId', requireStaff, (req, res) => {
     // 复制 rack_quantity、stock_quantity、planned_quantity 实际值（以 Checklist 实际数量为准）
     const insertItem = db.prepare(`
       INSERT OR IGNORE INTO exhibition_items
-      (id, exhibition_id, shopify_product_id, shopify_variant_id, product_title, variant_title, sku, gtin, image_url, rack_quantity, stock_quantity, planned_quantity, checked)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+      (id, exhibition_id, shopify_product_id, shopify_variant_id, product_id, variant_id,
+       rack_quantity, stock_quantity, planned_quantity, checked)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
     `);
 
     const copyMany = db.transaction((items) => {
@@ -108,11 +109,8 @@ router.post('/:id/copy-to/:targetId', requireStaff, (req, res) => {
           targetId,
           item.shopify_product_id,
           item.shopify_variant_id,
-          item.product_title,
-          item.variant_title || '',
-          item.sku || '',
-          item.gtin || '',
-          item.image_url || '',
+          item.product_id || null,
+          item.variant_id || null,
           rack,
           stock,
           planned
@@ -122,7 +120,7 @@ router.post('/:id/copy-to/:targetId', requireStaff, (req, res) => {
 
     copyMany(sourceItems);
 
-    const savedItems = db.prepare('SELECT * FROM exhibition_items WHERE exhibition_id = ?').all(targetId);
+    const savedItems = db.prepare('SELECT * FROM exhibition_items_view WHERE exhibition_id = ?').all(targetId);
     res.json({
       success: true,
       message: `已从「${source.name}」复制 ${sourceItems.length} 件商品到「${target.name}」`,
@@ -149,13 +147,18 @@ router.post('/:id/items', requireStaff, (req, res) => {
     const findExisting = db.prepare(
       'SELECT * FROM exhibition_items WHERE exhibition_id = ? AND shopify_variant_id = ?'
     );
+    // Look up product_id/variant_id from product_variants
+    const findVariant = db.prepare(
+      'SELECT id, product_id FROM product_variants WHERE shopify_variant_id = ?'
+    );
     const insertItem = db.prepare(`
-      INSERT INTO exhibition_items 
-      (id, exhibition_id, shopify_product_id, shopify_variant_id, product_title, variant_title, sku, gtin, image_url, rack_quantity, stock_quantity, planned_quantity, checked)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+      INSERT INTO exhibition_items
+      (id, exhibition_id, shopify_product_id, shopify_variant_id, product_id, variant_id,
+       rack_quantity, stock_quantity, planned_quantity, checked)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
     `);
     const updateQty = db.prepare(
-      'UPDATE exhibition_items SET rack_quantity = ?, stock_quantity = ?, planned_quantity = ?, product_title = ?, variant_title = ?, sku = ?, gtin = ?, image_url = ? WHERE id = ?'
+      'UPDATE exhibition_items SET rack_quantity = ?, stock_quantity = ?, planned_quantity = ? WHERE id = ?'
     );
     // 数量变动时，重置清点状态和同步快照
     const resetChecked = db.prepare(
@@ -183,11 +186,6 @@ router.post('/:id/items', requireStaff, (req, res) => {
               newRack,
               newStock,
               newQty,
-              item.product_title,
-              item.variant_title || '',
-              item.sku || '',
-              item.gtin || '',
-              item.image_url || '',
               existing.id
             );
             // 若数量发生变动，重置清点状态和同步快照
@@ -201,16 +199,15 @@ router.post('/:id/items', requireStaff, (req, res) => {
             const addRack = item.rack_quantity !== undefined ? item.rack_quantity : 5;
             const addStock = item.stock_quantity !== undefined ? item.stock_quantity : 5;
             const addTotal = addRack + addStock;
+            // Resolve product_id/variant_id from product_variants table
+            const pv = findVariant.get(String(item.shopify_variant_id));
             insertItem.run(
               itemId(db),
               req.params.id,
               item.shopify_product_id,
               item.shopify_variant_id,
-              item.product_title,
-              item.variant_title || '',
-              item.sku || '',
-              item.gtin || '',
-              item.image_url || '',
+              pv ? pv.product_id : null,
+              pv ? pv.id : null,
               addRack,
               addStock,
               addTotal
@@ -221,7 +218,8 @@ router.post('/:id/items', requireStaff, (req, res) => {
     });
 
     applyDelta(items);
-    const savedItems = db.prepare('SELECT * FROM exhibition_items WHERE exhibition_id = ?').all(req.params.id);
+    // Return items via VIEW (includes product info from JOIN)
+    const savedItems = db.prepare('SELECT * FROM exhibition_items_view WHERE exhibition_id = ?').all(req.params.id);
     res.json({ success: true, data: savedItems });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -237,7 +235,7 @@ router.put('/:id/items/product/:productId/check', requireStaff, (req, res) => {
       'UPDATE exhibition_items SET checked = ? WHERE exhibition_id = ? AND shopify_product_id = ?'
     ).run(checked ? 1 : 0, req.params.id, req.params.productId);
 
-    const items = db.prepare('SELECT * FROM exhibition_items WHERE exhibition_id = ?').all(req.params.id);
+    const items = db.prepare('SELECT * FROM exhibition_items_view WHERE exhibition_id = ?').all(req.params.id);
     res.json({ success: true, data: items });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -272,7 +270,8 @@ router.put('/:id/items/:itemId', requireStaff, (req, res) => {
       req.params.id
     );
 
-    const item = db.prepare('SELECT * FROM exhibition_items WHERE id = ?').get(req.params.itemId);
+    // Return updated item via VIEW (includes product info)
+    const item = db.prepare('SELECT * FROM exhibition_items_view WHERE id = ?').get(req.params.itemId);
     res.json({ success: true, data: item });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

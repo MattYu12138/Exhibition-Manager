@@ -39,8 +39,8 @@ router.post('/sync', async (req, res) => {
       return res.status(400).json({ success: false, message: '缺少必要参数' });
     }
 
-    // 获取展会商品清单
-    const items = db.prepare('SELECT * FROM exhibition_items WHERE exhibition_id = ?').all(exhibition_id);
+    // 获取展会商品清单（通过 VIEW 获取 sku/gtin/product_title/variant_title 等商品信息）
+    const items = db.prepare('SELECT * FROM exhibition_items_view WHERE exhibition_id = ?').all(exhibition_id);
     if (!items.length) {
       return res.status(400).json({ success: false, message: '展会清单为空' });
     }
@@ -344,12 +344,13 @@ router.post('/create-items', async (req, res) => {
  */
 router.get('/snapshots/:exhibition_id', (req, res) => {
   try {
+    // JOIN exhibition_items_view to get product_title/variant_title from product_variants
     const snapshots = db.prepare(
-      `SELECT s.*, e.product_title, e.variant_title, e.planned_quantity as item_planned_qty
+      `SELECT s.*, v.product_title, v.variant_title, v.planned_quantity as item_planned_qty
        FROM inventory_snapshots s
-       LEFT JOIN exhibition_items e
-         ON s.shopify_variant_id = e.shopify_variant_id
-         AND s.exhibition_id = e.exhibition_id
+       LEFT JOIN exhibition_items_view v
+         ON s.shopify_variant_id = v.shopify_variant_id
+         AND s.exhibition_id = v.exhibition_id
        WHERE s.exhibition_id = ?`
     ).all(req.params.exhibition_id);
 
