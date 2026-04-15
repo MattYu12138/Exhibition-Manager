@@ -113,7 +113,7 @@ router.post('/sync', requirePermission('write'), async (req, res) => {
     txn();
 
     const variantCount = shopifyProducts.reduce((sum, p) => sum + (p.variants?.length || 0), 0);
-    db.prepare(`INSERT INTO inventory_sync_log (product_count, variant_count, status) VALUES (?, ?, 'success')`)
+    db.prepare(`INSERT INTO inventory_sync_log (product_count, variant_count, message) VALUES (?, ?, 'success')`)
       .run(shopifyProducts.length, variantCount);
 
     res.json({ success: true, productCount: shopifyProducts.length, variantCount });
@@ -132,7 +132,7 @@ router.get('/', requirePermission('read'), (req, res) => {
   const { status } = req.query;
 
   // Load all products with their variants for global duplicate analysis
-  const allProductRows = db.prepare('SELECT * FROM products ORDER BY cached_at DESC').all();
+  const allProductRows = db.prepare('SELECT * FROM products ORDER BY updated_at DESC').all();
   const allVariantRows = db.prepare('SELECT * FROM product_variants').all();
 
   // Group variants by product_id
@@ -142,11 +142,9 @@ router.get('/', requirePermission('read'), (req, res) => {
     variantsByProduct[v.product_id].push(v);
   }
 
-  // Build full product objects (merge DB rows with raw_json for Shopify-specific fields)
+  // Build full product objects from DB rows
   const allProducts = allProductRows.map(row => {
-    const raw = row.raw_json ? JSON.parse(row.raw_json) : {};
     return {
-      ...raw,
       id: row.id,                           // system ID (PR...)
       shopify_product_id: row.shopify_product_id,
       title: row.title,
@@ -156,7 +154,8 @@ router.get('/', requirePermission('read'), (req, res) => {
       _computed_status: row.status,
       handle: row.handle,
       tags: row.tags,
-      cached_at: row.cached_at,
+      main_image: row.main_image,
+      updated_at: row.updated_at,
       variants: (variantsByProduct[row.id] || []).map(v => ({
         ...v,
         id: v.id,                           // system ID (V...)

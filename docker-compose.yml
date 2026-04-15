@@ -33,7 +33,7 @@ services:
     volumes:
       - /data/lic:/data/lic
     ports:
-      - '127.0.0.1:3000:3000'
+      - '127.0.0.1:3000:3003'
 
   platform-frontend:
     build: ./platform-frontend
@@ -61,7 +61,10 @@ services:
       - platform-backend
 
   inventory-frontend:
-    build: ./inventory-frontend
+    build:
+      context: ./inventory-frontend
+      args:
+        VITE_PLATFORM_URL: https://licplatform.lummiincolour.com.au
     restart: always
     ports:
       - '127.0.0.1:8082:80'

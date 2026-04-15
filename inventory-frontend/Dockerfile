@@ -3,6 +3,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --legacy-peer-deps
 COPY . .
+ARG VITE_PLATFORM_URL=https://licplatform.lummiincolour.com.au
+ENV VITE_PLATFORM_URL=$VITE_PLATFORM_URL
 RUN npm run build
 
 FROM nginx:alpine
