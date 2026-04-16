@@ -17,6 +17,7 @@ function getDb() {
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
     initSchema();
+    runMigrations();
   }
   return db;
 }
@@ -66,6 +67,34 @@ function initSchema() {
       FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
     );
   `);
+}
+
+/**
+ * 数据库迁移：为旧版本数据库补充新增列
+ * SQLite 不支持 IF NOT EXISTS 对列，使用 try/catch 兼容
+ */
+function runMigrations() {
+  const migrations = [
+    // v1: 给 products 表补充 main_image 列（旧库可能没有）
+    `ALTER TABLE products ADD COLUMN main_image TEXT`,
+    // v2: 给 products 表补充 handle 列（旧库可能没有）
+    `ALTER TABLE products ADD COLUMN handle TEXT`,
+    // v3: 给 products 表补充 tags 列（旧库可能没有）
+    `ALTER TABLE products ADD COLUMN tags TEXT`,
+    // v4: 给 product_variants 表补充 image_url 列（旧库可能没有）
+    `ALTER TABLE product_variants ADD COLUMN image_url TEXT`,
+  ];
+
+  for (const sql of migrations) {
+    try {
+      db.exec(sql);
+    } catch (e) {
+      // 列已存在时会报 "duplicate column name"，忽略即可
+      if (!e.message.includes('duplicate column name')) {
+        console.warn('[DB Migration] Skipped:', sql.trim(), '-', e.message);
+      }
+    }
+  }
 }
 
 module.exports = { getDb };
