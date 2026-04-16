@@ -75,14 +75,25 @@ function initSchema() {
  */
 function runMigrations() {
   const migrations = [
-    // v1: 给 products 表补充 main_image 列（旧库可能没有）
+    // products 表
     `ALTER TABLE products ADD COLUMN main_image TEXT`,
-    // v2: 给 products 表补充 handle 列（旧库可能没有）
     `ALTER TABLE products ADD COLUMN handle TEXT`,
-    // v3: 给 products 表补充 tags 列（旧库可能没有）
     `ALTER TABLE products ADD COLUMN tags TEXT`,
-    // v4: 给 product_variants 表补充 image_url 列（旧库可能没有）
+    `ALTER TABLE products ADD COLUMN vendor TEXT`,
+    `ALTER TABLE products ADD COLUMN product_type TEXT`,
+    `ALTER TABLE products ADD COLUMN status TEXT DEFAULT 'active'`,
+    `ALTER TABLE products ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP`,
+    `ALTER TABLE products ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP`,
+    // product_variants 表
     `ALTER TABLE product_variants ADD COLUMN image_url TEXT`,
+    `ALTER TABLE product_variants ADD COLUMN shopify_product_id TEXT`,
+    `ALTER TABLE product_variants ADD COLUMN variant_title TEXT`,
+    `ALTER TABLE product_variants ADD COLUMN sku TEXT`,
+    `ALTER TABLE product_variants ADD COLUMN gtin TEXT`,
+    `ALTER TABLE product_variants ADD COLUMN price REAL`,
+    `ALTER TABLE product_variants ADD COLUMN inventory_quantity INTEGER DEFAULT 0`,
+    `ALTER TABLE product_variants ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP`,
+    `ALTER TABLE product_variants ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP`,
   ];
 
   for (const sql of migrations) {
