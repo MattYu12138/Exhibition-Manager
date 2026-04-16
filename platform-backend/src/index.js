@@ -47,7 +47,7 @@ app.use(session({
     httpOnly: true,
     maxAge: 3 * 60 * 60 * 1000, // 3 hours
     sameSite: 'lax',
-    secure: isProduction,
+    secure: false,
   }
 }));
 
