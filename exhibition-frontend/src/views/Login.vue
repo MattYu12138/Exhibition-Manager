@@ -35,26 +35,8 @@
             prefix-icon="Lock"
             show-password
             autocomplete="current-password"
+            @keyup.enter="handleLogin"
           />
-        </el-form-item>
-
-        <!-- 验证码 -->
-        <el-form-item :label="t('login.captcha')" prop="captcha">
-          <div class="captcha-row">
-            <el-input
-              v-model="form.captcha"
-              :placeholder="t('login.captchaPlaceholder')"
-              size="large"
-              style="flex: 1"
-              @keyup.enter="handleLogin"
-            />
-            <div class="captcha-img" @click="refreshCaptcha" :title="t('login.refreshCaptcha')">
-              <img v-if="captchaUrl" :src="captchaUrl" alt="captcha" />
-              <div v-else class="captcha-loading">
-                <el-icon class="is-loading"><Loading /></el-icon>
-              </div>
-            </div>
-          </div>
         </el-form-item>
 
         <!-- 登录按钮 -->
@@ -70,12 +52,16 @@
           </el-button>
         </el-form-item>
       </el-form>
+
+      <div class="back-link">
+        <a href="#" @click.prevent="goBack">← {{ t('nav.backToPlatform') }}</a>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
@@ -86,36 +72,29 @@ const router = useRouter()
 const authStore = useAuthStore()
 
 const formRef = ref(null)
-const captchaUrl = ref('')
-const form = ref({ username: '', password: '', captcha: '' })
+const form = ref({ username: '', password: '' })
 
 const rules = {
   username: [{ required: true, message: t('login.usernameRequired'), trigger: 'blur' }],
   password: [{ required: true, message: t('login.passwordRequired'), trigger: 'blur' }],
-  captcha: [{ required: true, message: t('login.captchaRequired'), trigger: 'blur' }],
-}
-
-function refreshCaptcha() {
-  captchaUrl.value = `/api/auth/captcha?t=${Date.now()}`
-  form.value.captcha = ''
 }
 
 async function handleLogin() {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
 
-  const result = await authStore.login(form.value.username, form.value.password, form.value.captcha)
+  const result = await authStore.login(form.value.username, form.value.password)
   if (result.success) {
     router.push('/')
   } else {
     ElMessage.error(result.message || t('login.loginFailed'))
-    refreshCaptcha()
   }
 }
 
-onMounted(() => {
-  refreshCaptcha()
-})
+function goBack() {
+  const platformUrl = import.meta.env.VITE_PLATFORM_URL || 'http://localhost:5174'
+  window.location.href = platformUrl
+}
 </script>
 
 <style scoped>
@@ -133,7 +112,6 @@ onMounted(() => {
   object-fit: contain;
 }
 
-
 .login-card {
   background: #fff;
   border-color: #EFE7DD;
@@ -148,7 +126,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;;
+  gap: 12px;
   margin-bottom: 32px;
 }
 
@@ -159,40 +137,18 @@ onMounted(() => {
   text-align: center;
 }
 
-.captcha-row {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  width: 100%;
+.back-link {
+  text-align: center;
+  margin-top: 16px;
+  font-size: 13px;
 }
 
-.captcha-img {
-  width: 120px;
-  height: 40px;
-  border: 1px solid #dcdfe6;
-  border-radius: 6px;
-  overflow: hidden;
-  cursor: pointer;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f0f4ff;
-  transition: opacity 0.2s;
+.back-link a {
+  color: #8b5cf6;
+  text-decoration: none;
 }
 
-.captcha-img:hover {
-  opacity: 0.8;
-}
-
-.captcha-img img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.captcha-loading {
-  color: #909399;
-  font-size: 20px;
+.back-link a:hover {
+  text-decoration: underline;
 }
 </style>

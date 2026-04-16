@@ -25,10 +25,10 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   // 登录
-  async function login(username, password, captcha) {
+  async function login(username, password) {
     loading.value = true
     try {
-      const res = await axios.post('/api/auth/login', { username, password, captcha }, { withCredentials: true })
+      const res = await axios.post('/api/auth/login', { username, password }, { withCredentials: true })
       if (res.data.success) {
         user.value = res.data.user
         return { success: true }

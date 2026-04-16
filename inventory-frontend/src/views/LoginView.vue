@@ -30,25 +30,8 @@
             placeholder="请输入密码"
             autocomplete="current-password"
             class="form-input"
+            @keyup.enter="handleLogin"
           />
-        </div>
-
-        <!-- 验证码 -->
-        <div class="form-item">
-          <label>验证码</label>
-          <div class="captcha-row">
-            <input
-              v-model="form.captcha"
-              type="text"
-              placeholder="请输入验证码"
-              class="form-input captcha-input"
-              @keyup.enter="handleLogin"
-            />
-            <div class="captcha-img" @click="refreshCaptcha" title="点击刷新验证码">
-              <img v-if="captchaUrl" :src="captchaUrl" alt="captcha" />
-              <div v-else class="captcha-loading">加载中...</div>
-            </div>
-          </div>
         </div>
 
         <!-- 错误提示 -->
@@ -69,7 +52,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import axios from 'axios'
@@ -80,19 +63,13 @@ const api = axios.create({ baseURL: '/api', withCredentials: true })
 
 const platformUrl = import.meta.env.VITE_PLATFORM_URL || 'http://localhost:5174'
 
-const captchaUrl = ref('')
-const form = ref({ username: '', password: '', captcha: '' })
+const form = ref({ username: '', password: '' })
 const loading = ref(false)
 const errorMsg = ref('')
 
-function refreshCaptcha() {
-  captchaUrl.value = `/api/auth/captcha?t=${Date.now()}`
-  form.value.captcha = ''
-}
-
 async function handleLogin() {
-  if (!form.value.username || !form.value.password || !form.value.captcha) {
-    errorMsg.value = '请填写所有字段'
+  if (!form.value.username || !form.value.password) {
+    errorMsg.value = '请填写用户名和密码'
     return
   }
   loading.value = true
@@ -101,26 +78,19 @@ async function handleLogin() {
     const res = await api.post('/auth/login', {
       username: form.value.username,
       password: form.value.password,
-      captcha: form.value.captcha,
     })
     if (res.data.success) {
       authStore.user = res.data.user
       router.push('/')
     } else {
       errorMsg.value = res.data.message || '登录失败'
-      refreshCaptcha()
     }
   } catch (err) {
     errorMsg.value = err.response?.data?.message || '登录失败，请重试'
-    refreshCaptcha()
   } finally {
     loading.value = false
   }
 }
-
-onMounted(() => {
-  refreshCaptcha()
-})
 </script>
 
 <style scoped>
@@ -193,46 +163,6 @@ onMounted(() => {
 .form-input:focus {
   border-color: #7c3aed;
   box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.1);
-}
-
-.captcha-row {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-
-.captcha-input {
-  flex: 1;
-}
-
-.captcha-img {
-  width: 120px;
-  height: 40px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  overflow: hidden;
-  cursor: pointer;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #f0f4ff;
-  transition: opacity 0.2s;
-}
-
-.captcha-img:hover {
-  opacity: 0.8;
-}
-
-.captcha-img img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.captcha-loading {
-  font-size: 12px;
-  color: #9ca3af;
 }
 
 .error-msg {

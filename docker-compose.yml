@@ -14,10 +14,15 @@ services:
       - ./exhibition-backend/.env
     environment:
       - DB_PATH=/data/lic/database/LIC_DB.db
+      # Docker 内部服务间通信地址（容器名:内部端口）
+      - PLATFORM_BACKEND_URL=http://platform-backend:3000
+      - SSO_SECRET=lummi-sso-secret-2026
     volumes:
       - /data/lic:/data/lic
     ports:
       - '127.0.0.1:3001:3001'
+    depends_on:
+      - platform-backend
 
   exhibition-frontend:
     build:
@@ -40,10 +45,12 @@ services:
       - ./platform-backend/.env
     environment:
       - DB_PATH=/data/lic/database/LIC_DB.db
+      - SSO_SECRET=lummi-sso-secret-2026
+      - PORT=3000
     volumes:
       - /data/lic:/data/lic
     ports:
-      - '127.0.0.1:3000:3003'
+      - '127.0.0.1:3000:3000'
 
   platform-frontend:
     build: ./platform-frontend
@@ -63,6 +70,9 @@ services:
       - ./inventory-backend/.env
     environment:
       - DB_PATH=/data/lic/database/LIC_DB.db
+      # Docker 内部服务间通信地址（容器名:内部端口）
+      - PLATFORM_BACKEND_URL=http://platform-backend:3000
+      - SSO_SECRET=lummi-sso-secret-2026
     volumes:
       - /data/lic:/data/lic
     ports:

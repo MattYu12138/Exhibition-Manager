@@ -19,11 +19,11 @@ export const useAuthStore = defineStore('auth', {
     isStaff: (state) => state.user?.role === 'staff',
   },
   actions: {
-    // 登录（含验证码），返回 { success, message, user }
-    async login(username, password, captcha) {
+    // 登录，返回 { success, message, user }
+    async login(username, password) {
       this.loading = true
       try {
-        const res = await api.post('/auth/login', { username, password, captcha })
+        const res = await api.post('/auth/login', { username, password })
         if (res.data.success) {
           this.user = res.data.user
           localStorage.setItem(USER_CACHE_KEY, JSON.stringify(res.data.user))
