@@ -24,6 +24,11 @@ fs.mkdirSync(SESSION_DB_DIR, { recursive: true });
 
 const isProduction = process.env.NODE_ENV === 'production';
 
+// Trust nginx reverse proxy so that secure cookies work behind HTTPS
+if (isProduction) {
+  app.set('trust proxy', 1);
+}
+
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5174',
   credentials: true

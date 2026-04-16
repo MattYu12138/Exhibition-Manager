@@ -17,6 +17,11 @@ const { requireLogin, requireStaff } = require('./middleware/auth');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Trust nginx reverse proxy so that secure cookies work behind HTTPS
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 // ─── 中间件 ───────────────────────────────────────────────────
 app.use(cors({
   origin: function(origin, callback) {

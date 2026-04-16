@@ -21,6 +21,11 @@ const SESSION_DB_FILE = path.basename(SESSION_DB_PATH);
 // 自动创建数据库目录
 fs.mkdirSync(SESSION_DB_DIR, { recursive: true });
 
+// Trust nginx reverse proxy so that secure cookies work behind HTTPS
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5175',
   credentials: true
