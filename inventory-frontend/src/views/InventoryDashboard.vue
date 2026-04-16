@@ -25,14 +25,33 @@
             <span class="inline-flex items-center justify-center bg-white text-amber-600 text-xs font-bold rounded-full w-5 h-5">{{ pendingCount }}</span>
             {{ t('inventory.commitChanges') }}
           </button>
-          <button
-            @click="syncProducts"
-            :disabled="syncing"
-            class="bg-purple-600 hover:bg-purple-700 text-white text-sm px-4 py-2 rounded-lg disabled:opacity-50 flex items-center gap-2"
-          >
-            <span v-if="syncing" class="animate-spin">⟳</span>
-            {{ syncing ? t('inventory.syncing') : t('inventory.syncNow') }}
-          </button>
+
+          <!-- Sync dropdown -->
+          <div class="relative" ref="syncDropdownRef">
+            <button
+              @click="toggleSyncDropdown"
+              :disabled="syncing || syncingSquare"
+              class="bg-purple-600 hover:bg-purple-700 text-white text-sm px-4 py-2 rounded-lg disabled:opacity-50 flex items-center gap-2"
+            >
+              <span v-if="syncing || syncingSquare" class="animate-spin">⟳</span>
+              {{ (syncing || syncingSquare) ? t('inventory.syncing') : t('inventory.syncNow') }}
+              <span class="ml-1">▾</span>
+            </button>
+            <div v-if="showSyncDropdown" class="absolute right-0 mt-1 w-44 bg-white border border-gray-200 rounded-lg shadow-lg z-20">
+              <button
+                @click="syncShopify"
+                class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-t-lg flex items-center gap-2"
+              >
+                <span>🛍</span> {{ t('inventory.syncShopify') }}
+              </button>
+              <button
+                @click="syncSquare"
+                class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg flex items-center gap-2"
+              >
+                <span>⬛</span> {{ t('inventory.syncSquare') }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </header>
@@ -60,6 +79,104 @@
         <div class="bg-white rounded-xl p-4 shadow-sm text-center border-l-4" :class="summary.duplicateBarcodes > 0 ? 'border-red-400' : 'border-green-400'">
           <div class="text-2xl font-bold" :class="summary.duplicateBarcodes > 0 ? 'text-red-600' : 'text-green-600'">{{ summary.duplicateBarcodes }}</div>
           <div class="text-xs text-gray-500 mt-1">{{ t('inventory.duplicateBarcodes') }}</div>
+        </div>
+      </div>
+
+      <!-- Square Compare Loading -->
+      <div v-if="syncingSquare" class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4 flex items-center gap-3">
+        <span class="animate-spin text-blue-500 text-xl">⟳</span>
+        <span class="text-blue-700 text-sm">{{ t('inventory.syncingSquare') }}</span>
+      </div>
+
+      <!-- Square Issues Panel -->
+      <div v-if="squareDiffs.length > 0 || squareUnmatched.length > 0" class="mb-6">
+        <!-- Square Diffs -->
+        <div v-if="squareDiffs.length > 0" class="bg-white rounded-xl shadow-sm overflow-hidden mb-3">
+          <div class="px-4 py-3 bg-orange-50 border-b border-orange-100 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-orange-500">⚠</span>
+              <span class="font-semibold text-orange-700 text-sm">{{ t('inventory.squareIssueLabel') }} ({{ squareDiffs.length }})</span>
+            </div>
+            <button @click="clearSquareDiffs" class="text-xs text-gray-400 hover:text-gray-600">清除</button>
+          </div>
+          <div class="divide-y">
+            <div v-for="(diff, idx) in squareDiffs" :key="idx" class="px-4 py-3">
+              <div class="flex items-start justify-between gap-4">
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm font-medium text-gray-800 truncate">
+                    {{ diff.shopifyProductTitle }} — {{ diff.shopifyVariantTitle }}
+                  </div>
+                  <div class="text-xs text-gray-400 mt-0.5">
+                    {{ t('inventory.squareItem') }}: {{ diff.squareItemName }} / {{ diff.squareVariationName }}
+                    · {{ t('inventory.matchedBy') }}: {{ diff.matchType.toUpperCase() }}
+                  </div>
+                  <!-- Diff details -->
+                  <div class="mt-2 space-y-1">
+                    <div v-for="d in diff.diffs" :key="d.field" class="flex items-center gap-3 text-xs">
+                      <span class="w-10 text-gray-500 font-medium uppercase">{{ d.field }}</span>
+                      <span class="text-gray-500">Shopify:</span>
+                      <span class="text-red-500 font-mono">{{ d.shopifyValue || '—' }}</span>
+                      <span class="text-gray-400">vs</span>
+                      <span class="text-gray-500">Square:</span>
+                      <span class="text-blue-600 font-mono">{{ d.squareValue || '—' }}</span>
+                    </div>
+                  </div>
+                </div>
+                <!-- Choice buttons -->
+                <div class="flex flex-col gap-1 shrink-0">
+                  <div class="flex gap-1">
+                    <button
+                      @click="stageSquareDiff(diff, 'square')"
+                      :class="getSquareDiffChoice(diff) === 'square' ? 'bg-blue-600 text-white' : 'bg-white text-blue-600 border border-blue-300'"
+                      class="text-xs px-2 py-1 rounded hover:bg-blue-600 hover:text-white transition-colors"
+                    >{{ t('inventory.keepSquare') }}</button>
+                    <button
+                      @click="stageSquareDiff(diff, 'shopify')"
+                      :class="getSquareDiffChoice(diff) === 'shopify' ? 'bg-green-600 text-white' : 'bg-white text-green-600 border border-green-300'"
+                      class="text-xs px-2 py-1 rounded hover:bg-green-600 hover:text-white transition-colors"
+                    >{{ t('inventory.keepShopify') }}</button>
+                    <button
+                      @click="openManualInput(diff)"
+                      :class="getSquareDiffChoice(diff) === 'both' ? 'bg-purple-600 text-white' : 'bg-white text-purple-600 border border-purple-300'"
+                      class="text-xs px-2 py-1 rounded hover:bg-purple-600 hover:text-white transition-colors"
+                    >{{ t('inventory.manualInput') }}</button>
+                  </div>
+                  <div v-if="getSquareDiffChoice(diff)" class="text-xs text-center text-gray-400">
+                    <span v-if="getSquareDiffChoice(diff) === 'square'" class="text-blue-500">✓ 保留 Square</span>
+                    <span v-else-if="getSquareDiffChoice(diff) === 'shopify'" class="text-green-500">✓ 保留 Shopify</span>
+                    <span v-else-if="getSquareDiffChoice(diff) === 'both'" class="text-purple-500">✓ 手动输入</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Square Unmatched -->
+        <div v-if="squareUnmatched.length > 0" class="bg-white rounded-xl shadow-sm overflow-hidden">
+          <div class="px-4 py-3 bg-gray-50 border-b flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-gray-500">🔍</span>
+              <span class="font-semibold text-gray-700 text-sm">{{ t('inventory.squareUnmatchedLabel') }} ({{ squareUnmatched.length }})</span>
+            </div>
+          </div>
+          <div class="divide-y">
+            <div v-for="(item, idx) in squareUnmatched" :key="idx" class="px-4 py-3">
+              <div class="flex items-start justify-between gap-4">
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm font-medium text-gray-800">{{ item.squareItemName }} — {{ item.squareVariationName }}</div>
+                  <div class="text-xs text-gray-400 mt-0.5">
+                    SKU: <span class="font-mono">{{ item.squareSku || '—' }}</span>
+                    · GTIN: <span class="font-mono">{{ item.squareGtin || '—' }}</span>
+                  </div>
+                </div>
+                <button
+                  @click="openLinkModal(item)"
+                  class="text-xs px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded border shrink-0"
+                >{{ t('inventory.linkToShopify') }}</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -130,7 +247,6 @@
               <span v-if="hasProductPendingChanges(product.id)" class="text-amber-500 text-sm font-medium">✎</span>
               <div>
                 <div class="font-medium text-gray-800">
-                  <!-- Show staged title if edited -->
                   <span v-if="stagedProducts[product.id]?.title !== undefined && stagedProducts[product.id].title !== product.title" class="text-amber-600">
                     {{ stagedProducts[product.id].title }}
                   </span>
@@ -220,7 +336,7 @@
       </div>
     </main>
 
-    <!-- Edit Product Modal (stages changes locally, no immediate save) -->
+    <!-- Edit Product Modal -->
     <div v-if="editingProduct" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div class="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl">
         <h2 class="text-lg font-bold mb-1">{{ t('inventory.editProduct') }}</h2>
@@ -260,7 +376,7 @@
       </div>
     </div>
 
-    <!-- Edit Variant Modal (stages changes locally, no immediate save) -->
+    <!-- Edit Variant Modal -->
     <div v-if="editingVariant" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div class="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl">
         <h2 class="text-lg font-bold mb-1">{{ t('inventory.editVariant') }}</h2>
@@ -297,9 +413,89 @@
       </div>
     </div>
 
+    <!-- Manual Input Modal (for Square diff) -->
+    <div v-if="manualInputTarget" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-xl">
+        <h2 class="text-lg font-bold mb-1">{{ t('inventory.manualInput') }}</h2>
+        <p class="text-xs text-gray-400 mb-4">
+          {{ manualInputTarget.shopifyProductTitle }} — {{ manualInputTarget.shopifyVariantTitle }}
+        </p>
+        <div class="space-y-3">
+          <div>
+            <label class="text-sm text-gray-600">SKU</label>
+            <div class="flex gap-2 mt-1 text-xs text-gray-400 mb-1">
+              <span>Shopify: <span class="font-mono text-gray-600">{{ manualInputTarget.shopifySku || '—' }}</span></span>
+              <span>·</span>
+              <span>Square: <span class="font-mono text-blue-600">{{ manualInputTarget.squareSku || '—' }}</span></span>
+            </div>
+            <input v-model="manualForm.sku" class="input-field" :placeholder="manualInputTarget.shopifySku || ''" />
+          </div>
+          <div>
+            <label class="text-sm text-gray-600">GTIN</label>
+            <div class="flex gap-2 mt-1 text-xs text-gray-400 mb-1">
+              <span>Shopify: <span class="font-mono text-gray-600">{{ manualInputTarget.shopifyGtin || '—' }}</span></span>
+              <span>·</span>
+              <span>Square: <span class="font-mono text-blue-600">{{ manualInputTarget.squareGtin || '—' }}</span></span>
+            </div>
+            <input v-model="manualForm.gtin" class="input-field" :placeholder="manualInputTarget.shopifyGtin || ''" />
+          </div>
+        </div>
+        <div class="flex gap-3 mt-4">
+          <button @click="confirmManualInput" class="flex-1 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700">
+            {{ t('inventory.stageEdit') }}
+          </button>
+          <button @click="manualInputTarget = null" class="flex-1 border py-2 rounded-lg hover:bg-gray-50">{{ t('inventory.cancel') }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Link to Shopify Modal (for unmatched Square items) -->
+    <div v-if="linkModalTarget" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div class="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl">
+        <h2 class="text-lg font-bold mb-1">{{ t('inventory.linkToShopify') }}</h2>
+        <p class="text-xs text-gray-400 mb-4">
+          Square: {{ linkModalTarget.squareItemName }} — {{ linkModalTarget.squareVariationName }}
+          <br>SKU: {{ linkModalTarget.squareSku || '—' }} · GTIN: {{ linkModalTarget.squareGtin || '—' }}
+        </p>
+        <div>
+          <label class="text-sm text-gray-600">{{ t('inventory.selectShopifyVariant') }}</label>
+          <input
+            v-model="linkSearchQuery"
+            :placeholder="t('inventory.search')"
+            class="input-field mt-1 mb-2"
+          />
+          <div class="max-h-60 overflow-y-auto border rounded-lg divide-y">
+            <div v-if="filteredLinkVariants.length === 0" class="px-4 py-3 text-sm text-gray-400 text-center">
+              暂无匹配结果
+            </div>
+            <button
+              v-for="v in filteredLinkVariants"
+              :key="v.variantId"
+              @click="selectLinkVariant(v)"
+              class="w-full text-left px-4 py-2 hover:bg-gray-50 text-sm"
+              :class="linkSelectedVariant?.variantId === v.variantId ? 'bg-purple-50 text-purple-700 font-medium' : 'text-gray-700'"
+            >
+              <div>{{ v.productTitle }}</div>
+              <div class="text-xs text-gray-400">{{ v.variantTitle }} · SKU: {{ v.sku || '—' }} · GTIN: {{ v.gtin || '—' }}</div>
+            </button>
+          </div>
+        </div>
+        <div class="flex gap-3 mt-4">
+          <button
+            @click="confirmLink"
+            :disabled="!linkSelectedVariant"
+            class="flex-1 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50"
+          >
+            {{ t('inventory.linkConfirm') }}
+          </button>
+          <button @click="linkModalTarget = null" class="flex-1 border py-2 rounded-lg hover:bg-gray-50">{{ t('inventory.cancel') }}</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Commit Changes Modal (diff view) -->
     <div v-if="showCommitModal" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div class="bg-white rounded-xl w-full max-w-3xl shadow-2xl flex flex-col max-h-[90vh]">
+      <div class="bg-white rounded-xl w-full max-w-4xl shadow-2xl flex flex-col max-h-[90vh]">
         <!-- Modal Header -->
         <div class="px-6 py-4 border-b flex items-center justify-between">
           <div>
@@ -312,7 +508,7 @@
         <!-- Diff List -->
         <div class="overflow-y-auto flex-1 px-6 py-4 space-y-4">
 
-          <!-- Product-level changes -->
+          <!-- Regular product-level changes -->
           <div v-for="(changes, productId) in stagedProducts" :key="'p-' + productId">
             <div v-if="Object.keys(changes).length > 0" class="border rounded-lg overflow-hidden">
               <div class="bg-gray-50 px-4 py-2 text-xs font-semibold text-gray-600 uppercase tracking-wide flex items-center justify-between">
@@ -338,7 +534,7 @@
             </div>
           </div>
 
-          <!-- Variant-level changes -->
+          <!-- Regular variant-level changes -->
           <div v-for="(variantMap, productId) in stagedVariants" :key="'v-' + productId">
             <div v-for="(changes, variantId) in variantMap" :key="variantId">
               <div v-if="Object.keys(changes).length > 0" class="border rounded-lg overflow-hidden">
@@ -366,6 +562,94 @@
             </div>
           </div>
 
+          <!-- Square diff staged changes (two-column layout) -->
+          <div v-for="(staged, key) in stagedSquareDiffs" :key="'sq-' + key">
+            <div v-if="staged" class="border rounded-lg overflow-hidden">
+              <div class="bg-blue-50 px-4 py-2 text-xs font-semibold text-blue-700 uppercase tracking-wide flex items-center justify-between">
+                <span>
+                  Square 对比: {{ staged.shopifyProductTitle }} — {{ staged.shopifyVariantTitle }}
+                  <span class="ml-2 text-blue-400 normal-case font-normal">
+                    ({{ staged.target === 'square' ? '保留 Shopify → 更新 Square' : staged.target === 'shopify' ? '保留 Square → 更新 Shopify' : '手动输入 → 同步双方' }})
+                  </span>
+                </span>
+                <button @click="discardSquareDiff(key)" class="text-red-400 hover:text-red-600 text-xs normal-case font-normal">{{ t('inventory.discard') }}</button>
+              </div>
+              <!-- Two-column diff table -->
+              <div class="grid grid-cols-2 divide-x">
+                <!-- Left: Shopify changes -->
+                <div>
+                  <div class="bg-gray-50 px-4 py-2 text-xs font-medium text-gray-600 border-b">{{ t('inventory.shopifyModify') }}</div>
+                  <table class="w-full text-xs">
+                    <thead class="bg-gray-50 text-gray-400">
+                      <tr>
+                        <th class="text-left px-3 py-1.5 w-1/4">字段</th>
+                        <th class="text-left px-3 py-1.5">变更</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template v-for="d in staged.diffs" :key="'shopify-' + d.field">
+                        <tr v-if="staged.target === 'shopify' || staged.target === 'both'" class="border-t">
+                          <td class="px-3 py-2 text-gray-500 uppercase">{{ d.field }}</td>
+                          <td class="px-3 py-2">
+                            <span v-if="staged.target === 'shopify'">
+                              <span class="text-red-500 line-through">{{ d.shopifyValue || '—' }}</span>
+                              <span class="text-gray-400 mx-1">→</span>
+                              <span class="text-green-600 font-medium">{{ d.squareValue || '—' }}</span>
+                            </span>
+                            <span v-else>
+                              <span class="text-red-500 line-through">{{ d.shopifyValue || '—' }}</span>
+                              <span class="text-gray-400 mx-1">→</span>
+                              <span class="text-green-600 font-medium">{{ staged.manualValues?.[d.field] || '—' }}</span>
+                            </span>
+                          </td>
+                        </tr>
+                        <tr v-else class="border-t">
+                          <td class="px-3 py-2 text-gray-500 uppercase">{{ d.field }}</td>
+                          <td class="px-3 py-2 text-gray-400 italic">不变</td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+                <!-- Right: Square changes -->
+                <div>
+                  <div class="bg-blue-50 px-4 py-2 text-xs font-medium text-blue-600 border-b">{{ t('inventory.squareModify') }}</div>
+                  <table class="w-full text-xs">
+                    <thead class="bg-blue-50 text-blue-300">
+                      <tr>
+                        <th class="text-left px-3 py-1.5 w-1/4">字段</th>
+                        <th class="text-left px-3 py-1.5">变更</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template v-for="d in staged.diffs" :key="'square-' + d.field">
+                        <tr v-if="staged.target === 'square' || staged.target === 'both'" class="border-t">
+                          <td class="px-3 py-2 text-gray-500 uppercase">{{ d.field }}</td>
+                          <td class="px-3 py-2">
+                            <span v-if="staged.target === 'square'">
+                              <span class="text-red-500 line-through">{{ d.squareValue || '—' }}</span>
+                              <span class="text-gray-400 mx-1">→</span>
+                              <span class="text-green-600 font-medium">{{ d.shopifyValue || '—' }}</span>
+                            </span>
+                            <span v-else>
+                              <span class="text-red-500 line-through">{{ d.squareValue || '—' }}</span>
+                              <span class="text-gray-400 mx-1">→</span>
+                              <span class="text-green-600 font-medium">{{ staged.manualValues?.[d.field] || '—' }}</span>
+                            </span>
+                          </td>
+                        </tr>
+                        <tr v-else class="border-t">
+                          <td class="px-3 py-2 text-gray-500 uppercase">{{ d.field }}</td>
+                          <td class="px-3 py-2 text-gray-400 italic">不变</td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
 
         <!-- Modal Footer -->
@@ -386,7 +670,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import axios from 'axios'
 
@@ -410,20 +694,188 @@ async function backToPlatform() {
 
 // ─── Core data ───────────────────────────────────────────────────────────────
 const products = ref([])
-// Global cache: { [productId]: product } — persists across tab switches for commit modal label lookup
 const allProductsCache = ref({})
 const summary = ref({ total: 0, withDuplicates: 0, duplicateSKUs: 0, duplicateBarcodes: 0 })
 const lastSync = ref(null)
 const loading = ref(true)
 const syncing = ref(false)
+const syncingSquare = ref(false)
 const searchQuery = ref('')
 const showDuplicatesOnly = ref(false)
 const expandedProducts = ref(new Set())
 const activeStatus = ref('active')
 
-// ─── Staged changes (pre-edit, not yet sent to Shopify) ──────────────────────
-// stagedProducts: { [productId]: { title?, vendor?, product_type?, tags?, status? } }
-// stagedVariants: { [productId]: { [variantId]: { sku?, barcode?, price?, compare_at_price? } } }
+// ─── Sync dropdown ────────────────────────────────────────────────────────────
+const showSyncDropdown = ref(false)
+const syncDropdownRef = ref(null)
+
+function toggleSyncDropdown() {
+  showSyncDropdown.value = !showSyncDropdown.value
+}
+
+function closeSyncDropdown(e) {
+  if (syncDropdownRef.value && !syncDropdownRef.value.contains(e.target)) {
+    showSyncDropdown.value = false
+  }
+}
+
+onMounted(() => document.addEventListener('click', closeSyncDropdown))
+onUnmounted(() => document.removeEventListener('click', closeSyncDropdown))
+
+// ─── Square compare state ─────────────────────────────────────────────────────
+// squareDiffs: array of diff items from backend
+const squareDiffs = ref([])
+// squareUnmatched: array of unmatched Square items
+const squareUnmatched = ref([])
+// stagedSquareDiffs: { [key]: { ...diff, target, manualValues? } }
+// key = shopifyVariantId + '_' + squareVariationId
+const stagedSquareDiffs = ref({})
+
+function squareDiffKey(diff) {
+  return `${diff.shopifyVariantId}_${diff.squareVariationId}`
+}
+
+function getSquareDiffChoice(diff) {
+  const key = squareDiffKey(diff)
+  return stagedSquareDiffs.value[key]?.target || null
+}
+
+function stageSquareDiff(diff, target) {
+  const key = squareDiffKey(diff)
+  stagedSquareDiffs.value = {
+    ...stagedSquareDiffs.value,
+    [key]: { ...diff, target, manualValues: null }
+  }
+}
+
+function discardSquareDiff(key) {
+  const copy = { ...stagedSquareDiffs.value }
+  delete copy[key]
+  stagedSquareDiffs.value = copy
+}
+
+function clearSquareDiffs() {
+  squareDiffs.value = []
+  squareUnmatched.value = []
+  stagedSquareDiffs.value = {}
+}
+
+// ─── Manual input modal ───────────────────────────────────────────────────────
+const manualInputTarget = ref(null)
+const manualForm = ref({ sku: '', gtin: '' })
+
+function openManualInput(diff) {
+  manualInputTarget.value = diff
+  manualForm.value = {
+    sku: diff.shopifySku || '',
+    gtin: diff.shopifyGtin || ''
+  }
+}
+
+function confirmManualInput() {
+  const diff = manualInputTarget.value
+  const key = squareDiffKey(diff)
+  stagedSquareDiffs.value = {
+    ...stagedSquareDiffs.value,
+    [key]: {
+      ...diff,
+      target: 'both',
+      manualValues: {
+        sku: manualForm.value.sku,
+        gtin: manualForm.value.gtin
+      }
+    }
+  }
+  manualInputTarget.value = null
+}
+
+// ─── Link modal (unmatched Square items) ─────────────────────────────────────
+const linkModalTarget = ref(null)
+const linkSearchQuery = ref('')
+const linkSelectedVariant = ref(null)
+
+// Flat list of all variants for linking
+const allVariantsFlat = computed(() => {
+  const list = []
+  for (const p of Object.values(allProductsCache.value)) {
+    for (const v of (p.variants || [])) {
+      list.push({
+        variantId: String(v.id),
+        productTitle: p.title,
+        variantTitle: v.title,
+        sku: v.sku,
+        gtin: v.barcode,
+        shopifyVariantId: v.shopify_variant_id,
+      })
+    }
+  }
+  return list
+})
+
+const filteredLinkVariants = computed(() => {
+  if (!linkSearchQuery.value.trim()) return allVariantsFlat.value.slice(0, 50)
+  const kw = linkSearchQuery.value.trim().toLowerCase()
+  return allVariantsFlat.value.filter(v =>
+    (v.productTitle || '').toLowerCase().includes(kw) ||
+    (v.variantTitle || '').toLowerCase().includes(kw) ||
+    (v.sku || '').toLowerCase().includes(kw) ||
+    (v.gtin || '').toLowerCase().includes(kw)
+  ).slice(0, 50)
+})
+
+function openLinkModal(item) {
+  linkModalTarget.value = item
+  linkSearchQuery.value = item.squareSku || item.squareGtin || ''
+  linkSelectedVariant.value = null
+}
+
+function selectLinkVariant(v) {
+  linkSelectedVariant.value = v
+}
+
+function confirmLink() {
+  const squareItem = linkModalTarget.value
+  const shopifyVariant = linkSelectedVariant.value
+  if (!squareItem || !shopifyVariant) return
+
+  // Build a synthetic diff and add to squareDiffs for user to choose
+  const diffs = []
+  if (squareItem.squareSku !== (shopifyVariant.sku || '')) {
+    diffs.push({ field: 'sku', shopifyValue: shopifyVariant.sku || '', squareValue: squareItem.squareSku })
+  }
+  if (squareItem.squareGtin !== (shopifyVariant.gtin || '')) {
+    diffs.push({ field: 'gtin', shopifyValue: shopifyVariant.gtin || '', squareValue: squareItem.squareGtin })
+  }
+
+  if (diffs.length > 0) {
+    const newDiff = {
+      matchType: 'manual',
+      squareItemId: squareItem.squareItemId,
+      squareItemName: squareItem.squareItemName,
+      squareVariationId: squareItem.squareVariationId,
+      squareVariationName: squareItem.squareVariationName,
+      squareSku: squareItem.squareSku,
+      squareGtin: squareItem.squareGtin,
+      shopifyVariantId: shopifyVariant.variantId,
+      shopifyShopifyVariantId: shopifyVariant.shopifyVariantId,
+      shopifyProductTitle: shopifyVariant.productTitle,
+      shopifyVariantTitle: shopifyVariant.variantTitle,
+      shopifySku: shopifyVariant.sku || '',
+      shopifyGtin: shopifyVariant.gtin || '',
+      diffs,
+    }
+    squareDiffs.value = [...squareDiffs.value, newDiff]
+  }
+
+  // Remove from unmatched
+  squareUnmatched.value = squareUnmatched.value.filter(
+    u => u.squareVariationId !== squareItem.squareVariationId
+  )
+
+  linkModalTarget.value = null
+}
+
+// ─── Staged changes (pre-edit, not yet sent) ─────────────────────────────────
 const stagedProducts = ref({})
 const stagedVariants = ref({})
 
@@ -437,6 +889,8 @@ const pendingCount = computed(() => {
       if (Object.keys(changes).length > 0) count++
     }
   }
+  // Count staged Square diffs
+  count += Object.values(stagedSquareDiffs.value).filter(Boolean).length
   return count
 })
 
@@ -459,7 +913,6 @@ const statusTabs = computed(() => [
   { value: 'unlisted', label: t('inventory.statusUnlisted') },
 ])
 
-// Map raw status code to display label
 function statusLabel(status) {
   const map = {
     active: t('inventory.statusActive'),
@@ -495,7 +948,6 @@ function toggleProduct(id) {
 
 async function switchStatus(status) {
   activeStatus.value = status
-  // Preserve searchQuery — do NOT clear it on tab switch
   showDuplicatesOnly.value = false
   expandedProducts.value = new Set()
   await fetchProducts()
@@ -523,7 +975,6 @@ function getStagedVariantField(productId, variantId, field) {
 
 function getProductTitle(productId) {
   const pid = String(productId)
-  // Check current tab first, then fall back to global cache (for cross-tab staged changes)
   const p = products.value.find(x => String(x.id) === pid) || allProductsCache.value[pid]
   return p?.title || pid
 }
@@ -597,7 +1048,6 @@ async function fetchProducts() {
     products.value = res.data.products
     summary.value = res.data.summary
     res.data.products.filter(p => p.hasDuplicate).forEach(p => expandedProducts.value.add(p.id))
-    // Update global cache so commit modal can resolve labels across all tabs
     res.data.products.forEach(p => { allProductsCache.value[String(p.id)] = p })
   } finally {
     loading.value = false
@@ -611,13 +1061,13 @@ async function fetchLastSync() {
   } catch {}
 }
 
-async function syncProducts() {
+async function syncShopify() {
+  showSyncDropdown.value = false
   syncing.value = true
   try {
     await api.post('/products/sync')
     await fetchProducts()
     await fetchLastSync()
-    // Clear staged changes after a fresh sync
     stagedProducts.value = {}
     stagedVariants.value = {}
     alert(t('inventory.syncSuccess'))
@@ -625,6 +1075,25 @@ async function syncProducts() {
     alert(t('inventory.syncError') + ': ' + (err.response?.data?.error || err.message))
   } finally {
     syncing.value = false
+  }
+}
+
+async function syncSquare() {
+  showSyncDropdown.value = false
+  syncingSquare.value = true
+  try {
+    const res = await api.post('/products/square-compare')
+    squareDiffs.value = res.data.matchedWithDiffs || []
+    squareUnmatched.value = res.data.unmatched || []
+    // Clear previous staged square diffs
+    stagedSquareDiffs.value = {}
+    if (squareDiffs.value.length === 0 && squareUnmatched.value.length === 0) {
+      alert(t('inventory.squareSyncSuccess') + '：SKU 和 GTIN 完全一致，无差异。')
+    }
+  } catch (err) {
+    alert(t('inventory.squareSyncError') + ': ' + (err.response?.data?.error || err.message))
+  } finally {
+    syncingSquare.value = false
   }
 }
 
@@ -655,7 +1124,7 @@ function openEditVariant(product, variant) {
   }
 }
 
-// ─── Stage edits (no Shopify call yet) ───────────────────────────────────────
+// ─── Stage edits ──────────────────────────────────────────────────────────────
 function stageProductEdit() {
   const product = editingProduct.value
   const pid = String(product.id)
@@ -669,7 +1138,6 @@ function stageProductEdit() {
   if (Object.keys(diff).length > 0) {
     stagedProducts.value = { ...stagedProducts.value, [pid]: diff }
   } else {
-    // No actual change — remove any previous stage
     discardProductStage(pid)
   }
   editingProduct.value = null
@@ -706,7 +1174,7 @@ async function commitChanges() {
   committing.value = true
   commitError.value = ''
   try {
-    // Build batch payload
+    // 1. Regular Shopify updates
     const productUpdates = Object.entries(stagedProducts.value)
       .filter(([, changes]) => Object.keys(changes).length > 0)
       .map(([productId, changes]) => ({ productId, changes }))
@@ -720,42 +1188,67 @@ async function commitChanges() {
       }
     }
 
-    const res = await api.post('/products/batch-update', { productUpdates, variantUpdates })
-
-    // ── Optimistic update: merge staged changes into products.value ──
-    // Apply product-level changes
-    for (const { productId, changes } of productUpdates) {
-      const pid = String(productId)
-      const idx = products.value.findIndex(p => String(p.id) === pid)
-      if (idx !== -1) {
-        products.value[idx] = { ...products.value[idx], ...changes }
-        allProductsCache.value[pid] = products.value[idx]
-      }
-    }
-    // Apply variant-level changes
-    for (const { productId, variantId, changes } of variantUpdates) {
-      const pid = String(productId)
-      const vid = String(variantId)
-      const product = products.value.find(p => String(p.id) === pid)
-      if (product) {
-        const vIdx = product.variants?.findIndex(v => String(v.id) === vid)
-        if (vIdx !== undefined && vIdx !== -1) {
-          product.variants[vIdx] = { ...product.variants[vIdx], ...changes }
+    if (productUpdates.length > 0 || variantUpdates.length > 0) {
+      const res = await api.post('/products/batch-update', { productUpdates, variantUpdates })
+      // Optimistic update
+      for (const { productId, changes } of productUpdates) {
+        const pid = String(productId)
+        const idx = products.value.findIndex(p => String(p.id) === pid)
+        if (idx !== -1) {
+          products.value[idx] = { ...products.value[idx], ...changes }
+          allProductsCache.value[pid] = products.value[idx]
         }
-        allProductsCache.value[pid] = product
+      }
+      for (const { productId, variantId, changes } of variantUpdates) {
+        const pid = String(productId)
+        const vid = String(variantId)
+        const product = products.value.find(p => String(p.id) === pid)
+        if (product) {
+          const vIdx = product.variants?.findIndex(v => String(v.id) === vid)
+          if (vIdx !== undefined && vIdx !== -1) {
+            product.variants[vIdx] = { ...product.variants[vIdx], ...changes }
+          }
+          allProductsCache.value[pid] = product
+        }
+      }
+      if (res.data.errors && res.data.errors.length > 0) {
+        throw new Error(res.data.errors.map(e => `${e.type} ${e.variantId || e.productId}: ${JSON.stringify(e.error)}`).join('\n'))
       }
     }
 
-    // Clear staged changes
+    // 2. Square diff updates
+    const squareItems = Object.values(stagedSquareDiffs.value).filter(Boolean)
+    if (squareItems.length > 0) {
+      const items = squareItems.map(staged => ({
+        shopifyVariantId: staged.shopifyVariantId,
+        shopifyShopifyVariantId: staged.shopifyShopifyVariantId,
+        squareVariationId: staged.squareVariationId,
+        target: staged.target,
+        shopifySku: staged.shopifySku,
+        shopifyGtin: staged.shopifyGtin,
+        squareSku: staged.squareSku,
+        squareGtin: staged.squareGtin,
+        manualSku: staged.manualValues?.sku,
+        manualGtin: staged.manualValues?.gtin,
+      }))
+      const sqRes = await api.post('/products/square-batch-update', { items })
+      if (sqRes.data.errors && sqRes.data.errors.length > 0) {
+        throw new Error('Square 更新失败: ' + sqRes.data.errors.map(e => e.error).join(', '))
+      }
+    }
+
+    // Clear all staged
     stagedProducts.value = {}
     stagedVariants.value = {}
-    showCommitModal.value = false
+    stagedSquareDiffs.value = {}
+    // Remove committed diffs from squareDiffs panel
+    squareDiffs.value = squareDiffs.value.filter(d => {
+      const key = squareDiffKey(d)
+      return !squareItems.some(s => `${s.shopifyVariantId}_${s.squareVariationId}` === key)
+    })
 
-    if (res.data.errors && res.data.errors.length > 0) {
-      alert(t('inventory.commitError') + ':\n' + res.data.errors.map(e => `${e.type} ${e.variantId || e.productId}: ${JSON.stringify(e.error)}`).join('\n'))
-    } else {
-      alert(t('inventory.commitSuccess'))
-    }
+    showCommitModal.value = false
+    alert(t('inventory.commitSuccess'))
   } catch (err) {
     commitError.value = t('inventory.commitError') + ': ' + (err.response?.data?.error || err.message)
   } finally {
