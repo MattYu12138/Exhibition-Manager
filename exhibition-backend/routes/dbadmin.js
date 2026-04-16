@@ -16,26 +16,36 @@ const ALLOWED_TABLES = [
   'users',
   'products',
   'product_variants',
+  'square_products',
+  'square_sync_log',
+  'inventory_sync_log',
+  'platform_systems',
+  'platform_permissions',
 ];
 
 // 获取所有允许的表名及其结构
 router.get('/tables', requireAdmin, (req, res) => {
   try {
     const tables = ALLOWED_TABLES.map(tableName => {
-      const columns = db.pragma(`table_info(${tableName})`);
-      const count = db.prepare(`SELECT COUNT(*) as cnt FROM ${tableName}`).get();
-      return {
-        name: tableName,
-        columns: columns.map(c => ({
-          name: c.name,
-          type: c.type,
-          notnull: c.notnull,
-          dflt_value: c.dflt_value,
-          pk: c.pk,
-        })),
-        row_count: count.cnt,
-      };
-    });
+      try {
+        const columns = db.pragma(`table_info(${tableName})`);
+        const count = db.prepare(`SELECT COUNT(*) as cnt FROM ${tableName}`).get();
+        return {
+          name: tableName,
+          columns: columns.map(c => ({
+            name: c.name,
+            type: c.type,
+            notnull: c.notnull,
+            dflt_value: c.dflt_value,
+            pk: c.pk,
+          })),
+          row_count: count.cnt,
+        };
+      } catch {
+        // 表不存在时跳过
+        return null;
+      }
+    }).filter(Boolean);
     res.json({ success: true, data: tables });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

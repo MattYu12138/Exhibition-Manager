@@ -427,7 +427,7 @@
           <div>{{ squareLastSync ? t('inventory.noSquareProducts') : t('inventory.squareNotSynced') }}</div>
           <div v-if="!squareLastSync" class="text-xs text-gray-300 mt-2">{{ t('inventory.squareSyncHint') }}</div>
         </div>
-        <div v-else-if="filteredSquareProducts.length === 0 && viewMode === 'square-dup'" class="text-center text-green-600 py-20 text-lg">
+        <div v-else-if="Object.keys(groupedSquareProducts).length === 0 && viewMode === 'square-dup'" class="text-center text-green-600 py-20 text-lg">
           ✅ {{ t('inventory.noDuplicates') }}
         </div>
         <div v-else class="space-y-1">

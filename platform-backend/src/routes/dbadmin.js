@@ -7,7 +7,7 @@ const router = express.Router();
 const { getDb } = require('../db');
 const { requireAdmin } = require('../middleware/auth');
 
-// 允许访问的表白名单（包含 exhibition + platform 的所有表）
+// 允许访问的表白名单（包含 exhibition + platform + inventory + square 的所有表）
 const ALLOWED_TABLES = [
   'users',
   'exhibitions',
@@ -18,6 +18,8 @@ const ALLOWED_TABLES = [
   'inventory_sync_log',
   'products',
   'product_variants',
+  'square_products',
+  'square_sync_log',
 ];
 
 // 获取所有允许的表名及其结构
