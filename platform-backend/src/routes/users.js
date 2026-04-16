@@ -127,19 +127,21 @@ router.delete('/:id', requireAdmin, (req, res) => {
   res.json({ success: true });
 });
 
-// ─── 权限管理（保留，用于系统访问控制）──────────────────────
+// ─── 权限管理（适配实际 DB schema: system + role 字段）──────────────────────
+// DB schema: platform_permissions(id, user_id, system TEXT, role TEXT, granted_at)
+// role: 'admin' = read+write, 'viewer' = read-only, absent = no access
 router.get('/:id/permissions', requireAdmin, (req, res) => {
   const db = getDb();
   const systems = db.prepare('SELECT * FROM platform_systems WHERE is_active = 1 ORDER BY sort_order').all();
   const perms = db.prepare('SELECT * FROM platform_permissions WHERE user_id = ?').all(req.params.id);
   const permMap = {};
-  perms.forEach(p => { permMap[p.system_id] = p; });
+  perms.forEach(p => { permMap[p.system] = p; });
 
   const result = systems.map(s => ({
     systemId: s.id,
     systemName: s.display_name,
-    canRead: permMap[s.id]?.can_read || 0,
-    canWrite: permMap[s.id]?.can_write || 0
+    canRead: permMap[s.name] ? 1 : 0,
+    canWrite: permMap[s.name]?.role === 'admin' ? 1 : 0
   }));
 
   res.json(result);
@@ -152,19 +154,32 @@ router.put('/:id/permissions', requireAdmin, (req, res) => {
   }
 
   const db = getDb();
+  // Get system name by id for mapping
+  const systems = db.prepare('SELECT * FROM platform_systems').all();
+  const sysMap = {};
+  systems.forEach(s => { sysMap[s.id] = s.name; });
+
   const upsert = db.prepare(`
-    INSERT INTO platform_permissions (id, user_id, system_id, can_read, can_write)
-    VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(user_id, system_id) DO UPDATE SET
-      can_read = excluded.can_read,
-      can_write = excluded.can_write,
-      updated_at = datetime('now')
+    INSERT INTO platform_permissions (id, user_id, system, role)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(user_id, system) DO UPDATE SET
+      role = excluded.role,
+      granted_at = CURRENT_TIMESTAMP
   `);
+  const del = db.prepare('DELETE FROM platform_permissions WHERE user_id = ? AND system = ?');
 
   const txn = db.transaction(() => {
     permissions.forEach((p) => {
-      const id = `PERM${req.params.id}${p.systemId}`;
-      upsert.run(id, req.params.id, p.systemId, p.canRead ? 1 : 0, p.canWrite ? 1 : 0);
+      const systemName = sysMap[p.systemId];
+      if (!systemName) return;
+      if (!p.canRead && !p.canWrite) {
+        // No access: remove permission row
+        del.run(req.params.id, systemName);
+      } else {
+        const role = p.canWrite ? 'admin' : 'viewer';
+        const id = `PERM_${req.params.id}_${systemName}`;
+        upsert.run(id, req.params.id, systemName, role);
+      }
     });
   });
   txn();
