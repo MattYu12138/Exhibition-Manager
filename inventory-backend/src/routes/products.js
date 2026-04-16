@@ -372,18 +372,199 @@ router.put('/:productId', requirePermission('write'), async (req, res) => {
 });
 
 /**
+ * POST /api/products/square-sync
+ * Fetch Square catalog and store raw data into square_products table.
+ * Writes a square_sync_log entry. Does NOT compare with Shopify data.
+ */
+router.post('/square-sync', requirePermission('write'), async (req, res) => {
+  try {
+    const catalog = await squareService.getAllCatalogItems(false); // bypass cache
+    const db = getDb();
+
+    // Replace all square_products with fresh data (full refresh)
+    const upsert = db.transaction(() => {
+      db.prepare('DELETE FROM square_products').run();
+      for (const item of catalog) {
+        for (const variation of item.variations) {
+          const sku = (variation.sku || '').trim() || null;
+          const gtin = (variation.gtin || '').trim() || null;
+          const priceAmount = variation.price_money?.amount ?? null;
+          const priceCurrency = variation.price_money?.currency ?? 'AUD';
+          db.prepare(`
+            INSERT OR REPLACE INTO square_products
+              (id, square_item_id, item_name, variation_name, sku, gtin, price_amount, price_currency, synced_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          `).run(
+            variation.id,
+            item.id,
+            item.name,
+            variation.name || null,
+            sku,
+            gtin,
+            priceAmount,
+            priceCurrency
+          );
+        }
+      }
+    });
+    upsert();
+
+    const itemCount = catalog.length;
+    const variationCount = catalog.reduce((s, i) => s + i.variations.length, 0);
+    db.prepare(`INSERT INTO square_sync_log (item_count, variation_count, status, message) VALUES (?, ?, 'success', 'Square sync completed')`)
+      .run(itemCount, variationCount);
+
+    res.json({ success: true, itemCount, variationCount });
+  } catch (err) {
+    console.error('Square sync error:', err.message);
+    try {
+      const db = getDb();
+      db.prepare(`INSERT INTO square_sync_log (item_count, variation_count, status, message) VALUES (0, 0, 'error', ?)`)
+        .run(err.message);
+    } catch (_) {}
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/products/square-last-sync
+ * Returns the most recent square_sync_log entry.
+ */
+router.get('/square-last-sync', requirePermission('read'), (req, res) => {
+  const db = getDb();
+  const log = db.prepare('SELECT * FROM square_sync_log ORDER BY id DESC LIMIT 1').get();
+  res.json(log || null);
+});
+
+/**
+ * GET /api/products/square-products
+ * Returns all Square products with duplicate analysis.
+ */
+router.get('/square-products', requirePermission('read'), (req, res) => {
+  const db = getDb();
+  const rows = db.prepare('SELECT * FROM square_products ORDER BY item_name, variation_name').all();
+
+  // Build SKU / GTIN maps for duplicate detection
+  const skuMap = {};
+  const gtinMap = {};
+  for (const row of rows) {
+    if (row.sku) {
+      if (!skuMap[row.sku]) skuMap[row.sku] = [];
+      skuMap[row.sku].push({ id: row.id, itemName: row.item_name, variationName: row.variation_name });
+    }
+    if (row.gtin) {
+      if (!gtinMap[row.gtin]) gtinMap[row.gtin] = [];
+      gtinMap[row.gtin].push({ id: row.id, itemName: row.item_name, variationName: row.variation_name });
+    }
+  }
+
+  const duplicateSkus = Object.entries(skuMap).filter(([, v]) => v.length > 1).map(([sku, variations]) => ({ sku, variations }));
+  const duplicateGtins = Object.entries(gtinMap).filter(([, v]) => v.length > 1).map(([gtin, variations]) => ({ gtin, variations }));
+
+  const duplicateIds = new Set();
+  [...duplicateSkus, ...duplicateGtins].forEach(d => d.variations.forEach(v => duplicateIds.add(v.id)));
+
+  const enriched = rows.map(row => ({
+    ...row,
+    hasDuplicate: duplicateIds.has(row.id),
+    hasDuplicateSku: row.sku ? (skuMap[row.sku]?.length > 1) : false,
+    hasDuplicateGtin: row.gtin ? (gtinMap[row.gtin]?.length > 1) : false,
+  }));
+
+  res.json({
+    products: enriched,
+    summary: {
+      total: rows.length,
+      withDuplicates: enriched.filter(r => r.hasDuplicate).length,
+      duplicateSkus: duplicateSkus.length,
+      duplicateGtins: duplicateGtins.length,
+    },
+    duplicateSkus,
+    duplicateGtins,
+  });
+});
+
+/**
+ * GET /api/products/cross-match/gtin-sku-mismatch
+ * Returns pairs where GTIN matches between Shopify and Square but SKU differs.
+ */
+router.get('/cross-match/gtin-sku-mismatch', requirePermission('read'), (req, res) => {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT
+      pv.id            AS shopify_variant_id,
+      pv.shopify_variant_id AS shopify_raw_variant_id,
+      pv.shopify_product_id,
+      p.id             AS shopify_product_sys_id,
+      p.title          AS shopify_product_title,
+      pv.variant_title AS shopify_variant_title,
+      pv.sku           AS shopify_sku,
+      pv.gtin          AS shopify_gtin,
+      sq.id            AS square_variation_id,
+      sq.square_item_id,
+      sq.item_name     AS square_item_name,
+      sq.variation_name AS square_variation_name,
+      sq.sku           AS square_sku,
+      sq.gtin          AS square_gtin
+    FROM product_variants pv
+    JOIN products p ON pv.product_id = p.id
+    JOIN square_products sq ON TRIM(pv.gtin) = TRIM(sq.gtin)
+    WHERE pv.gtin IS NOT NULL AND pv.gtin != ''
+      AND sq.gtin IS NOT NULL AND sq.gtin != ''
+      AND TRIM(COALESCE(pv.sku,'')) != TRIM(COALESCE(sq.sku,''))
+    ORDER BY p.title, pv.variant_title
+  `).all();
+  res.json({ success: true, items: rows, count: rows.length });
+});
+
+/**
+ * GET /api/products/cross-match/sku-gtin-mismatch
+ * Returns pairs where SKU matches between Shopify and Square but GTIN differs.
+ */
+router.get('/cross-match/sku-gtin-mismatch', requirePermission('read'), (req, res) => {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT
+      pv.id            AS shopify_variant_id,
+      pv.shopify_variant_id AS shopify_raw_variant_id,
+      pv.shopify_product_id,
+      p.id             AS shopify_product_sys_id,
+      p.title          AS shopify_product_title,
+      pv.variant_title AS shopify_variant_title,
+      pv.sku           AS shopify_sku,
+      pv.gtin          AS shopify_gtin,
+      sq.id            AS square_variation_id,
+      sq.square_item_id,
+      sq.item_name     AS square_item_name,
+      sq.variation_name AS square_variation_name,
+      sq.sku           AS square_sku,
+      sq.gtin          AS square_gtin
+    FROM product_variants pv
+    JOIN products p ON pv.product_id = p.id
+    JOIN square_products sq ON TRIM(pv.sku) = TRIM(sq.sku)
+    WHERE pv.sku IS NOT NULL AND pv.sku != ''
+      AND sq.sku IS NOT NULL AND sq.sku != ''
+      AND TRIM(COALESCE(pv.gtin,'')) != TRIM(COALESCE(sq.gtin,''))
+    ORDER BY p.title, pv.variant_title
+  `).all();
+  res.json({ success: true, items: rows, count: rows.length });
+});
+
+/**
  * POST /api/products/square-compare
- * Fetch Square catalog and compare SKU/GTIN with local product_variants.
- * Returns:
- *   - matched: variants with differences (squareVariationId, shopifyVariantId, shopifyProductId, diffs)
- *   - unmatched: Square variations that couldn't be matched by SKU or GTIN
+ * On-demand cross-match: compare square_products table with product_variants.
+ * Returns matchedWithDiffs and unmatched (Square variations with no Shopify match).
  */
 router.post('/square-compare', requirePermission('read'), async (req, res) => {
   try {
-    const catalog = await squareService.getAllCatalogItems(true);
     const db = getDb();
 
-    // Build lookup maps from local DB: sku -> variant row, gtin -> variant row
+    // Check if square_products has data
+    const count = db.prepare('SELECT COUNT(*) as cnt FROM square_products').get();
+    if (!count || count.cnt === 0) {
+      return res.status(400).json({ error: 'Square data not synced yet. Please run Square sync first.' });
+    }
+
     const allVariants = db.prepare(`
       SELECT pv.id, pv.shopify_variant_id, pv.shopify_product_id, pv.variant_title,
              pv.sku, pv.gtin, p.title as product_title, p.id as product_id
@@ -391,78 +572,74 @@ router.post('/square-compare', requirePermission('read'), async (req, res) => {
       JOIN products p ON pv.product_id = p.id
     `).all();
 
-    const skuMap = {}; // sku -> variant
-    const gtinMap = {}; // gtin -> variant
+    const skuMap = {};
+    const gtinMap = {};
     for (const v of allVariants) {
       if (v.sku) skuMap[v.sku.trim()] = v;
       if (v.gtin) gtinMap[v.gtin.trim()] = v;
     }
 
-    const matched = []; // { squareItem, squareVariation, shopifyVariant, diffs, matchType }
-    const unmatched = []; // { squareItem, squareVariation }
+    const squareRows = db.prepare('SELECT * FROM square_products').all();
+    const matched = [];
+    const unmatched = [];
 
-    for (const item of catalog) {
-      for (const variation of item.variations) {
-        const squareSkuRaw = (variation.sku || '').trim();
-        const squareGtinRaw = (variation.gtin || '').trim();
+    for (const sq of squareRows) {
+      const squareSkuRaw = (sq.sku || '').trim();
+      const squareGtinRaw = (sq.gtin || '').trim();
 
-        // Try GTIN match first, then SKU
-        let shopifyVariant = null;
-        let matchType = null;
-        if (squareGtinRaw && gtinMap[squareGtinRaw]) {
-          shopifyVariant = gtinMap[squareGtinRaw];
-          matchType = 'gtin';
-        } else if (squareSkuRaw && skuMap[squareSkuRaw]) {
-          shopifyVariant = skuMap[squareSkuRaw];
-          matchType = 'sku';
-        }
+      let shopifyVariant = null;
+      let matchType = null;
+      if (squareGtinRaw && gtinMap[squareGtinRaw]) {
+        shopifyVariant = gtinMap[squareGtinRaw];
+        matchType = 'gtin';
+      } else if (squareSkuRaw && skuMap[squareSkuRaw]) {
+        shopifyVariant = skuMap[squareSkuRaw];
+        matchType = 'sku';
+      }
 
-        if (!shopifyVariant) {
-          // Neither SKU nor GTIN matched
-          if (squareSkuRaw || squareGtinRaw) {
-            unmatched.push({
-              squareItemId: item.id,
-              squareItemName: item.name,
-              squareVariationId: variation.id,
-              squareVariationName: variation.name,
-              squareSku: squareSkuRaw,
-              squareGtin: squareGtinRaw,
-            });
-          }
-          continue;
-        }
-
-        // Compare SKU and GTIN
-        const diffs = [];
-        const shopifySku = (shopifyVariant.sku || '').trim();
-        const shopifyGtin = (shopifyVariant.gtin || '').trim();
-
-        if (squareSkuRaw !== shopifySku) {
-          diffs.push({ field: 'sku', shopifyValue: shopifySku, squareValue: squareSkuRaw });
-        }
-        if (squareGtinRaw !== shopifyGtin) {
-          diffs.push({ field: 'gtin', shopifyValue: shopifyGtin, squareValue: squareGtinRaw });
-        }
-
-        if (diffs.length > 0) {
-          matched.push({
-            matchType,
-            squareItemId: item.id,
-            squareItemName: item.name,
-            squareVariationId: variation.id,
-            squareVariationName: variation.name,
+      if (!shopifyVariant) {
+        if (squareSkuRaw || squareGtinRaw) {
+          unmatched.push({
+            squareItemId: sq.square_item_id,
+            squareItemName: sq.item_name,
+            squareVariationId: sq.id,
+            squareVariationName: sq.variation_name,
             squareSku: squareSkuRaw,
             squareGtin: squareGtinRaw,
-            shopifyVariantId: shopifyVariant.id,
-            shopifyShopifyVariantId: shopifyVariant.shopify_variant_id,
-            shopifyProductId: shopifyVariant.product_id,
-            shopifyProductTitle: shopifyVariant.product_title,
-            shopifyVariantTitle: shopifyVariant.variant_title,
-            shopifySku,
-            shopifyGtin,
-            diffs,
           });
         }
+        continue;
+      }
+
+      const diffs = [];
+      const shopifySku = (shopifyVariant.sku || '').trim();
+      const shopifyGtin = (shopifyVariant.gtin || '').trim();
+
+      if (squareSkuRaw !== shopifySku) {
+        diffs.push({ field: 'sku', shopifyValue: shopifySku, squareValue: squareSkuRaw });
+      }
+      if (squareGtinRaw !== shopifyGtin) {
+        diffs.push({ field: 'gtin', shopifyValue: shopifyGtin, squareValue: squareGtinRaw });
+      }
+
+      if (diffs.length > 0) {
+        matched.push({
+          matchType,
+          squareItemId: sq.square_item_id,
+          squareItemName: sq.item_name,
+          squareVariationId: sq.id,
+          squareVariationName: sq.variation_name,
+          squareSku: squareSkuRaw,
+          squareGtin: squareGtinRaw,
+          shopifyVariantId: shopifyVariant.id,
+          shopifyShopifyVariantId: shopifyVariant.shopify_variant_id,
+          shopifyProductId: shopifyVariant.product_id,
+          shopifyProductTitle: shopifyVariant.product_title,
+          shopifyVariantTitle: shopifyVariant.variant_title,
+          shopifySku,
+          shopifyGtin,
+          diffs,
+        });
       }
     }
 
@@ -470,7 +647,7 @@ router.post('/square-compare', requirePermission('read'), async (req, res) => {
       success: true,
       matchedWithDiffs: matched,
       unmatched,
-      totalSquareVariations: catalog.reduce((s, i) => s + i.variations.length, 0),
+      totalSquareVariations: squareRows.length,
     });
   } catch (err) {
     console.error('Square compare error:', err.message);

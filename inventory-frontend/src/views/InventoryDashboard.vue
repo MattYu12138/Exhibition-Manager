@@ -58,37 +58,56 @@
 
     <main class="max-w-7xl mx-auto px-4 py-6">
       <!-- Last Sync Info -->
-      <div class="text-xs text-gray-400 mb-4">
-        {{ t('inventory.lastSync') }}: {{ lastSync ? new Date(lastSync.synced_at).toLocaleString() : t('inventory.never') }}
+      <div class="text-xs text-gray-400 mb-4 flex items-center gap-4">
+        <span>
+          🛍 Shopify {{ t('inventory.lastSync') }}: {{ lastSync ? new Date(lastSync.synced_at).toLocaleString() : t('inventory.never') }}
+        </span>
+        <span v-if="squareLastSync">
+          ⬛ Square {{ t('inventory.lastSync') }}: {{ new Date(squareLastSync.synced_at).toLocaleString() }}
+          <span class="text-gray-300 ml-1">({{ squareLastSync.variation_count }} variations)</span>
+        </span>
+        <span v-else class="text-gray-300">⬛ Square: {{ t('inventory.never') }}</span>
       </div>
 
       <!-- Summary Cards -->
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <div class="bg-white rounded-xl p-4 shadow-sm text-center">
-          <div class="text-2xl font-bold text-gray-800">{{ summary.total }}</div>
+          <div class="text-2xl font-bold text-gray-800">{{ activeSummary.total }}</div>
           <div class="text-xs text-gray-500 mt-1">{{ t('inventory.totalProducts') }}</div>
+          <div class="text-xs mt-1" :class="activeSource === 'shopify' ? 'text-purple-400' : 'text-gray-400'">
+            {{ activeSource === 'shopify' ? '🛍 Shopify' : '⬛ Square' }}
+          </div>
         </div>
-        <div class="bg-white rounded-xl p-4 shadow-sm text-center border-l-4" :class="summary.withDuplicates > 0 ? 'border-orange-400' : 'border-green-400'">
-          <div class="text-2xl font-bold" :class="summary.withDuplicates > 0 ? 'text-orange-600' : 'text-green-600'">{{ summary.withDuplicates }}</div>
+        <div class="bg-white rounded-xl p-4 shadow-sm text-center border-l-4" :class="activeSummary.withDuplicates > 0 ? 'border-orange-400' : 'border-green-400'">
+          <div class="text-2xl font-bold" :class="activeSummary.withDuplicates > 0 ? 'text-orange-600' : 'text-green-600'">{{ activeSummary.withDuplicates }}</div>
           <div class="text-xs text-gray-500 mt-1">{{ t('inventory.withDuplicates') }}</div>
+          <div class="text-xs mt-1" :class="activeSource === 'shopify' ? 'text-purple-400' : 'text-gray-400'">
+            {{ activeSource === 'shopify' ? '🛍 Shopify' : '⬛ Square' }}
+          </div>
         </div>
-        <div class="bg-white rounded-xl p-4 shadow-sm text-center border-l-4" :class="summary.duplicateSKUs > 0 ? 'border-red-400' : 'border-green-400'">
-          <div class="text-2xl font-bold" :class="summary.duplicateSKUs > 0 ? 'text-red-600' : 'text-green-600'">{{ summary.duplicateSKUs }}</div>
+        <div class="bg-white rounded-xl p-4 shadow-sm text-center border-l-4" :class="activeSummary.duplicateSKUs > 0 ? 'border-red-400' : 'border-green-400'">
+          <div class="text-2xl font-bold" :class="activeSummary.duplicateSKUs > 0 ? 'text-red-600' : 'text-green-600'">{{ activeSummary.duplicateSKUs }}</div>
           <div class="text-xs text-gray-500 mt-1">{{ t('inventory.duplicateSKUs') }}</div>
+          <div class="text-xs mt-1" :class="activeSource === 'shopify' ? 'text-purple-400' : 'text-gray-400'">
+            {{ activeSource === 'shopify' ? '🛍 Shopify' : '⬛ Square' }}
+          </div>
         </div>
-        <div class="bg-white rounded-xl p-4 shadow-sm text-center border-l-4" :class="summary.duplicateBarcodes > 0 ? 'border-red-400' : 'border-green-400'">
-          <div class="text-2xl font-bold" :class="summary.duplicateBarcodes > 0 ? 'text-red-600' : 'text-green-600'">{{ summary.duplicateBarcodes }}</div>
+        <div class="bg-white rounded-xl p-4 shadow-sm text-center border-l-4" :class="activeSummary.duplicateBarcodes > 0 ? 'border-red-400' : 'border-green-400'">
+          <div class="text-2xl font-bold" :class="activeSummary.duplicateBarcodes > 0 ? 'text-red-600' : 'text-green-600'">{{ activeSummary.duplicateBarcodes }}</div>
           <div class="text-xs text-gray-500 mt-1">{{ t('inventory.duplicateBarcodes') }}</div>
+          <div class="text-xs mt-1" :class="activeSource === 'shopify' ? 'text-purple-400' : 'text-gray-400'">
+            {{ activeSource === 'shopify' ? '🛍 Shopify' : '⬛ Square' }}
+          </div>
         </div>
       </div>
 
-      <!-- Square Compare Loading -->
+      <!-- Square Sync Loading -->
       <div v-if="syncingSquare" class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4 flex items-center gap-3">
         <span class="animate-spin text-blue-500 text-xl">⟳</span>
         <span class="text-blue-700 text-sm">{{ t('inventory.syncingSquare') }}</span>
       </div>
 
-      <!-- Square Issues Panel -->
+      <!-- Square Issues Panel (staged diffs from cross-match views) -->
       <div v-if="squareDiffs.length > 0 || squareUnmatched.length > 0" class="mb-6">
         <!-- Square Diffs -->
         <div v-if="squareDiffs.length > 0" class="bg-white rounded-xl shadow-sm overflow-hidden mb-3">
@@ -108,7 +127,7 @@
                   </div>
                   <div class="text-xs text-gray-400 mt-0.5">
                     {{ t('inventory.squareItem') }}: {{ diff.squareItemName }} / {{ diff.squareVariationName }}
-                    · {{ t('inventory.matchedBy') }}: {{ diff.matchType.toUpperCase() }}
+                    · {{ t('inventory.matchedBy') }}: {{ diff.matchType?.toUpperCase() }}
                   </div>
                   <!-- Diff details -->
                   <div class="mt-2 space-y-1">
@@ -180,8 +199,8 @@
         </div>
       </div>
 
-      <!-- Status Tabs -->
-      <div class="flex gap-1 mb-4 border-b border-gray-200">
+      <!-- Status Tabs (Shopify only) -->
+      <div v-if="activeSource === 'shopify'" class="flex gap-1 mb-4 border-b border-gray-200">
         <button
           v-for="tab in statusTabs"
           :key="tab.value"
@@ -195,145 +214,384 @@
         </button>
       </div>
 
-      <!-- Filters -->
-      <div class="flex gap-3 mb-4">
+      <!-- Filters Row -->
+      <div class="flex gap-3 mb-4 flex-wrap">
         <input
           v-model="searchQuery"
           :placeholder="t('inventory.search')"
-          class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          class="flex-1 min-w-48 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
-        <button
-          @click="showDuplicatesOnly = false"
-          :class="!showDuplicatesOnly ? 'bg-purple-600 text-white' : 'bg-white text-gray-600 border'"
-          class="px-4 py-2 rounded-lg text-sm"
-        >{{ t('inventory.allProducts') }}</button>
-        <button
-          @click="showDuplicatesOnly = true"
-          :class="showDuplicatesOnly ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 border'"
-          class="px-4 py-2 rounded-lg text-sm"
-        >⚠ {{ t('inventory.duplicatesOnly') }}</button>
-      </div>
 
-      <!-- Products List -->
-      <div v-if="loading" class="text-center text-gray-400 py-20">Loading...</div>
-
-      <div v-else-if="filteredProducts.length === 0 && products.length === 0" class="text-center text-gray-400 py-20">
-        {{ t('inventory.noProducts') }}
-      </div>
-
-      <div v-else-if="filteredProducts.length === 0 && showDuplicatesOnly" class="text-center text-green-600 py-20 text-lg">
-        ✅ {{ t('inventory.noDuplicates') }}
-      </div>
-
-      <div v-else-if="filteredProducts.length === 0" class="text-center text-gray-400 py-20">
-        {{ t('inventory.noProducts') }}
-      </div>
-
-      <div v-else class="space-y-3">
-        <div
-          v-for="product in filteredProducts"
-          :key="product.id"
-          class="bg-white rounded-xl shadow-sm overflow-hidden"
-          :class="[
-            product.hasDuplicate ? 'border-l-4 border-orange-400' : '',
-            hasProductPendingChanges(product.id) ? 'ring-2 ring-amber-300' : ''
-          ]"
-        >
-          <!-- Product Header -->
-          <div class="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-50"
-            @click="toggleProduct(product.id)">
-            <div class="flex items-center gap-3">
-              <span v-if="product.hasDuplicate" class="text-orange-500 text-lg">⚠</span>
-              <span v-if="hasProductPendingChanges(product.id)" class="text-amber-500 text-sm font-medium">✎</span>
-              <div>
-                <div class="font-medium text-gray-800">
-                  <span v-if="stagedProducts[product.id]?.title !== undefined && stagedProducts[product.id].title !== product.title" class="text-amber-600">
-                    {{ stagedProducts[product.id].title }}
-                  </span>
-                  <span v-else>{{ product.title }}</span>
-                </div>
-                <div class="text-xs text-gray-500">{{ product.vendor }} · {{ product.product_type }} · <span :class="statusBadgeClass(product._computed_status || product.status)">{{ product._computed_status || product.status }}</span></div>
-              </div>
-            </div>
-            <div class="flex items-center gap-3">
-              <span class="text-xs text-gray-400">{{ product.variants?.length }} {{ t('inventory.variants') }}</span>
-              <button @click.stop="openEditProduct(product)" class="text-xs text-purple-600 hover:underline">{{ t('inventory.edit') }}</button>
-              <span class="text-gray-400">{{ expandedProducts.has(product.id) ? '▲' : '▼' }}</span>
-            </div>
+        <!-- Source dropdown (全部商品) -->
+        <div class="relative" ref="sourceDropdownRef">
+          <button
+            @click="toggleSourceDropdown"
+            :class="viewMode === 'all' ? (activeSource === 'shopify' ? 'bg-purple-600 text-white' : 'bg-gray-700 text-white') : 'bg-white text-gray-600 border'"
+            class="px-4 py-2 rounded-lg text-sm flex items-center gap-1"
+          >
+            <span v-if="activeSource === 'shopify'">🛍</span>
+            <span v-else>⬛</span>
+            {{ viewMode === 'all' ? (activeSource === 'shopify' ? t('inventory.allShopify') : t('inventory.allSquare')) : t('inventory.allProducts') }}
+            <span class="ml-1">▾</span>
+          </button>
+          <div v-if="showSourceDropdown" class="absolute left-0 mt-1 w-52 bg-white border border-gray-200 rounded-lg shadow-lg z-20">
+            <button
+              @click="setSourceView('shopify')"
+              class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-t-lg flex items-center gap-2"
+              :class="activeSource === 'shopify' && viewMode === 'all' ? 'bg-purple-50 text-purple-700 font-medium' : ''"
+            >
+              <span>🛍</span> {{ t('inventory.allShopify') }}
+            </button>
+            <button
+              @click="setSourceView('square')"
+              class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg flex items-center gap-2"
+              :class="activeSource === 'square' && viewMode === 'all' ? 'bg-gray-100 text-gray-800 font-medium' : ''"
+            >
+              <span>⬛</span> {{ t('inventory.allSquare') }}
+            </button>
           </div>
+        </div>
 
-          <!-- Variants Table -->
-          <div v-if="expandedProducts.has(product.id)" class="border-t">
-            <table class="w-full text-xs">
-              <thead class="bg-gray-50 text-gray-500">
-                <tr>
-                  <th class="text-left px-4 py-2">Variant</th>
-                  <th class="text-left px-4 py-2">{{ t('inventory.sku') }}</th>
-                  <th class="text-left px-4 py-2">{{ t('inventory.barcode') }}</th>
-                  <th class="text-left px-4 py-2">{{ t('inventory.price') }}</th>
-                  <th class="text-left px-4 py-2">{{ t('inventory.issues') }}</th>
-                  <th class="text-left px-4 py-2">{{ t('inventory.actions') }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="variant in product.variants" :key="variant.id"
-                  class="border-t"
-                  :class="[
-                    (variant.hasDuplicateSKU || variant.hasDuplicateBarcode) ? 'bg-orange-50' : '',
-                    hasVariantPendingChanges(product.id, variant.id) ? 'bg-amber-50' : ''
-                  ]">
-                  <td class="px-4 py-2 text-gray-700">{{ variant.title }}</td>
-                  <td class="px-4 py-2">
-                    <span v-if="getStagedVariantField(product.id, variant.id, 'sku') !== null" class="text-amber-600 font-medium">
-                      {{ getStagedVariantField(product.id, variant.id, 'sku') || '-' }}
-                    </span>
-                    <span v-else :class="variant.hasDuplicateSKU ? 'text-red-600 font-semibold' : 'text-gray-600'">
-                      {{ variant.sku || '-' }}
-                    </span>
-                  </td>
-                  <td class="px-4 py-2">
-                    <span v-if="getStagedVariantField(product.id, variant.id, 'barcode') !== null" class="text-amber-600 font-medium">
-                      {{ getStagedVariantField(product.id, variant.id, 'barcode') || '-' }}
-                    </span>
-                    <span v-else :class="variant.hasDuplicateBarcode ? 'text-red-600 font-semibold' : 'text-gray-600'">
-                      {{ variant.barcode || '-' }}
-                    </span>
-                  </td>
-                  <td class="px-4 py-2 text-gray-600">
-                    <span v-if="getStagedVariantField(product.id, variant.id, 'price') !== null" class="text-amber-600 font-medium">
-                      ${{ getStagedVariantField(product.id, variant.id, 'price') }}
-                    </span>
-                    <span v-else>${{ variant.price }}</span>
-                  </td>
-                  <td class="px-4 py-2 space-y-0.5">
-                    <span v-if="variant.hasDuplicateSKU"
-                      class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded mr-1 text-xs leading-tight">
-                      <template v-if="variant.crossProductSKU && variant.duplicateSKUProducts?.length">
-                        SKU 与「{{ variant.duplicateSKUProducts.map(d => `${statusLabel(d.status)} · ${d.title}`).join('」「') }}」冲突
-                      </template>
-                      <template v-else>
-                        {{ t('inventory.dupSKU') }}
-                      </template>
-                    </span>
-                    <span v-if="variant.hasDuplicateBarcode"
-                      class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded text-xs leading-tight">
-                      <template v-if="variant.crossProductBarcode && variant.duplicateBarcodeProducts?.length">
-                        Barcode 与「{{ variant.duplicateBarcodeProducts.map(d => `${statusLabel(d.status)} · ${d.title}`).join('」「') }}」冲突
-                      </template>
-                      <template v-else>
-                        {{ t('inventory.dupBarcode') }}
-                      </template>
-                    </span>
-                  </td>
-                  <td class="px-4 py-2">
-                    <button @click="openEditVariant(product, variant)" class="text-purple-600 hover:underline">{{ t('inventory.edit') }}</button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+        <!-- Issues dropdown (仅显示重复) -->
+        <div class="relative" ref="issuesDropdownRef">
+          <button
+            @click="toggleIssuesDropdown"
+            :class="viewMode !== 'all' ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 border'"
+            class="px-4 py-2 rounded-lg text-sm flex items-center gap-2"
+          >
+            <span>⚠</span>
+            {{ issuesViewLabel }}
+            <span class="ml-1">▾</span>
+          </button>
+          <div v-if="showIssuesDropdown" class="absolute right-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-20">
+            <button
+              @click="setIssuesView('shopify-dup')"
+              class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-t-lg flex items-center gap-2"
+              :class="viewMode === 'shopify-dup' ? 'bg-orange-50 text-orange-700 font-medium' : ''"
+            >
+              <span>🛍</span> {{ t('inventory.shopifyDuplicates') }}
+            </button>
+            <button
+              @click="setIssuesView('square-dup')"
+              class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+              :class="viewMode === 'square-dup' ? 'bg-orange-50 text-orange-700 font-medium' : ''"
+            >
+              <span>⬛</span> {{ t('inventory.squareDuplicates') }}
+            </button>
+            <button
+              @click="setIssuesView('cross-gtin')"
+              class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+              :class="viewMode === 'cross-gtin' ? 'bg-orange-50 text-orange-700 font-medium' : ''"
+            >
+              <span>🔀</span> {{ t('inventory.crossGtinMismatch') }}
+            </button>
+            <button
+              @click="setIssuesView('cross-sku')"
+              class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg flex items-center gap-2"
+              :class="viewMode === 'cross-sku' ? 'bg-orange-50 text-orange-700 font-medium' : ''"
+            >
+              <span>🔀</span> {{ t('inventory.crossSkuMismatch') }}
+            </button>
           </div>
         </div>
       </div>
+
+      <!-- Loading -->
+      <div v-if="loading || crossMatchLoading" class="text-center text-gray-400 py-20 flex flex-col items-center gap-3">
+        <span class="animate-spin text-3xl text-purple-400">⟳</span>
+        <span class="text-sm">{{ crossMatchLoading ? t('inventory.loadingCrossMatch') : 'Loading...' }}</span>
+      </div>
+
+      <!-- ── Shopify Products List ── -->
+      <template v-else-if="activeSource === 'shopify' && (viewMode === 'all' || viewMode === 'shopify-dup')">
+        <div v-if="filteredProducts.length === 0 && products.length === 0" class="text-center text-gray-400 py-20">
+          {{ t('inventory.noProducts') }}
+        </div>
+        <div v-else-if="filteredProducts.length === 0 && viewMode === 'shopify-dup'" class="text-center text-green-600 py-20 text-lg">
+          ✅ {{ t('inventory.noDuplicates') }}
+        </div>
+        <div v-else-if="filteredProducts.length === 0" class="text-center text-gray-400 py-20">
+          {{ t('inventory.noProducts') }}
+        </div>
+        <div v-else class="space-y-3">
+          <div
+            v-for="product in filteredProducts"
+            :key="product.id"
+            class="bg-white rounded-xl shadow-sm overflow-hidden"
+            :class="[
+              product.hasDuplicate ? 'border-l-4 border-orange-400' : '',
+              hasProductPendingChanges(product.id) ? 'ring-2 ring-amber-300' : ''
+            ]"
+          >
+            <!-- Product Header -->
+            <div class="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-50"
+              @click="toggleProduct(product.id)">
+              <div class="flex items-center gap-3">
+                <span v-if="product.hasDuplicate" class="text-orange-500 text-lg">⚠</span>
+                <span v-if="hasProductPendingChanges(product.id)" class="text-amber-500 text-sm font-medium">✎</span>
+                <div>
+                  <div class="font-medium text-gray-800">
+                    <span v-if="stagedProducts[product.id]?.title !== undefined && stagedProducts[product.id].title !== product.title" class="text-amber-600">
+                      {{ stagedProducts[product.id].title }}
+                    </span>
+                    <span v-else>{{ product.title }}</span>
+                  </div>
+                  <div class="text-xs text-gray-500">{{ product.vendor }} · {{ product.product_type }} · <span :class="statusBadgeClass(product._computed_status || product.status)">{{ product._computed_status || product.status }}</span></div>
+                </div>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="text-xs text-gray-400">{{ product.variants?.length }} {{ t('inventory.variants') }}</span>
+                <button @click.stop="openEditProduct(product)" class="text-xs text-purple-600 hover:underline">{{ t('inventory.edit') }}</button>
+                <span class="text-gray-400">{{ expandedProducts.has(product.id) ? '▲' : '▼' }}</span>
+              </div>
+            </div>
+
+            <!-- Variants Table -->
+            <div v-if="expandedProducts.has(product.id)" class="border-t">
+              <table class="w-full text-xs">
+                <thead class="bg-gray-50 text-gray-500">
+                  <tr>
+                    <th class="text-left px-4 py-2">Variant</th>
+                    <th class="text-left px-4 py-2">{{ t('inventory.sku') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('inventory.barcode') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('inventory.price') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('inventory.issues') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('inventory.actions') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="variant in product.variants" :key="variant.id"
+                    class="border-t"
+                    :class="[
+                      (variant.hasDuplicateSKU || variant.hasDuplicateBarcode) ? 'bg-orange-50' : '',
+                      hasVariantPendingChanges(product.id, variant.id) ? 'bg-amber-50' : ''
+                    ]">
+                    <td class="px-4 py-2 text-gray-700">{{ variant.title }}</td>
+                    <td class="px-4 py-2">
+                      <span v-if="getStagedVariantField(product.id, variant.id, 'sku') !== null" class="text-amber-600 font-medium">
+                        {{ getStagedVariantField(product.id, variant.id, 'sku') || '-' }}
+                      </span>
+                      <span v-else :class="variant.hasDuplicateSKU ? 'text-red-600 font-semibold' : 'text-gray-600'">
+                        {{ variant.sku || '-' }}
+                      </span>
+                    </td>
+                    <td class="px-4 py-2">
+                      <span v-if="getStagedVariantField(product.id, variant.id, 'barcode') !== null" class="text-amber-600 font-medium">
+                        {{ getStagedVariantField(product.id, variant.id, 'barcode') || '-' }}
+                      </span>
+                      <span v-else :class="variant.hasDuplicateBarcode ? 'text-red-600 font-semibold' : 'text-gray-600'">
+                        {{ variant.barcode || '-' }}
+                      </span>
+                    </td>
+                    <td class="px-4 py-2 text-gray-600">
+                      <span v-if="getStagedVariantField(product.id, variant.id, 'price') !== null" class="text-amber-600 font-medium">
+                        ${{ getStagedVariantField(product.id, variant.id, 'price') }}
+                      </span>
+                      <span v-else>${{ variant.price }}</span>
+                    </td>
+                    <td class="px-4 py-2 space-y-0.5">
+                      <span v-if="variant.hasDuplicateSKU"
+                        class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded mr-1 text-xs leading-tight">
+                        <template v-if="variant.crossProductSKU && variant.duplicateSKUProducts?.length">
+                          SKU 与「{{ variant.duplicateSKUProducts.map(d => `${statusLabel(d.status)} · ${d.title}`).join('」「') }}」冲突
+                        </template>
+                        <template v-else>
+                          {{ t('inventory.dupSKU') }}
+                        </template>
+                      </span>
+                      <span v-if="variant.hasDuplicateBarcode"
+                        class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded text-xs leading-tight">
+                        <template v-if="variant.crossProductBarcode && variant.duplicateBarcodeProducts?.length">
+                          Barcode 与「{{ variant.duplicateBarcodeProducts.map(d => `${statusLabel(d.status)} · ${d.title}`).join('」「') }}」冲突
+                        </template>
+                        <template v-else>
+                          {{ t('inventory.dupBarcode') }}
+                        </template>
+                      </span>
+                    </td>
+                    <td class="px-4 py-2">
+                      <button @click="openEditVariant(product, variant)" class="text-purple-600 hover:underline">{{ t('inventory.edit') }}</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ── Square Products List ── -->
+      <template v-else-if="activeSource === 'square' && (viewMode === 'all' || viewMode === 'square-dup')">
+        <div v-if="squareProducts.length === 0" class="text-center text-gray-400 py-20">
+          <div class="text-4xl mb-3">⬛</div>
+          <div>{{ squareLastSync ? t('inventory.noSquareProducts') : t('inventory.squareNotSynced') }}</div>
+          <div v-if="!squareLastSync" class="text-xs text-gray-300 mt-2">{{ t('inventory.squareSyncHint') }}</div>
+        </div>
+        <div v-else-if="filteredSquareProducts.length === 0 && viewMode === 'square-dup'" class="text-center text-green-600 py-20 text-lg">
+          ✅ {{ t('inventory.noDuplicates') }}
+        </div>
+        <div v-else class="space-y-1">
+          <!-- Group by item_name -->
+          <div v-for="(group, itemName) in groupedSquareProducts" :key="itemName" class="bg-white rounded-xl shadow-sm overflow-hidden">
+            <div class="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-50"
+              @click="toggleSquareItem(itemName)">
+              <div class="flex items-center gap-3">
+                <span v-if="group.some(v => v.hasDuplicate)" class="text-orange-500">⚠</span>
+                <span class="font-medium text-gray-800">{{ itemName }}</span>
+                <span class="text-xs text-gray-400">⬛ Square</span>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="text-xs text-gray-400">{{ group.length }} {{ t('inventory.variants') }}</span>
+                <span class="text-gray-400">{{ expandedSquareItems.has(itemName) ? '▲' : '▼' }}</span>
+              </div>
+            </div>
+            <div v-if="expandedSquareItems.has(itemName)" class="border-t">
+              <table class="w-full text-xs">
+                <thead class="bg-gray-50 text-gray-500">
+                  <tr>
+                    <th class="text-left px-4 py-2">Variation</th>
+                    <th class="text-left px-4 py-2">{{ t('inventory.sku') }}</th>
+                    <th class="text-left px-4 py-2">GTIN</th>
+                    <th class="text-left px-4 py-2">{{ t('inventory.issues') }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="variation in group" :key="variation.id"
+                    class="border-t"
+                    :class="variation.hasDuplicate ? 'bg-orange-50' : ''">
+                    <td class="px-4 py-2 text-gray-700">{{ variation.variation_name || '—' }}</td>
+                    <td class="px-4 py-2" :class="variation.hasDuplicateSku ? 'text-red-600 font-semibold' : 'text-gray-600'">
+                      {{ variation.sku || '—' }}
+                    </td>
+                    <td class="px-4 py-2" :class="variation.hasDuplicateGtin ? 'text-red-600 font-semibold' : 'text-gray-600'">
+                      {{ variation.gtin || '—' }}
+                    </td>
+                    <td class="px-4 py-2 space-y-0.5">
+                      <span v-if="variation.hasDuplicateSku" class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded text-xs">{{ t('inventory.dupSKU') }}</span>
+                      <span v-if="variation.hasDuplicateGtin" class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded text-xs ml-1">{{ t('inventory.dupBarcode') }}</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ── Cross-Match View (GTIN match, SKU mismatch) ── -->
+      <template v-else-if="viewMode === 'cross-gtin'">
+        <div v-if="crossMatchItems.length === 0" class="text-center text-green-600 py-20 text-lg">
+          ✅ {{ t('inventory.noCrossMatch') }}
+        </div>
+        <div v-else class="space-y-3">
+          <div v-for="(item, idx) in filteredCrossMatchItems" :key="idx" class="bg-white rounded-xl shadow-sm overflow-hidden border-l-4 border-orange-400">
+            <div class="px-4 py-3">
+              <div class="flex items-start justify-between gap-4">
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm font-medium text-gray-800">
+                    🛍 {{ item.shopify_product_title }} — {{ item.shopify_variant_title }}
+                  </div>
+                  <div class="text-xs text-gray-400 mt-0.5">⬛ Square: {{ item.square_item_name }} — {{ item.square_variation_name }}</div>
+                  <div class="mt-2 grid grid-cols-2 gap-4 text-xs">
+                    <div>
+                      <div class="text-gray-400 mb-1">🛍 Shopify</div>
+                      <div>SKU: <span class="font-mono text-gray-700">{{ item.shopify_sku || '—' }}</span></div>
+                      <div>GTIN: <span class="font-mono text-gray-700">{{ item.shopify_gtin || '—' }}</span></div>
+                    </div>
+                    <div>
+                      <div class="text-gray-400 mb-1">⬛ Square</div>
+                      <div>SKU: <span class="font-mono" :class="item.shopify_sku !== item.square_sku ? 'text-red-600 font-semibold' : 'text-gray-700'">{{ item.square_sku || '—' }}</span></div>
+                      <div>GTIN: <span class="font-mono text-gray-700">{{ item.square_gtin || '—' }}</span></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="flex flex-col gap-1 shrink-0">
+                  <div class="flex gap-1">
+                    <button
+                      @click="stageCrossMatchDiff(item, 'cross-gtin', 'square')"
+                      :class="getCrossMatchChoice(item, 'cross-gtin') === 'square' ? 'bg-blue-600 text-white' : 'bg-white text-blue-600 border border-blue-300'"
+                      class="text-xs px-2 py-1 rounded hover:bg-blue-600 hover:text-white transition-colors"
+                    >{{ t('inventory.keepSquare') }}</button>
+                    <button
+                      @click="stageCrossMatchDiff(item, 'cross-gtin', 'shopify')"
+                      :class="getCrossMatchChoice(item, 'cross-gtin') === 'shopify' ? 'bg-green-600 text-white' : 'bg-white text-green-600 border border-green-300'"
+                      class="text-xs px-2 py-1 rounded hover:bg-green-600 hover:text-white transition-colors"
+                    >{{ t('inventory.keepShopify') }}</button>
+                    <button
+                      @click="openManualInputCross(item, 'cross-gtin')"
+                      :class="getCrossMatchChoice(item, 'cross-gtin') === 'both' ? 'bg-purple-600 text-white' : 'bg-white text-purple-600 border border-purple-300'"
+                      class="text-xs px-2 py-1 rounded hover:bg-purple-600 hover:text-white transition-colors"
+                    >{{ t('inventory.manualInput') }}</button>
+                  </div>
+                  <div v-if="getCrossMatchChoice(item, 'cross-gtin')" class="text-xs text-center">
+                    <span v-if="getCrossMatchChoice(item, 'cross-gtin') === 'square'" class="text-blue-500">✓ 保留 Square</span>
+                    <span v-else-if="getCrossMatchChoice(item, 'cross-gtin') === 'shopify'" class="text-green-500">✓ 保留 Shopify</span>
+                    <span v-else class="text-purple-500">✓ 手动输入</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ── Cross-Match View (SKU match, GTIN mismatch) ── -->
+      <template v-else-if="viewMode === 'cross-sku'">
+        <div v-if="crossMatchItems.length === 0" class="text-center text-green-600 py-20 text-lg">
+          ✅ {{ t('inventory.noCrossMatch') }}
+        </div>
+        <div v-else class="space-y-3">
+          <div v-for="(item, idx) in filteredCrossMatchItems" :key="idx" class="bg-white rounded-xl shadow-sm overflow-hidden border-l-4 border-orange-400">
+            <div class="px-4 py-3">
+              <div class="flex items-start justify-between gap-4">
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm font-medium text-gray-800">
+                    🛍 {{ item.shopify_product_title }} — {{ item.shopify_variant_title }}
+                  </div>
+                  <div class="text-xs text-gray-400 mt-0.5">⬛ Square: {{ item.square_item_name }} — {{ item.square_variation_name }}</div>
+                  <div class="mt-2 grid grid-cols-2 gap-4 text-xs">
+                    <div>
+                      <div class="text-gray-400 mb-1">🛍 Shopify</div>
+                      <div>SKU: <span class="font-mono text-gray-700">{{ item.shopify_sku || '—' }}</span></div>
+                      <div>GTIN: <span class="font-mono text-gray-700">{{ item.shopify_gtin || '—' }}</span></div>
+                    </div>
+                    <div>
+                      <div class="text-gray-400 mb-1">⬛ Square</div>
+                      <div>SKU: <span class="font-mono text-gray-700">{{ item.square_sku || '—' }}</span></div>
+                      <div>GTIN: <span class="font-mono" :class="item.shopify_gtin !== item.square_gtin ? 'text-red-600 font-semibold' : 'text-gray-700'">{{ item.square_gtin || '—' }}</span></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="flex flex-col gap-1 shrink-0">
+                  <div class="flex gap-1">
+                    <button
+                      @click="stageCrossMatchDiff(item, 'cross-sku', 'square')"
+                      :class="getCrossMatchChoice(item, 'cross-sku') === 'square' ? 'bg-blue-600 text-white' : 'bg-white text-blue-600 border border-blue-300'"
+                      class="text-xs px-2 py-1 rounded hover:bg-blue-600 hover:text-white transition-colors"
+                    >{{ t('inventory.keepSquare') }}</button>
+                    <button
+                      @click="stageCrossMatchDiff(item, 'cross-sku', 'shopify')"
+                      :class="getCrossMatchChoice(item, 'cross-sku') === 'shopify' ? 'bg-green-600 text-white' : 'bg-white text-green-600 border border-green-300'"
+                      class="text-xs px-2 py-1 rounded hover:bg-green-600 hover:text-white transition-colors"
+                    >{{ t('inventory.keepShopify') }}</button>
+                    <button
+                      @click="openManualInputCross(item, 'cross-sku')"
+                      :class="getCrossMatchChoice(item, 'cross-sku') === 'both' ? 'bg-purple-600 text-white' : 'bg-white text-purple-600 border border-purple-300'"
+                      class="text-xs px-2 py-1 rounded hover:bg-purple-600 hover:text-white transition-colors"
+                    >{{ t('inventory.manualInput') }}</button>
+                  </div>
+                  <div v-if="getCrossMatchChoice(item, 'cross-sku')" class="text-xs text-center">
+                    <span v-if="getCrossMatchChoice(item, 'cross-sku') === 'square'" class="text-blue-500">✓ 保留 Square</span>
+                    <span v-else-if="getCrossMatchChoice(item, 'cross-sku') === 'shopify'" class="text-green-500">✓ 保留 Shopify</span>
+                    <span v-else class="text-purple-500">✓ 手动输入</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+
     </main>
 
     <!-- Edit Product Modal -->
@@ -413,31 +671,31 @@
       </div>
     </div>
 
-    <!-- Manual Input Modal (for Square diff) -->
+    <!-- Manual Input Modal (for Square diff / cross-match) -->
     <div v-if="manualInputTarget" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
       <div class="bg-white rounded-xl p-6 w-full max-w-md shadow-xl">
         <h2 class="text-lg font-bold mb-1">{{ t('inventory.manualInput') }}</h2>
         <p class="text-xs text-gray-400 mb-4">
-          {{ manualInputTarget.shopifyProductTitle }} — {{ manualInputTarget.shopifyVariantTitle }}
+          {{ manualInputTarget.shopifyProductTitle || manualInputTarget.shopify_product_title }} — {{ manualInputTarget.shopifyVariantTitle || manualInputTarget.shopify_variant_title }}
         </p>
         <div class="space-y-3">
           <div>
             <label class="text-sm text-gray-600">SKU</label>
             <div class="flex gap-2 mt-1 text-xs text-gray-400 mb-1">
-              <span>Shopify: <span class="font-mono text-gray-600">{{ manualInputTarget.shopifySku || '—' }}</span></span>
+              <span>Shopify: <span class="font-mono text-gray-600">{{ manualInputTarget.shopifySku || manualInputTarget.shopify_sku || '—' }}</span></span>
               <span>·</span>
-              <span>Square: <span class="font-mono text-blue-600">{{ manualInputTarget.squareSku || '—' }}</span></span>
+              <span>Square: <span class="font-mono text-blue-600">{{ manualInputTarget.squareSku || manualInputTarget.square_sku || '—' }}</span></span>
             </div>
-            <input v-model="manualForm.sku" class="input-field" :placeholder="manualInputTarget.shopifySku || ''" />
+            <input v-model="manualForm.sku" class="input-field" />
           </div>
           <div>
             <label class="text-sm text-gray-600">GTIN</label>
             <div class="flex gap-2 mt-1 text-xs text-gray-400 mb-1">
-              <span>Shopify: <span class="font-mono text-gray-600">{{ manualInputTarget.shopifyGtin || '—' }}</span></span>
+              <span>Shopify: <span class="font-mono text-gray-600">{{ manualInputTarget.shopifyGtin || manualInputTarget.shopify_gtin || '—' }}</span></span>
               <span>·</span>
-              <span>Square: <span class="font-mono text-blue-600">{{ manualInputTarget.squareGtin || '—' }}</span></span>
+              <span>Square: <span class="font-mono text-blue-600">{{ manualInputTarget.squareGtin || manualInputTarget.square_gtin || '—' }}</span></span>
             </div>
-            <input v-model="manualForm.gtin" class="input-field" :placeholder="manualInputTarget.shopifyGtin || ''" />
+            <input v-model="manualForm.gtin" class="input-field" />
           </div>
         </div>
         <div class="flex gap-3 mt-4">
@@ -567,7 +825,7 @@
             <div v-if="staged" class="border rounded-lg overflow-hidden">
               <div class="bg-blue-50 px-4 py-2 text-xs font-semibold text-blue-700 uppercase tracking-wide flex items-center justify-between">
                 <span>
-                  Square 对比: {{ staged.shopifyProductTitle }} — {{ staged.shopifyVariantTitle }}
+                  Square 对比: {{ staged.shopifyProductTitle || staged.shopify_product_title }} — {{ staged.shopifyVariantTitle || staged.shopify_variant_title }}
                   <span class="ml-2 text-blue-400 normal-case font-normal">
                     ({{ staged.target === 'square' ? '保留 Square → 更新 Shopify' : staged.target === 'shopify' ? '保留 Shopify → 更新 Square' : '手动输入 → 同步双方' }})
                   </span>
@@ -587,7 +845,7 @@
                       </tr>
                     </thead>
                     <tbody>
-                      <template v-for="d in staged.diffs" :key="'shopify-' + d.field">
+                      <template v-for="d in (staged.diffs || buildDiffsFromCross(staged))" :key="'shopify-' + d.field">
                         <!-- 保留 Square(target=square) 或 手动输入(both) 时，Shopify 那边会变 -->
                         <tr v-if="staged.target === 'square' || staged.target === 'both'" class="border-t">
                           <td class="px-3 py-2 text-gray-500 uppercase">{{ d.field }}</td>
@@ -623,7 +881,7 @@
                       </tr>
                     </thead>
                     <tbody>
-                      <template v-for="d in staged.diffs" :key="'square-' + d.field">
+                      <template v-for="d in (staged.diffs || buildDiffsFromCross(staged))" :key="'square-' + d.field">
                         <!-- 保留 Shopify(target=shopify) 或 手动输入(both) 时，Square 那边会变 -->
                         <tr v-if="staged.target === 'shopify' || staged.target === 'both'" class="border-t">
                           <td class="px-3 py-2 text-gray-500 uppercase">{{ d.field }}</td>
@@ -703,9 +961,89 @@ const loading = ref(true)
 const syncing = ref(false)
 const syncingSquare = ref(false)
 const searchQuery = ref('')
-const showDuplicatesOnly = ref(false)
 const expandedProducts = ref(new Set())
 const activeStatus = ref('active')
+
+// ─── Source & View mode ───────────────────────────────────────────────────────
+// activeSource: 'shopify' | 'square'
+const activeSource = ref('shopify')
+// viewMode: 'all' | 'shopify-dup' | 'square-dup' | 'cross-gtin' | 'cross-sku'
+const viewMode = ref('all')
+
+// ─── Square data ──────────────────────────────────────────────────────────────
+const squareProducts = ref([])
+const squareSummary = ref({ total: 0, withDuplicates: 0, duplicateSkus: 0, duplicateGtins: 0 })
+const squareLastSync = ref(null)
+const expandedSquareItems = ref(new Set())
+
+// ─── Cross-match data ─────────────────────────────────────────────────────────
+const crossMatchItems = ref([])
+const crossMatchLoading = ref(false)
+
+// ─── Computed summary (switches by activeSource) ──────────────────────────────
+const activeSummary = computed(() => {
+  if (activeSource.value === 'square') {
+    return {
+      total: squareSummary.value.total,
+      withDuplicates: squareSummary.value.withDuplicates,
+      duplicateSKUs: squareSummary.value.duplicateSkus,
+      duplicateBarcodes: squareSummary.value.duplicateGtins,
+    }
+  }
+  return summary.value
+})
+
+// ─── Grouped Square products ──────────────────────────────────────────────────
+const groupedSquareProducts = computed(() => {
+  const list = viewMode.value === 'square-dup'
+    ? squareProducts.value.filter(v => v.hasDuplicate)
+    : squareProducts.value
+
+  const filtered = searchQuery.value.trim()
+    ? list.filter(v => {
+        const kw = searchQuery.value.trim().toLowerCase()
+        return (v.item_name || '').toLowerCase().includes(kw) ||
+               (v.variation_name || '').toLowerCase().includes(kw) ||
+               (v.sku || '').toLowerCase().includes(kw) ||
+               (v.gtin || '').toLowerCase().includes(kw)
+      })
+    : list
+
+  const groups = {}
+  for (const v of filtered) {
+    const name = v.item_name || '(no name)'
+    if (!groups[name]) groups[name] = []
+    groups[name].push(v)
+  }
+  return groups
+})
+
+// ─── Filtered cross-match items ───────────────────────────────────────────────
+const filteredCrossMatchItems = computed(() => {
+  if (!searchQuery.value.trim()) return crossMatchItems.value
+  const kw = searchQuery.value.trim().toLowerCase()
+  return crossMatchItems.value.filter(item =>
+    (item.shopify_product_title || '').toLowerCase().includes(kw) ||
+    (item.shopify_variant_title || '').toLowerCase().includes(kw) ||
+    (item.square_item_name || '').toLowerCase().includes(kw) ||
+    (item.shopify_sku || '').toLowerCase().includes(kw) ||
+    (item.square_sku || '').toLowerCase().includes(kw) ||
+    (item.shopify_gtin || '').toLowerCase().includes(kw) ||
+    (item.square_gtin || '').toLowerCase().includes(kw)
+  )
+})
+
+// ─── Issues view label ────────────────────────────────────────────────────────
+const issuesViewLabel = computed(() => {
+  const map = {
+    'all': t('inventory.duplicatesOnly'),
+    'shopify-dup': t('inventory.shopifyDuplicates'),
+    'square-dup': t('inventory.squareDuplicates'),
+    'cross-gtin': t('inventory.crossGtinMismatch'),
+    'cross-sku': t('inventory.crossSkuMismatch'),
+  }
+  return map[viewMode.value] || t('inventory.duplicatesOnly')
+})
 
 // ─── Sync dropdown ────────────────────────────────────────────────────────────
 const showSyncDropdown = ref(false)
@@ -721,20 +1059,80 @@ function closeSyncDropdown(e) {
   }
 }
 
-onMounted(() => document.addEventListener('click', closeSyncDropdown))
-onUnmounted(() => document.removeEventListener('click', closeSyncDropdown))
+// ─── Source dropdown ──────────────────────────────────────────────────────────
+const showSourceDropdown = ref(false)
+const sourceDropdownRef = ref(null)
+
+function toggleSourceDropdown() {
+  showSourceDropdown.value = !showSourceDropdown.value
+}
+
+function closeSourceDropdown(e) {
+  if (sourceDropdownRef.value && !sourceDropdownRef.value.contains(e.target)) {
+    showSourceDropdown.value = false
+  }
+}
+
+async function setSourceView(source) {
+  showSourceDropdown.value = false
+  activeSource.value = source
+  viewMode.value = 'all'
+  searchQuery.value = ''
+  if (source === 'square' && squareProducts.value.length === 0) {
+    await fetchSquareProducts()
+  }
+}
+
+// ─── Issues dropdown ──────────────────────────────────────────────────────────
+const showIssuesDropdown = ref(false)
+const issuesDropdownRef = ref(null)
+
+function toggleIssuesDropdown() {
+  showIssuesDropdown.value = !showIssuesDropdown.value
+}
+
+function closeIssuesDropdown(e) {
+  if (issuesDropdownRef.value && !issuesDropdownRef.value.contains(e.target)) {
+    showIssuesDropdown.value = false
+  }
+}
+
+async function setIssuesView(mode) {
+  showIssuesDropdown.value = false
+  viewMode.value = mode
+  searchQuery.value = ''
+
+  if (mode === 'square-dup') {
+    activeSource.value = 'square'
+    if (squareProducts.value.length === 0) await fetchSquareProducts()
+  } else if (mode === 'shopify-dup') {
+    activeSource.value = 'shopify'
+  } else if (mode === 'cross-gtin' || mode === 'cross-sku') {
+    activeSource.value = 'shopify' // doesn't matter, cross-match has its own template
+    await fetchCrossMatch(mode)
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', closeSyncDropdown)
+  document.addEventListener('click', closeSourceDropdown)
+  document.addEventListener('click', closeIssuesDropdown)
+})
+onUnmounted(() => {
+  document.removeEventListener('click', closeSyncDropdown)
+  document.removeEventListener('click', closeSourceDropdown)
+  document.removeEventListener('click', closeIssuesDropdown)
+})
 
 // ─── Square compare state ─────────────────────────────────────────────────────
-// squareDiffs: array of diff items from backend
 const squareDiffs = ref([])
-// squareUnmatched: array of unmatched Square items
 const squareUnmatched = ref([])
-// stagedSquareDiffs: { [key]: { ...diff, target, manualValues? } }
-// key = shopifyVariantId + '_' + squareVariationId
 const stagedSquareDiffs = ref({})
 
 function squareDiffKey(diff) {
-  return `${diff.shopifyVariantId}_${diff.squareVariationId}`
+  const shopifyId = diff.shopifyVariantId || diff.shopify_variant_id
+  const squareId = diff.squareVariationId || diff.square_variation_id
+  return `${shopifyId}_${squareId}`
 }
 
 function getSquareDiffChoice(diff) {
@@ -762,6 +1160,71 @@ function clearSquareDiffs() {
   stagedSquareDiffs.value = {}
 }
 
+// ─── Cross-match staging ──────────────────────────────────────────────────────
+function crossMatchKey(item) {
+  return `cross_${item.shopify_variant_id}_${item.square_variation_id}`
+}
+
+function getCrossMatchChoice(item, _mode) {
+  const key = crossMatchKey(item)
+  return stagedSquareDiffs.value[key]?.target || null
+}
+
+function stageCrossMatchDiff(item, _mode, target) {
+  const key = crossMatchKey(item)
+  // Build diffs array from cross-match item
+  const diffs = buildDiffsFromCross(item)
+  stagedSquareDiffs.value = {
+    ...stagedSquareDiffs.value,
+    [key]: {
+      shopifyVariantId: item.shopify_variant_id,
+      shopifyShopifyVariantId: item.shopify_raw_variant_id,
+      shopifyProductId: item.shopify_product_sys_id,
+      shopifyProductTitle: item.shopify_product_title,
+      shopifyVariantTitle: item.shopify_variant_title,
+      shopifySku: item.shopify_sku,
+      shopifyGtin: item.shopify_gtin,
+      squareVariationId: item.square_variation_id,
+      squareItemId: item.square_item_id,
+      squareItemName: item.square_item_name,
+      squareVariationName: item.square_variation_name,
+      squareSku: item.square_sku,
+      squareGtin: item.square_gtin,
+      diffs,
+      target,
+      manualValues: null,
+    }
+  }
+}
+
+function buildDiffsFromCross(item) {
+  const diffs = []
+  const shopifySku = (item.shopifySku || item.shopify_sku || '').trim()
+  const squareSku = (item.squareSku || item.square_sku || '').trim()
+  const shopifyGtin = (item.shopifyGtin || item.shopify_gtin || '').trim()
+  const squareGtin = (item.squareGtin || item.square_gtin || '').trim()
+  if (shopifySku !== squareSku) diffs.push({ field: 'sku', shopifyValue: shopifySku, squareValue: squareSku })
+  if (shopifyGtin !== squareGtin) diffs.push({ field: 'gtin', shopifyValue: shopifyGtin, squareValue: squareGtin })
+  return diffs
+}
+
+function openManualInputCross(item, _mode) {
+  manualInputTarget.value = {
+    shopifyProductTitle: item.shopify_product_title,
+    shopifyVariantTitle: item.shopify_variant_title,
+    shopifySku: item.shopify_sku,
+    shopifyGtin: item.shopify_gtin,
+    squareSku: item.square_sku,
+    squareGtin: item.square_gtin,
+    _crossItem: item,
+    _crossMode: _mode,
+  }
+  manualForm.value = {
+    sku: item.shopify_sku || '',
+    gtin: item.shopify_gtin || ''
+  }
+}
+
 // ─── Manual input modal ───────────────────────────────────────────────────────
 const manualInputTarget = ref(null)
 const manualForm = ref({ sku: '', gtin: '' })
@@ -775,16 +1238,43 @@ function openManualInput(diff) {
 }
 
 function confirmManualInput() {
-  const diff = manualInputTarget.value
-  const key = squareDiffKey(diff)
-  stagedSquareDiffs.value = {
-    ...stagedSquareDiffs.value,
-    [key]: {
-      ...diff,
-      target: 'both',
-      manualValues: {
-        sku: manualForm.value.sku,
-        gtin: manualForm.value.gtin
+  const target = manualInputTarget.value
+  if (target._crossItem) {
+    // Cross-match manual input
+    const item = target._crossItem
+    const key = crossMatchKey(item)
+    const diffs = buildDiffsFromCross(item)
+    stagedSquareDiffs.value = {
+      ...stagedSquareDiffs.value,
+      [key]: {
+        shopifyVariantId: item.shopify_variant_id,
+        shopifyShopifyVariantId: item.shopify_raw_variant_id,
+        shopifyProductId: item.shopify_product_sys_id,
+        shopifyProductTitle: item.shopify_product_title,
+        shopifyVariantTitle: item.shopify_variant_title,
+        shopifySku: item.shopify_sku,
+        shopifyGtin: item.shopify_gtin,
+        squareVariationId: item.square_variation_id,
+        squareItemId: item.square_item_id,
+        squareItemName: item.square_item_name,
+        squareVariationName: item.square_variation_name,
+        squareSku: item.square_sku,
+        squareGtin: item.square_gtin,
+        diffs,
+        target: 'both',
+        manualValues: { sku: manualForm.value.sku, gtin: manualForm.value.gtin },
+      }
+    }
+  } else {
+    // Regular squareDiff manual input
+    const diff = target
+    const key = squareDiffKey(diff)
+    stagedSquareDiffs.value = {
+      ...stagedSquareDiffs.value,
+      [key]: {
+        ...diff,
+        target: 'both',
+        manualValues: { sku: manualForm.value.sku, gtin: manualForm.value.gtin }
       }
     }
   }
@@ -796,7 +1286,6 @@ const linkModalTarget = ref(null)
 const linkSearchQuery = ref('')
 const linkSelectedVariant = ref(null)
 
-// Flat list of all variants for linking
 const allVariantsFlat = computed(() => {
   const list = []
   for (const p of Object.values(allProductsCache.value)) {
@@ -840,7 +1329,6 @@ function confirmLink() {
   const shopifyVariant = linkSelectedVariant.value
   if (!squareItem || !shopifyVariant) return
 
-  // Build a synthetic diff and add to squareDiffs for user to choose
   const diffs = []
   if (squareItem.squareSku !== (shopifyVariant.sku || '')) {
     diffs.push({ field: 'sku', shopifyValue: shopifyVariant.sku || '', squareValue: squareItem.squareSku })
@@ -869,7 +1357,6 @@ function confirmLink() {
     squareDiffs.value = [...squareDiffs.value, newDiff]
   }
 
-  // Remove from unmatched
   squareUnmatched.value = squareUnmatched.value.filter(
     u => u.squareVariationId !== squareItem.squareVariationId
   )
@@ -891,7 +1378,6 @@ const pendingCount = computed(() => {
       if (Object.keys(changes).length > 0) count++
     }
   }
-  // Count staged Square diffs
   count += Object.values(stagedSquareDiffs.value).filter(Boolean).length
   return count
 })
@@ -948,9 +1434,17 @@ function toggleProduct(id) {
   }
 }
 
+function toggleSquareItem(name) {
+  if (expandedSquareItems.value.has(name)) {
+    expandedSquareItems.value.delete(name)
+  } else {
+    expandedSquareItems.value.add(name)
+  }
+}
+
 async function switchStatus(status) {
   activeStatus.value = status
-  showDuplicatesOnly.value = false
+  viewMode.value = 'all'
   expandedProducts.value = new Set()
   await fetchProducts()
 }
@@ -1024,7 +1518,7 @@ function discardVariantStage(productId, variantId) {
 // ─── Filtered products ────────────────────────────────────────────────────────
 const filteredProducts = computed(() => {
   let list = products.value
-  if (showDuplicatesOnly.value) list = list.filter(p => p.hasDuplicate)
+  if (viewMode.value === 'shopify-dup') list = list.filter(p => p.hasDuplicate)
   if (searchQuery.value) {
     const raw = searchQuery.value.trim().toLowerCase()
     const keywords = raw.split(/\s+/).filter(Boolean)
@@ -1063,6 +1557,39 @@ async function fetchLastSync() {
   } catch {}
 }
 
+async function fetchSquareLastSync() {
+  try {
+    const res = await api.get('/products/square-last-sync')
+    squareLastSync.value = res.data
+  } catch {}
+}
+
+async function fetchSquareProducts() {
+  try {
+    const res = await api.get('/products/square-products')
+    squareProducts.value = res.data.products || []
+    squareSummary.value = res.data.summary || { total: 0, withDuplicates: 0, duplicateSkus: 0, duplicateGtins: 0 }
+  } catch (err) {
+    console.error('Failed to fetch Square products:', err.message)
+  }
+}
+
+async function fetchCrossMatch(mode) {
+  crossMatchLoading.value = true
+  crossMatchItems.value = []
+  try {
+    const endpoint = mode === 'cross-gtin'
+      ? '/products/cross-match/gtin-sku-mismatch'
+      : '/products/cross-match/sku-gtin-mismatch'
+    const res = await api.get(endpoint)
+    crossMatchItems.value = res.data.items || []
+  } catch (err) {
+    console.error('Failed to fetch cross-match:', err.message)
+  } finally {
+    crossMatchLoading.value = false
+  }
+}
+
 async function syncShopify() {
   showSyncDropdown.value = false
   syncing.value = true
@@ -1084,14 +1611,13 @@ async function syncSquare() {
   showSyncDropdown.value = false
   syncingSquare.value = true
   try {
-    const res = await api.post('/products/square-compare')
-    squareDiffs.value = res.data.matchedWithDiffs || []
-    squareUnmatched.value = res.data.unmatched || []
-    // Clear previous staged square diffs
-    stagedSquareDiffs.value = {}
-    if (squareDiffs.value.length === 0 && squareUnmatched.value.length === 0) {
-      alert(t('inventory.squareSyncSuccess') + '：SKU 和 GTIN 完全一致，无差异。')
+    const res = await api.post('/products/square-sync')
+    await fetchSquareLastSync()
+    // Refresh square products if currently viewing square
+    if (activeSource.value === 'square') {
+      await fetchSquareProducts()
     }
+    alert(`${t('inventory.squareSyncSuccess')}：${res.data.itemCount} items, ${res.data.variationCount} variations synced.`)
   } catch (err) {
     alert(t('inventory.squareSyncError') + ': ' + (err.response?.data?.error || err.message))
   } finally {
@@ -1192,7 +1718,6 @@ async function commitChanges() {
 
     if (productUpdates.length > 0 || variantUpdates.length > 0) {
       const res = await api.post('/products/batch-update', { productUpdates, variantUpdates })
-      // Optimistic update
       for (const { productId, changes } of productUpdates) {
         const pid = String(productId)
         const idx = products.value.findIndex(p => String(p.id) === pid)
@@ -1243,7 +1768,6 @@ async function commitChanges() {
     stagedProducts.value = {}
     stagedVariants.value = {}
     stagedSquareDiffs.value = {}
-    // Remove committed diffs from squareDiffs panel
     squareDiffs.value = squareDiffs.value.filter(d => {
       const key = squareDiffKey(d)
       return !squareItems.some(s => `${s.shopifyVariantId}_${s.squareVariationId}` === key)
@@ -1259,7 +1783,7 @@ async function commitChanges() {
 }
 
 onMounted(async () => {
-  await Promise.all([fetchProducts(), fetchLastSync()])
+  await Promise.all([fetchProducts(), fetchLastSync(), fetchSquareLastSync()])
 })
 </script>
 
