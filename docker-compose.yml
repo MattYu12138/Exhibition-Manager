@@ -2,6 +2,7 @@ services:
   # ─────────────────────────────────────────────
   # Shared SQLite database volume
   # All backend services mount /data/lic to access LIC_DB.db
+  # DB_PATH, SESSION_DB_PATH, and all secrets are injected via .env files
   # ─────────────────────────────────────────────
 
   # ─────────────────────────────────────────────
@@ -13,7 +14,6 @@ services:
     env_file:
       - ./exhibition-backend/.env
     environment:
-      - DB_PATH=/data/lic/database/LIC_DB.db
       # Docker 内部服务间通信地址（容器名:内部端口）
       - PLATFORM_BACKEND_URL=http://platform-backend:3000
       - SSO_SECRET=lummi-sso-secret-2026
@@ -44,9 +44,7 @@ services:
     env_file:
       - ./platform-backend/.env
     environment:
-      - DB_PATH=/data/lic/database/LIC_DB.db
       - SSO_SECRET=lummi-sso-secret-2026
-      - PORT=3000
     volumes:
       - /data/lic:/data/lic
     ports:
@@ -69,7 +67,6 @@ services:
     env_file:
       - ./inventory-backend/.env
     environment:
-      - DB_PATH=/data/lic/database/LIC_DB.db
       # Docker 内部服务间通信地址（容器名:内部端口）
       - PLATFORM_BACKEND_URL=http://platform-backend:3000
       - SSO_SECRET=lummi-sso-secret-2026

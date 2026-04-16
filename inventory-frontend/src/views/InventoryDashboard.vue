@@ -1793,6 +1793,20 @@ function openCommitModal() {
 async function commitChanges() {
   committing.value = true
   commitError.value = ''
+
+  // Optimistic update: immediately remove resolved cross-match items from the list
+  const squareItemsToRemove = Object.values(stagedSquareDiffs.value).filter(Boolean)
+  const removedCrossItems = crossMatchItems.value.filter(item => {
+    const key = `cross_${item.shopify_variant_id}_${item.square_variation_id}`
+    return squareItemsToRemove.some(s => `cross_${s.shopifyVariantId}_${s.squareVariationId}` === key)
+  })
+  if (squareItemsToRemove.length > 0) {
+    crossMatchItems.value = crossMatchItems.value.filter(item => {
+      const key = `cross_${item.shopify_variant_id}_${item.square_variation_id}`
+      return !squareItemsToRemove.some(s => `cross_${s.shopifyVariantId}_${s.squareVariationId}` === key)
+    })
+  }
+
   try {
     // 1. Regular Shopify updates
     const productUpdates = Object.entries(stagedProducts.value)
