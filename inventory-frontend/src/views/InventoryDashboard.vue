@@ -42,13 +42,13 @@
                 @click="syncShopify"
                 class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-t-lg flex items-center gap-2"
               >
-                <span>🛍</span> {{ t('inventory.syncShopify') }}
+                <img :src="shopifyLogoUrl" class="w-4 h-4 object-contain" /> {{ t('inventory.syncShopify') }}
               </button>
               <button
                 @click="syncSquare"
                 class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg flex items-center gap-2"
               >
-                <span>⬛</span> {{ t('inventory.syncSquare') }}
+                <img :src="squareLogoUrl" class="w-4 h-4 object-contain" /> {{ t('inventory.syncSquare') }}
               </button>
             </div>
           </div>
@@ -60,13 +60,13 @@
       <!-- Last Sync Info -->
       <div class="text-xs text-gray-400 mb-4 flex items-center gap-4">
         <span>
-          🛍 Shopify {{ t('inventory.lastSync') }}: {{ lastSync ? new Date(lastSync.synced_at).toLocaleString() : t('inventory.never') }}
+          <img :src="shopifyLogoUrl" class="w-3.5 h-3.5 object-contain inline" /> Shopify {{ t('inventory.lastSync') }}: {{ lastSync ? new Date(lastSync.synced_at).toLocaleString() : t('inventory.never') }}
         </span>
         <span v-if="squareLastSync">
-          ⬛ Square {{ t('inventory.lastSync') }}: {{ new Date(squareLastSync.synced_at).toLocaleString() }}
+          <img :src="squareLogoUrl" class="w-3.5 h-3.5 object-contain inline" /> Square {{ t('inventory.lastSync') }}: {{ new Date(squareLastSync.synced_at).toLocaleString() }}
           <span class="text-gray-300 ml-1">({{ squareLastSync.variation_count }} variations)</span>
         </span>
-        <span v-else class="text-gray-300">⬛ Square: {{ t('inventory.never') }}</span>
+        <span v-else class="text-gray-300 flex items-center gap-1"><img :src="squareLogoUrl" class="w-3.5 h-3.5 object-contain" /> Square: {{ t('inventory.never') }}</span>
       </div>
 
       <!-- Summary Cards -->
@@ -75,28 +75,28 @@
           <div class="text-2xl font-bold text-gray-800">{{ activeSummary.total }}</div>
           <div class="text-xs text-gray-500 mt-1">{{ t('inventory.totalProducts') }}</div>
           <div class="text-xs mt-1" :class="activeSource === 'shopify' ? 'text-purple-400' : 'text-gray-400'">
-            {{ activeSource === 'shopify' ? '🛍 Shopify' : '⬛ Square' }}
+            <span class="flex items-center justify-center gap-1"><img :src="activeSource === 'shopify' ? shopifyLogoUrl : squareLogoUrl" class="w-3.5 h-3.5 object-contain" />{{ activeSource === 'shopify' ? 'Shopify' : 'Square' }}</span>
           </div>
         </div>
         <div class="bg-white rounded-xl p-4 shadow-sm text-center border-l-4" :class="activeSummary.withDuplicates > 0 ? 'border-orange-400' : 'border-green-400'">
           <div class="text-2xl font-bold" :class="activeSummary.withDuplicates > 0 ? 'text-orange-600' : 'text-green-600'">{{ activeSummary.withDuplicates }}</div>
           <div class="text-xs text-gray-500 mt-1">{{ t('inventory.withDuplicates') }}</div>
           <div class="text-xs mt-1" :class="activeSource === 'shopify' ? 'text-purple-400' : 'text-gray-400'">
-            {{ activeSource === 'shopify' ? '🛍 Shopify' : '⬛ Square' }}
+            <span class="flex items-center justify-center gap-1"><img :src="activeSource === 'shopify' ? shopifyLogoUrl : squareLogoUrl" class="w-3.5 h-3.5 object-contain" />{{ activeSource === 'shopify' ? 'Shopify' : 'Square' }}</span>
           </div>
         </div>
         <div class="bg-white rounded-xl p-4 shadow-sm text-center border-l-4" :class="activeSummary.duplicateSKUs > 0 ? 'border-red-400' : 'border-green-400'">
           <div class="text-2xl font-bold" :class="activeSummary.duplicateSKUs > 0 ? 'text-red-600' : 'text-green-600'">{{ activeSummary.duplicateSKUs }}</div>
           <div class="text-xs text-gray-500 mt-1">{{ t('inventory.duplicateSKUs') }}</div>
           <div class="text-xs mt-1" :class="activeSource === 'shopify' ? 'text-purple-400' : 'text-gray-400'">
-            {{ activeSource === 'shopify' ? '🛍 Shopify' : '⬛ Square' }}
+            <span class="flex items-center justify-center gap-1"><img :src="activeSource === 'shopify' ? shopifyLogoUrl : squareLogoUrl" class="w-3.5 h-3.5 object-contain" />{{ activeSource === 'shopify' ? 'Shopify' : 'Square' }}</span>
           </div>
         </div>
         <div class="bg-white rounded-xl p-4 shadow-sm text-center border-l-4" :class="activeSummary.duplicateBarcodes > 0 ? 'border-red-400' : 'border-green-400'">
           <div class="text-2xl font-bold" :class="activeSummary.duplicateBarcodes > 0 ? 'text-red-600' : 'text-green-600'">{{ activeSummary.duplicateBarcodes }}</div>
           <div class="text-xs text-gray-500 mt-1">{{ t('inventory.duplicateBarcodes') }}</div>
           <div class="text-xs mt-1" :class="activeSource === 'shopify' ? 'text-purple-400' : 'text-gray-400'">
-            {{ activeSource === 'shopify' ? '🛍 Shopify' : '⬛ Square' }}
+            <span class="flex items-center justify-center gap-1"><img :src="activeSource === 'shopify' ? shopifyLogoUrl : squareLogoUrl" class="w-3.5 h-3.5 object-contain" />{{ activeSource === 'shopify' ? 'Shopify' : 'Square' }}</span>
           </div>
         </div>
       </div>
@@ -133,10 +133,10 @@
                   <div class="mt-2 space-y-1">
                     <div v-for="d in diff.diffs" :key="d.field" class="flex items-center gap-3 text-xs">
                       <span class="w-10 text-gray-500 font-medium uppercase">{{ d.field }}</span>
-                      <span class="text-gray-500">Shopify:</span>
+                      <span class="flex items-center gap-0.5 text-gray-500"><img :src="shopifyLogoUrl" class="w-3 h-3 object-contain" /></span>
                       <span class="text-red-500 font-mono">{{ d.shopifyValue || '—' }}</span>
                       <span class="text-gray-400">vs</span>
-                      <span class="text-gray-500">Square:</span>
+                      <span class="flex items-center gap-0.5 text-gray-500"><img :src="squareLogoUrl" class="w-3 h-3 object-contain" /></span>
                       <span class="text-blue-600 font-mono">{{ d.squareValue || '—' }}</span>
                     </div>
                   </div>
@@ -147,13 +147,13 @@
                     <button
                       @click="stageSquareDiff(diff, 'square')"
                       :class="getSquareDiffChoice(diff) === 'square' ? 'bg-blue-600 text-white' : 'bg-white text-blue-600 border border-blue-300'"
-                      class="text-xs px-2 py-1 rounded hover:bg-blue-600 hover:text-white transition-colors"
-                    >{{ t('inventory.keepSquare') }}</button>
+                      class="text-xs px-2 py-1 rounded hover:bg-blue-600 hover:text-white transition-colors flex items-center gap-1"
+                    ><img :src="squareLogoUrl" class="w-3 h-3 object-contain" />{{ t('inventory.keepSquare') }}</button>
                     <button
                       @click="stageSquareDiff(diff, 'shopify')"
                       :class="getSquareDiffChoice(diff) === 'shopify' ? 'bg-green-600 text-white' : 'bg-white text-green-600 border border-green-300'"
-                      class="text-xs px-2 py-1 rounded hover:bg-green-600 hover:text-white transition-colors"
-                    >{{ t('inventory.keepShopify') }}</button>
+                      class="text-xs px-2 py-1 rounded hover:bg-green-600 hover:text-white transition-colors flex items-center gap-1"
+                    ><img :src="shopifyLogoUrl" class="w-3 h-3 object-contain" />{{ t('inventory.keepShopify') }}</button>
                     <button
                       @click="openManualInput(diff)"
                       :class="getSquareDiffChoice(diff) === 'both' ? 'bg-purple-600 text-white' : 'bg-white text-purple-600 border border-purple-300'"
@@ -229,8 +229,7 @@
             :class="viewMode === 'all' ? (activeSource === 'shopify' ? 'bg-purple-600 text-white' : 'bg-gray-700 text-white') : 'bg-white text-gray-600 border'"
             class="px-4 py-2 rounded-lg text-sm flex items-center gap-1"
           >
-            <span v-if="activeSource === 'shopify'">🛍</span>
-            <span v-else>⬛</span>
+            <img :src="activeSource === 'shopify' ? shopifyLogoUrl : squareLogoUrl" class="w-4 h-4 object-contain" />
             {{ viewMode === 'all' ? (activeSource === 'shopify' ? t('inventory.allShopify') : t('inventory.allSquare')) : t('inventory.allProducts') }}
             <span class="ml-1">▾</span>
           </button>
@@ -240,14 +239,14 @@
               class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-t-lg flex items-center gap-2"
               :class="activeSource === 'shopify' && viewMode === 'all' ? 'bg-purple-50 text-purple-700 font-medium' : ''"
             >
-              <span>🛍</span> {{ t('inventory.allShopify') }}
+              <img :src="shopifyLogoUrl" class="w-4 h-4 object-contain" /> {{ t('inventory.allShopify') }}
             </button>
             <button
               @click="setSourceView('square')"
               class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg flex items-center gap-2"
               :class="activeSource === 'square' && viewMode === 'all' ? 'bg-gray-100 text-gray-800 font-medium' : ''"
             >
-              <span>⬛</span> {{ t('inventory.allSquare') }}
+              <img :src="squareLogoUrl" class="w-4 h-4 object-contain" /> {{ t('inventory.allSquare') }}
             </button>
           </div>
         </div>
@@ -269,14 +268,14 @@
               class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-t-lg flex items-center gap-2"
               :class="viewMode === 'shopify-dup' ? 'bg-orange-50 text-orange-700 font-medium' : ''"
             >
-              <span>🛍</span> {{ t('inventory.shopifyDuplicates') }}
+              <img :src="shopifyLogoUrl" class="w-4 h-4 object-contain" /> {{ t('inventory.shopifyDuplicates') }}
             </button>
             <button
               @click="setIssuesView('square-dup')"
               class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
               :class="viewMode === 'square-dup' ? 'bg-orange-50 text-orange-700 font-medium' : ''"
             >
-              <span>⬛</span> {{ t('inventory.squareDuplicates') }}
+              <img :src="squareLogoUrl" class="w-4 h-4 object-contain" /> {{ t('inventory.squareDuplicates') }}
             </button>
             <button
               @click="setIssuesView('cross-gtin')"
@@ -423,7 +422,7 @@
       <!-- ── Square Products List ── -->
       <template v-else-if="activeSource === 'square' && (viewMode === 'all' || viewMode === 'square-dup')">
         <div v-if="squareProducts.length === 0" class="text-center text-gray-400 py-20">
-          <div class="text-4xl mb-3">⬛</div>
+          <div class="mb-3"><img :src="squareLogoUrl" class="w-12 h-12 object-contain mx-auto" /></div>
           <div>{{ squareLastSync ? t('inventory.noSquareProducts') : t('inventory.squareNotSynced') }}</div>
           <div v-if="!squareLastSync" class="text-xs text-gray-300 mt-2">{{ t('inventory.squareSyncHint') }}</div>
         </div>
@@ -438,7 +437,7 @@
               <div class="flex items-center gap-3">
                 <span v-if="group.some(v => v.hasDuplicate)" class="text-orange-500">⚠</span>
                 <span class="font-medium text-gray-800">{{ itemName }}</span>
-                <span class="text-xs text-gray-400">⬛ Square</span>
+                <span class="text-xs text-gray-400 flex items-center gap-1"><img :src="squareLogoUrl" class="w-3 h-3 object-contain" /> Square</span>
               </div>
               <div class="flex items-center gap-3">
                 <span class="text-xs text-gray-400">{{ group.length }} {{ t('inventory.variants') }}</span>
@@ -484,52 +483,91 @@
           ✅ {{ t('inventory.noCrossMatch') }}
         </div>
         <div v-else class="space-y-3">
-          <div v-for="(item, idx) in filteredCrossMatchItems" :key="idx" class="bg-white rounded-xl shadow-sm overflow-hidden border-l-4 border-orange-400">
-            <div class="px-4 py-3">
-              <div class="flex items-start justify-between gap-4">
-                <div class="flex-1 min-w-0">
-                  <div class="text-sm font-medium text-gray-800">
-                    🛍 {{ item.shopify_product_title }} — {{ item.shopify_variant_title }}
-                  </div>
-                  <div class="text-xs text-gray-400 mt-0.5">⬛ Square: {{ item.square_item_name }} — {{ item.square_variation_name }}</div>
-                  <div class="mt-2 grid grid-cols-2 gap-4 text-xs">
-                    <div>
-                      <div class="text-gray-400 mb-1">🛍 Shopify</div>
-                      <div>SKU: <span class="font-mono text-gray-700">{{ item.shopify_sku || '—' }}</span></div>
-                      <div>GTIN: <span class="font-mono text-gray-700">{{ item.shopify_gtin || '—' }}</span></div>
-                    </div>
-                    <div>
-                      <div class="text-gray-400 mb-1">⬛ Square</div>
-                      <div>SKU: <span class="font-mono" :class="item.shopify_sku !== item.square_sku ? 'text-red-600 font-semibold' : 'text-gray-700'">{{ item.square_sku || '—' }}</span></div>
-                      <div>GTIN: <span class="font-mono text-gray-700">{{ item.square_gtin || '—' }}</span></div>
-                    </div>
-                  </div>
-                </div>
-                <div class="flex flex-col gap-1 shrink-0">
-                  <div class="flex gap-1">
-                    <button
-                      @click="stageCrossMatchDiff(item, 'cross-gtin', 'square')"
-                      :class="getCrossMatchChoice(item, 'cross-gtin') === 'square' ? 'bg-blue-600 text-white' : 'bg-white text-blue-600 border border-blue-300'"
-                      class="text-xs px-2 py-1 rounded hover:bg-blue-600 hover:text-white transition-colors"
-                    >{{ t('inventory.keepSquare') }}</button>
-                    <button
-                      @click="stageCrossMatchDiff(item, 'cross-gtin', 'shopify')"
-                      :class="getCrossMatchChoice(item, 'cross-gtin') === 'shopify' ? 'bg-green-600 text-white' : 'bg-white text-green-600 border border-green-300'"
-                      class="text-xs px-2 py-1 rounded hover:bg-green-600 hover:text-white transition-colors"
-                    >{{ t('inventory.keepShopify') }}</button>
-                    <button
-                      @click="openManualInputCross(item, 'cross-gtin')"
-                      :class="getCrossMatchChoice(item, 'cross-gtin') === 'both' ? 'bg-purple-600 text-white' : 'bg-white text-purple-600 border border-purple-300'"
-                      class="text-xs px-2 py-1 rounded hover:bg-purple-600 hover:text-white transition-colors"
-                    >{{ t('inventory.manualInput') }}</button>
-                  </div>
-                  <div v-if="getCrossMatchChoice(item, 'cross-gtin')" class="text-xs text-center">
-                    <span v-if="getCrossMatchChoice(item, 'cross-gtin') === 'square'" class="text-blue-500">✓ 保留 Square</span>
-                    <span v-else-if="getCrossMatchChoice(item, 'cross-gtin') === 'shopify'" class="text-green-500">✓ 保留 Shopify</span>
-                    <span v-else class="text-purple-500">✓ 手动输入</span>
+          <div
+            v-for="(item, idx) in filteredCrossMatchItems"
+            :key="idx"
+            class="bg-white rounded-xl shadow-sm overflow-hidden"
+            :class="[
+              getCrossMatchChoice(item, 'cross-gtin') ? 'ring-2 ring-amber-300' : 'border-l-4 border-orange-400'
+            ]"
+          >
+            <!-- Card Header -->
+            <div class="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-50"
+              @click="toggleCrossItem('gtin_' + idx)">
+              <div class="flex items-center gap-3">
+                <span class="text-orange-500 text-lg">⚠</span>
+                <span v-if="getCrossMatchChoice(item, 'cross-gtin')" class="text-amber-500 text-sm font-medium">✎</span>
+                <div>
+                  <div class="font-medium text-gray-800">{{ item.shopify_product_title }}</div>
+                  <div class="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                    <img :src="shopifyLogoUrl" class="w-3 h-3 object-contain" />
+                    <span>{{ item.shopify_variant_title }}</span>
+                    <span class="text-gray-300 mx-1">·</span>
+                    <img :src="squareLogoUrl" class="w-3 h-3 object-contain" />
+                    <span>{{ item.square_item_name }} / {{ item.square_variation_name }}</span>
                   </div>
                 </div>
               </div>
+              <div class="flex items-center gap-3">
+                <span v-if="getCrossMatchChoice(item, 'cross-gtin')" class="text-xs text-amber-500">
+                  {{ getCrossMatchChoice(item, 'cross-gtin') === 'square' ? '✓ 保留 Square' : getCrossMatchChoice(item, 'cross-gtin') === 'shopify' ? '✓ 保留 Shopify' : '✓ 手动输入' }}
+                </span>
+                <span class="text-gray-400">{{ expandedCrossItems.has('gtin_' + idx) ? '▲' : '▼' }}</span>
+              </div>
+            </div>
+            <!-- Expanded: data table with inline buttons -->
+            <div v-if="expandedCrossItems.has('gtin_' + idx)" class="border-t">
+              <table class="w-full text-xs">
+                <thead class="bg-gray-50 text-gray-500">
+                  <tr>
+                    <th class="text-left px-4 py-2 w-24">字段</th>
+                    <th class="text-left px-4 py-2">
+                      <span class="flex items-center gap-1"><img :src="shopifyLogoUrl" class="w-3.5 h-3.5 object-contain" /> Shopify</span>
+                    </th>
+                    <th class="text-left px-4 py-2">
+                      <span class="flex items-center gap-1"><img :src="squareLogoUrl" class="w-3.5 h-3.5 object-contain" /> Square</span>
+                    </th>
+                    <th class="text-left px-4 py-2 w-56">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- SKU row -->
+                  <tr class="border-t" :class="item.shopify_sku !== item.square_sku ? 'bg-orange-50' : ''">
+                    <td class="px-4 py-2 text-gray-500 uppercase font-medium">SKU</td>
+                    <td class="px-4 py-2 font-mono" :class="item.shopify_sku !== item.square_sku ? 'text-red-600 font-semibold' : 'text-gray-600'">{{ item.shopify_sku || '—' }}</td>
+                    <td class="px-4 py-2 font-mono text-gray-600">{{ item.square_sku || '—' }}</td>
+                    <td class="px-4 py-2">
+                      <div v-if="item.shopify_sku !== item.square_sku" class="flex gap-1 flex-wrap">
+                        <button
+                          @click.stop="stageCrossMatchDiff(item, 'cross-gtin', 'square')"
+                          :class="getCrossMatchChoice(item, 'cross-gtin') === 'square' ? 'bg-blue-600 text-white' : 'bg-white text-blue-600 border border-blue-300'"
+                          class="text-xs px-2 py-1 rounded hover:bg-blue-600 hover:text-white transition-colors flex items-center gap-1"
+                        ><img :src="squareLogoUrl" class="w-3 h-3 object-contain" /> 保留 Square</button>
+                        <button
+                          @click.stop="stageCrossMatchDiff(item, 'cross-gtin', 'shopify')"
+                          :class="getCrossMatchChoice(item, 'cross-gtin') === 'shopify' ? 'bg-green-600 text-white' : 'bg-white text-green-600 border border-green-300'"
+                          class="text-xs px-2 py-1 rounded hover:bg-green-600 hover:text-white transition-colors flex items-center gap-1"
+                        ><img :src="shopifyLogoUrl" class="w-3 h-3 object-contain" /> 保留 Shopify</button>
+                        <button
+                          @click.stop="openManualInputCross(item, 'cross-gtin')"
+                          :class="getCrossMatchChoice(item, 'cross-gtin') === 'both' ? 'bg-purple-600 text-white' : 'bg-white text-purple-600 border border-purple-300'"
+                          class="text-xs px-2 py-1 rounded hover:bg-purple-600 hover:text-white transition-colors"
+                        >手动输入</button>
+                      </div>
+                      <span v-else class="text-green-500 text-xs">✓ 一致</span>
+                    </td>
+                  </tr>
+                  <!-- GTIN row -->
+                  <tr class="border-t" :class="item.shopify_gtin !== item.square_gtin ? 'bg-orange-50' : ''">
+                    <td class="px-4 py-2 text-gray-500 uppercase font-medium">GTIN</td>
+                    <td class="px-4 py-2 font-mono text-gray-600">{{ item.shopify_gtin || '—' }}</td>
+                    <td class="px-4 py-2 font-mono" :class="item.shopify_gtin !== item.square_gtin ? 'text-red-600 font-semibold' : 'text-gray-600'">{{ item.square_gtin || '—' }}</td>
+                    <td class="px-4 py-2">
+                      <span class="text-gray-400 text-xs italic">由 GTIN 匹配</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -541,52 +579,91 @@
           ✅ {{ t('inventory.noCrossMatch') }}
         </div>
         <div v-else class="space-y-3">
-          <div v-for="(item, idx) in filteredCrossMatchItems" :key="idx" class="bg-white rounded-xl shadow-sm overflow-hidden border-l-4 border-orange-400">
-            <div class="px-4 py-3">
-              <div class="flex items-start justify-between gap-4">
-                <div class="flex-1 min-w-0">
-                  <div class="text-sm font-medium text-gray-800">
-                    🛍 {{ item.shopify_product_title }} — {{ item.shopify_variant_title }}
-                  </div>
-                  <div class="text-xs text-gray-400 mt-0.5">⬛ Square: {{ item.square_item_name }} — {{ item.square_variation_name }}</div>
-                  <div class="mt-2 grid grid-cols-2 gap-4 text-xs">
-                    <div>
-                      <div class="text-gray-400 mb-1">🛍 Shopify</div>
-                      <div>SKU: <span class="font-mono text-gray-700">{{ item.shopify_sku || '—' }}</span></div>
-                      <div>GTIN: <span class="font-mono text-gray-700">{{ item.shopify_gtin || '—' }}</span></div>
-                    </div>
-                    <div>
-                      <div class="text-gray-400 mb-1">⬛ Square</div>
-                      <div>SKU: <span class="font-mono text-gray-700">{{ item.square_sku || '—' }}</span></div>
-                      <div>GTIN: <span class="font-mono" :class="item.shopify_gtin !== item.square_gtin ? 'text-red-600 font-semibold' : 'text-gray-700'">{{ item.square_gtin || '—' }}</span></div>
-                    </div>
-                  </div>
-                </div>
-                <div class="flex flex-col gap-1 shrink-0">
-                  <div class="flex gap-1">
-                    <button
-                      @click="stageCrossMatchDiff(item, 'cross-sku', 'square')"
-                      :class="getCrossMatchChoice(item, 'cross-sku') === 'square' ? 'bg-blue-600 text-white' : 'bg-white text-blue-600 border border-blue-300'"
-                      class="text-xs px-2 py-1 rounded hover:bg-blue-600 hover:text-white transition-colors"
-                    >{{ t('inventory.keepSquare') }}</button>
-                    <button
-                      @click="stageCrossMatchDiff(item, 'cross-sku', 'shopify')"
-                      :class="getCrossMatchChoice(item, 'cross-sku') === 'shopify' ? 'bg-green-600 text-white' : 'bg-white text-green-600 border border-green-300'"
-                      class="text-xs px-2 py-1 rounded hover:bg-green-600 hover:text-white transition-colors"
-                    >{{ t('inventory.keepShopify') }}</button>
-                    <button
-                      @click="openManualInputCross(item, 'cross-sku')"
-                      :class="getCrossMatchChoice(item, 'cross-sku') === 'both' ? 'bg-purple-600 text-white' : 'bg-white text-purple-600 border border-purple-300'"
-                      class="text-xs px-2 py-1 rounded hover:bg-purple-600 hover:text-white transition-colors"
-                    >{{ t('inventory.manualInput') }}</button>
-                  </div>
-                  <div v-if="getCrossMatchChoice(item, 'cross-sku')" class="text-xs text-center">
-                    <span v-if="getCrossMatchChoice(item, 'cross-sku') === 'square'" class="text-blue-500">✓ 保留 Square</span>
-                    <span v-else-if="getCrossMatchChoice(item, 'cross-sku') === 'shopify'" class="text-green-500">✓ 保留 Shopify</span>
-                    <span v-else class="text-purple-500">✓ 手动输入</span>
+          <div
+            v-for="(item, idx) in filteredCrossMatchItems"
+            :key="idx"
+            class="bg-white rounded-xl shadow-sm overflow-hidden"
+            :class="[
+              getCrossMatchChoice(item, 'cross-sku') ? 'ring-2 ring-amber-300' : 'border-l-4 border-orange-400'
+            ]"
+          >
+            <!-- Card Header -->
+            <div class="px-4 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-50"
+              @click="toggleCrossItem('sku_' + idx)">
+              <div class="flex items-center gap-3">
+                <span class="text-orange-500 text-lg">⚠</span>
+                <span v-if="getCrossMatchChoice(item, 'cross-sku')" class="text-amber-500 text-sm font-medium">✎</span>
+                <div>
+                  <div class="font-medium text-gray-800">{{ item.shopify_product_title }}</div>
+                  <div class="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                    <img :src="shopifyLogoUrl" class="w-3 h-3 object-contain" />
+                    <span>{{ item.shopify_variant_title }}</span>
+                    <span class="text-gray-300 mx-1">·</span>
+                    <img :src="squareLogoUrl" class="w-3 h-3 object-contain" />
+                    <span>{{ item.square_item_name }} / {{ item.square_variation_name }}</span>
                   </div>
                 </div>
               </div>
+              <div class="flex items-center gap-3">
+                <span v-if="getCrossMatchChoice(item, 'cross-sku')" class="text-xs text-amber-500">
+                  {{ getCrossMatchChoice(item, 'cross-sku') === 'square' ? '✓ 保留 Square' : getCrossMatchChoice(item, 'cross-sku') === 'shopify' ? '✓ 保留 Shopify' : '✓ 手动输入' }}
+                </span>
+                <span class="text-gray-400">{{ expandedCrossItems.has('sku_' + idx) ? '▲' : '▼' }}</span>
+              </div>
+            </div>
+            <!-- Expanded: data table with inline buttons -->
+            <div v-if="expandedCrossItems.has('sku_' + idx)" class="border-t">
+              <table class="w-full text-xs">
+                <thead class="bg-gray-50 text-gray-500">
+                  <tr>
+                    <th class="text-left px-4 py-2 w-24">字段</th>
+                    <th class="text-left px-4 py-2">
+                      <span class="flex items-center gap-1"><img :src="shopifyLogoUrl" class="w-3.5 h-3.5 object-contain" /> Shopify</span>
+                    </th>
+                    <th class="text-left px-4 py-2">
+                      <span class="flex items-center gap-1"><img :src="squareLogoUrl" class="w-3.5 h-3.5 object-contain" /> Square</span>
+                    </th>
+                    <th class="text-left px-4 py-2 w-56">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- SKU row -->
+                  <tr class="border-t" :class="item.shopify_sku !== item.square_sku ? 'bg-orange-50' : ''">
+                    <td class="px-4 py-2 text-gray-500 uppercase font-medium">SKU</td>
+                    <td class="px-4 py-2 font-mono text-gray-600">{{ item.shopify_sku || '—' }}</td>
+                    <td class="px-4 py-2 font-mono text-gray-600">{{ item.square_sku || '—' }}</td>
+                    <td class="px-4 py-2">
+                      <span class="text-gray-400 text-xs italic">由 SKU 匹配</span>
+                    </td>
+                  </tr>
+                  <!-- GTIN row -->
+                  <tr class="border-t" :class="item.shopify_gtin !== item.square_gtin ? 'bg-orange-50' : ''">
+                    <td class="px-4 py-2 text-gray-500 uppercase font-medium">GTIN</td>
+                    <td class="px-4 py-2 font-mono text-gray-600">{{ item.shopify_gtin || '—' }}</td>
+                    <td class="px-4 py-2 font-mono" :class="item.shopify_gtin !== item.square_gtin ? 'text-red-600 font-semibold' : 'text-gray-600'">{{ item.square_gtin || '—' }}</td>
+                    <td class="px-4 py-2">
+                      <div v-if="item.shopify_gtin !== item.square_gtin" class="flex gap-1 flex-wrap">
+                        <button
+                          @click.stop="stageCrossMatchDiff(item, 'cross-sku', 'square')"
+                          :class="getCrossMatchChoice(item, 'cross-sku') === 'square' ? 'bg-blue-600 text-white' : 'bg-white text-blue-600 border border-blue-300'"
+                          class="text-xs px-2 py-1 rounded hover:bg-blue-600 hover:text-white transition-colors flex items-center gap-1"
+                        ><img :src="squareLogoUrl" class="w-3 h-3 object-contain" /> 保留 Square</button>
+                        <button
+                          @click.stop="stageCrossMatchDiff(item, 'cross-sku', 'shopify')"
+                          :class="getCrossMatchChoice(item, 'cross-sku') === 'shopify' ? 'bg-green-600 text-white' : 'bg-white text-green-600 border border-green-300'"
+                          class="text-xs px-2 py-1 rounded hover:bg-green-600 hover:text-white transition-colors flex items-center gap-1"
+                        ><img :src="shopifyLogoUrl" class="w-3 h-3 object-contain" /> 保留 Shopify</button>
+                        <button
+                          @click.stop="openManualInputCross(item, 'cross-sku')"
+                          :class="getCrossMatchChoice(item, 'cross-sku') === 'both' ? 'bg-purple-600 text-white' : 'bg-white text-purple-600 border border-purple-300'"
+                          class="text-xs px-2 py-1 rounded hover:bg-purple-600 hover:text-white transition-colors"
+                        >手动输入</button>
+                      </div>
+                      <span v-else class="text-green-500 text-xs">✓ 一致</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -836,7 +913,7 @@
               <div class="grid grid-cols-2 divide-x">
                 <!-- Left: Shopify changes -->
                 <div>
-                  <div class="bg-gray-50 px-4 py-2 text-xs font-medium text-gray-600 border-b">{{ t('inventory.shopifyModify') }}</div>
+                  <div class="bg-gray-50 px-4 py-2 text-xs font-medium text-gray-600 border-b flex items-center gap-1"><img :src="shopifyLogoUrl" class="w-3.5 h-3.5 object-contain" />{{ t('inventory.shopifyModify') }}</div>
                   <table class="w-full text-xs">
                     <thead class="bg-gray-50 text-gray-400">
                       <tr>
@@ -864,7 +941,7 @@
                         </tr>
                         <tr v-else class="border-t">
                           <td class="px-3 py-2 text-gray-500 uppercase">{{ d.field }}</td>
-                          <td class="px-3 py-2 text-gray-400 italic">不变</td>
+                          <td class="px-3 py-2 text-gray-400 italic">不变 ✓</td>
                         </tr>
                       </template>
                     </tbody>
@@ -872,7 +949,7 @@
                 </div>
                 <!-- Right: Square changes -->
                 <div>
-                  <div class="bg-blue-50 px-4 py-2 text-xs font-medium text-blue-600 border-b">{{ t('inventory.squareModify') }}</div>
+                  <div class="bg-blue-50 px-4 py-2 text-xs font-medium text-blue-600 border-b flex items-center gap-1"><img :src="squareLogoUrl" class="w-3.5 h-3.5 object-contain" />{{ t('inventory.squareModify') }}</div>
                   <table class="w-full text-xs">
                     <thead class="bg-blue-50 text-blue-300">
                       <tr>
@@ -933,6 +1010,8 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import axios from 'axios'
+import shopifyLogoUrl from '../assets/shopify-logo.png'
+import squareLogoUrl from '../assets/square-logo.png'
 
 const { t, locale } = useI18n()
 const api = axios.create({ baseURL: '/api', withCredentials: true })
@@ -975,6 +1054,7 @@ const squareProducts = ref([])
 const squareSummary = ref({ total: 0, withDuplicates: 0, duplicateSkus: 0, duplicateGtins: 0 })
 const squareLastSync = ref(null)
 const expandedSquareItems = ref(new Set())
+const expandedCrossItems = ref(new Set())
 
 // ─── Cross-match data ─────────────────────────────────────────────────────────
 const crossMatchItems = ref([])
@@ -1432,6 +1512,7 @@ function toggleProduct(id) {
   } else {
     expandedProducts.value.add(id)
   }
+  expandedProducts.value = new Set(expandedProducts.value)
 }
 
 function toggleSquareItem(name) {
@@ -1440,6 +1521,17 @@ function toggleSquareItem(name) {
   } else {
     expandedSquareItems.value.add(name)
   }
+  expandedSquareItems.value = new Set(expandedSquareItems.value)
+}
+
+function toggleCrossItem(key) {
+  if (expandedCrossItems.value.has(key)) {
+    expandedCrossItems.value.delete(key)
+  } else {
+    expandedCrossItems.value.add(key)
+  }
+  // Force reactivity
+  expandedCrossItems.value = new Set(expandedCrossItems.value)
 }
 
 async function switchStatus(status) {

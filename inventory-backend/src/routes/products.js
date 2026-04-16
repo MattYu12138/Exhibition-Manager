@@ -658,10 +658,13 @@ router.post('/square-compare', requirePermission('read'), async (req, res) => {
 /**
  * POST /api/products/square-batch-update
  * Commit Square-sourced staged changes:
- *   items: [{ shopifyVariantId, squareVariationId, changes: { sku?, gtin? }, target: 'shopify'|'square'|'both', manualSku?, manualGtin? }]
- * - target='shopify': update Shopify variant (and local DB) with Square values
- * - target='square': update Square variation with Shopify values
+ *   items: [{ shopifyVariantId, squareVariationId, target: 'shopify'|'square'|'both', ... }]
+ * - target='shopify': keep Shopify values → update Square with Shopify values
+ * - target='square': keep Square values → update Shopify with Square values
  * - target='both': use manualSku/manualGtin to update both Shopify and Square
+ *
+ * NOTE: target means "the source of truth to keep", not "the platform to update".
+ * Keeping Shopify → Square gets updated. Keeping Square → Shopify gets updated.
  */
 router.post('/square-batch-update', requirePermission('write'), async (req, res) => {
   const { items = [] } = req.body;
@@ -686,19 +689,19 @@ router.post('/square-batch-update', requirePermission('write'), async (req, res)
         finalSku = manualSku;
         finalGtin = manualGtin;
       } else if (target === 'shopify') {
-        // Keep Square values → update Shopify
-        finalSku = item.squareSku;
-        finalGtin = item.squareGtin;
-      } else if (target === 'square') {
-        // Keep Shopify values → update Square
+        // Keep Shopify → update Square with Shopify values
         finalSku = item.shopifySku;
         finalGtin = item.shopifyGtin;
+      } else if (target === 'square') {
+        // Keep Square → update Shopify with Square values
+        finalSku = item.squareSku;
+        finalGtin = item.squareGtin;
       } else {
         throw new Error(`Unknown target: ${target}`);
       }
 
-      // Update Shopify if needed
-      if (target === 'shopify' || target === 'both') {
+      // Update Shopify if needed (when keeping Square or manual input)
+      if (target === 'square' || target === 'both') {
         const shopifyUpdate = {};
         if (finalSku !== undefined) shopifyUpdate.sku = finalSku;
         if (finalGtin !== undefined) shopifyUpdate.barcode = finalGtin;
@@ -709,8 +712,8 @@ router.post('/square-batch-update', requirePermission('write'), async (req, res)
           .run(finalSku ?? varRow?.sku, finalGtin ?? varRow?.gtin, shopifyVariantId);
       }
 
-      // Update Square if needed
-      if (target === 'square' || target === 'both') {
+      // Update Square if needed (when keeping Shopify or manual input)
+      if (target === 'shopify' || target === 'both') {
         const squareUpdate = {};
         if (finalSku !== undefined) squareUpdate.sku = finalSku;
         if (finalGtin !== undefined) squareUpdate.gtin = finalGtin;
