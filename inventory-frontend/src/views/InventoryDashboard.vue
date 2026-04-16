@@ -569,7 +569,7 @@
                 <span>
                   Square 对比: {{ staged.shopifyProductTitle }} — {{ staged.shopifyVariantTitle }}
                   <span class="ml-2 text-blue-400 normal-case font-normal">
-                    ({{ staged.target === 'square' ? '保留 Shopify → 更新 Square' : staged.target === 'shopify' ? '保留 Square → 更新 Shopify' : '手动输入 → 同步双方' }})
+                    ({{ staged.target === 'square' ? '保留 Square → 更新 Shopify' : staged.target === 'shopify' ? '保留 Shopify → 更新 Square' : '手动输入 → 同步双方' }})
                   </span>
                 </span>
                 <button @click="discardSquareDiff(key)" class="text-red-400 hover:text-red-600 text-xs normal-case font-normal">{{ t('inventory.discard') }}</button>
@@ -588,10 +588,11 @@
                     </thead>
                     <tbody>
                       <template v-for="d in staged.diffs" :key="'shopify-' + d.field">
-                        <tr v-if="staged.target === 'shopify' || staged.target === 'both'" class="border-t">
+                        <!-- 保留 Square(target=square) 或 手动输入(both) 时，Shopify 那边会变 -->
+                        <tr v-if="staged.target === 'square' || staged.target === 'both'" class="border-t">
                           <td class="px-3 py-2 text-gray-500 uppercase">{{ d.field }}</td>
                           <td class="px-3 py-2">
-                            <span v-if="staged.target === 'shopify'">
+                            <span v-if="staged.target === 'square'">
                               <span class="text-red-500 line-through">{{ d.shopifyValue || '—' }}</span>
                               <span class="text-gray-400 mx-1">→</span>
                               <span class="text-green-600 font-medium">{{ d.squareValue || '—' }}</span>
@@ -623,10 +624,11 @@
                     </thead>
                     <tbody>
                       <template v-for="d in staged.diffs" :key="'square-' + d.field">
-                        <tr v-if="staged.target === 'square' || staged.target === 'both'" class="border-t">
+                        <!-- 保留 Shopify(target=shopify) 或 手动输入(both) 时，Square 那边会变 -->
+                        <tr v-if="staged.target === 'shopify' || staged.target === 'both'" class="border-t">
                           <td class="px-3 py-2 text-gray-500 uppercase">{{ d.field }}</td>
                           <td class="px-3 py-2">
-                            <span v-if="staged.target === 'square'">
+                            <span v-if="staged.target === 'shopify'">
                               <span class="text-red-500 line-through">{{ d.squareValue || '—' }}</span>
                               <span class="text-gray-400 mx-1">→</span>
                               <span class="text-green-600 font-medium">{{ d.shopifyValue || '—' }}</span>
