@@ -16,22 +16,22 @@ function requirePermission(permission = 'read') {
     if (role === 'admin') return next();
 
     // Check platform permissions for inventory-manager system
+    // DB schema: platform_permissions(user_id, system TEXT, role TEXT)
+    // role: 'admin' = read+write, 'viewer' = read-only
     try {
       const db = getDb();
-      const perm = db.prepare(`
-        SELECT p.can_read, p.can_write
-        FROM platform_permissions p
-        JOIN platform_systems s ON s.id = p.system_id
-        WHERE p.user_id = ? AND s.name = 'inventory-manager'
-      `).get(userId);
+      const perm = db.prepare(
+        "SELECT role FROM platform_permissions WHERE user_id = ? AND system = 'inventory-manager'"
+      ).get(userId);
 
       if (!perm) return res.status(403).json({ error: 'No access to Inventory Manager' });
-      if (permission === 'read' && !perm.can_read) return res.status(403).json({ error: 'Read permission required' });
-      if (permission === 'write' && !perm.can_write) return res.status(403).json({ error: 'Write permission required' });
-
+      // 'viewer' or 'admin' both have read access; only 'admin' has write access
+      if (permission === 'write' && perm.role !== 'admin') {
+        return res.status(403).json({ error: 'Write permission required' });
+      }
       next();
     } catch (err) {
-      // If platform_systems table doesn't exist yet, allow access
+      // If platform_permissions table doesn't exist yet, allow access
       console.warn('[Auth Middleware] Permission check skipped:', err.message);
       next();
     }

@@ -30,20 +30,18 @@ router.post('/login', (req, res) => {
   }
 
   // 权限检查：非管理员必须拥有 exhibition-manager 的读权限才能登录
+  // DB schema: platform_permissions(user_id, system TEXT, role TEXT)
   if (user.role !== 'admin') {
     try {
-      const system = db.prepare("SELECT id FROM platform_systems WHERE name = 'exhibition-manager' LIMIT 1").get();
-      if (system) {
-        const perm = db.prepare(
-          'SELECT can_read FROM platform_permissions WHERE user_id = ? AND system_id = ?'
-        ).get(user.id, system.id);
-        if (!perm || !perm.can_read) {
-          return res.status(403).json({ success: false, message: '您没有访问展会管理系统的权限，请联系管理员' });
-        }
+      const perm = db.prepare(
+        "SELECT role FROM platform_permissions WHERE user_id = ? AND system = 'exhibition-manager'"
+      ).get(user.id);
+      if (!perm) {
+        return res.status(403).json({ success: false, message: '您没有访问展会管理系统的权限，请联系管理员' });
       }
-      // 若 platform_systems 表不存在或无记录，默认允许登录
+      // role 存在即有读权限（'viewer' 或 'admin'）
     } catch (e) {
-      console.warn('[Auth] platform_systems 查询失败，跳过权限检查:', e.message);
+      console.warn('[Auth] platform_permissions 查询失败，跳过权限检查:', e.message);
     }
   }
 
@@ -67,6 +65,13 @@ router.get('/me', (req, res) => {
   if (!req.session.user) {
     return res.status(401).json({ success: false, message: '未登录' });
   }
+  // 从 DB 重新查询用户最新角色，避免 session 缓存过时
+  const freshUser = db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(req.session.user.id);
+  if (!freshUser) {
+    req.session.destroy(() => {});
+    return res.status(401).json({ success: false, message: '用户不存在' });
+  }
+  req.session.user = { id: freshUser.id, username: freshUser.username, role: freshUser.role };
   res.json({ success: true, user: req.session.user });
 });
 

@@ -49,6 +49,7 @@ router.post('/login', (req, res) => {
 // ─── 登出 ─────────────────────────────────────────────────────
 router.post('/logout', (req, res) => {
   req.session.destroy(() => {
+    res.clearCookie('platform.sid');
     res.json({ success: true });
   });
 });
@@ -58,6 +59,21 @@ router.get('/me', (req, res) => {
   if (!req.session.user) {
     return res.status(401).json({ success: false, message: '未登录' });
   }
+  // 从 DB 重新查询用户最新角色，避免 session 缓存过时导致身份混乱
+  const db = getDb();
+  const freshUser = db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(req.session.user.id);
+  if (!freshUser) {
+    req.session.destroy(() => {});
+    return res.status(401).json({ success: false, message: '用户不存在' });
+  }
+  // 同步更新 session 中的角色
+  req.session.user = {
+    ...req.session.user,
+    id: freshUser.id,
+    username: freshUser.username,
+    displayName: freshUser.username,
+    role: freshUser.role,
+  };
   res.json({ success: true, user: req.session.user });
 });
 

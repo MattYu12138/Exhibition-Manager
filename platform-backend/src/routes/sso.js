@@ -7,6 +7,7 @@ const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
 const { requireLogin } = require('../middleware/auth');
+const { getDb } = require('../db');
 
 // 内存存储 SSO tokens（token => { user, expiresAt }）
 // 生产环境可替换为 Redis，但 SQLite 内存表也足够
@@ -28,12 +29,21 @@ setInterval(() => {
  * Body: { system: 'exhibition' | 'inventory' }
  */
 router.post('/token', requireLogin, (req, res) => {
-  const user = req.session.user;
   const { system } = req.body;
 
   if (!system) {
     return res.status(400).json({ success: false, message: '缺少 system 参数' });
   }
+
+  // 从 DB 重新查询用户最新信息，避免 session 缓存的角色过时
+  const db = getDb();
+  const freshUser = db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(req.session.user.id);
+  if (!freshUser) {
+    return res.status(401).json({ success: false, message: '用户不存在' });
+  }
+  const user = { id: freshUser.id, username: freshUser.username, role: freshUser.role };
+  // 同步更新 session 中的角色
+  req.session.user = { ...req.session.user, ...user };
 
   // 生成 32 字节随机 token
   const token = crypto.randomBytes(32).toString('hex');
@@ -102,9 +112,15 @@ router.post('/issue', (req, res) => {
   if (!user || !user.id) {
     return res.status(400).json({ success: false, message: '缺少用户信息' });
   }
+  // 从 DB 重新查询用户最新角色，确保 platform 收到的是最新身份
+  const db = getDb();
+  const freshUser = db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(user.id);
+  const issueUser = freshUser
+    ? { id: freshUser.id, username: freshUser.username, role: freshUser.role }
+    : user; // fallback to passed user if not found
   const token = crypto.randomBytes(32).toString('hex');
   ssoTokens.set(token, {
-    user,
+    user: issueUser,
     system: 'platform',
     expiresAt: Date.now() + 30 * 1000,
   });

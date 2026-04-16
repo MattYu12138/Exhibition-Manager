@@ -45,11 +45,11 @@ router.beforeEach(async (to, from, next) => {
       delete cleanQuery.sso_token
       return next({ path: to.path, query: cleanQuery, replace: true })
     }
-    // SSO 失败则继续走正常流程（可能 localStorage 里有缓存）
+    // SSO 失败则继续走正常流程（fetchMe 会验证当前 session）
   }
 
-  // 始终向后端验证 session 是否有效（main.js 已在挂载前调用一次，这里处理路由切换场景）
-  // 如果 auth.user 已从 localStorage 恢复，仍需后台验证确保 session 有效
+  // 始终向后端验证 session 是否有效
+  // 不再依赖 localStorage 缓存，每次路由切换都需验证
   if (!auth.user) {
     await auth.fetchMe()
   }
