@@ -1864,6 +1864,13 @@ async function commitChanges() {
       const key = squareDiffKey(d)
       return !squareItems.some(s => `${s.shopifyVariantId}_${s.squareVariationId}` === key)
     })
+    // Remove resolved cross-match items from the list
+    if (squareItems.length > 0) {
+      crossMatchItems.value = crossMatchItems.value.filter(item => {
+        const key = `cross_${item.shopify_variant_id}_${item.square_variation_id}`
+        return !squareItems.some(s => `cross_${s.shopifyVariantId}_${s.squareVariationId}` === key)
+      })
+    }
 
     showCommitModal.value = false
     alert(t('inventory.commitSuccess'))
