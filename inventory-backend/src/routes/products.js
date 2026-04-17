@@ -650,37 +650,67 @@ router.get('/cross-match/both-mismatch', requirePermission('read'), (req, res) =
     ORDER BY p.title, pv.variant_title
   `).all();
 
-  // For each Shopify product title, find Square candidates by keyword matching
-  // Include all variation details for linking
+  // For each Shopify product title, find Square candidate ITEMS by keyword matching.
+  // Matching is done on product name only (not variant), using loose keyword matching.
+  // Candidates are grouped by Square item (not variation), so the user can pick a variation.
+
+  // Build a map: item_id -> { item_id, item_name, variations[] }
+  const squareItemMap = {};
   const allSquareVariations = db.prepare(
-    'SELECT item_id, item_name, variation_id, variation_name, sku, gtin, price FROM square_products'
+    'SELECT item_id, item_name, variation_id, variation_name, sku, gtin, price FROM square_products ORDER BY item_name, variation_name'
   ).all();
 
-  // Build a map: shopify_product_sys_id -> candidates[]
+  for (const sq of allSquareVariations) {
+    if (!squareItemMap[sq.item_id]) {
+      squareItemMap[sq.item_id] = {
+        item_id: sq.item_id,
+        item_name: sq.item_name,
+        variations: [],
+      };
+    }
+    squareItemMap[sq.item_id].variations.push({
+      variation_id: sq.variation_id,
+      variation_name: sq.variation_name,
+      sku: sq.sku || '',
+      gtin: sq.gtin || '',
+      price: sq.price,
+    });
+  }
+
+  const allSquareItems = Object.values(squareItemMap);
+
+  // Helper: extract meaningful keywords from a product title
+  // - strip symbols (&, -, /, etc.)
+  // - lowercase
+  // - split on whitespace
+  // - keep words >= 3 chars
+  // - remove common stop words
+  const stopWords = new Set([
+    'the', 'and', 'for', 'with', 'from', 'that', 'this', 'are', 'was', 'has',
+    'its', 'not', 'but', 'all', 'one', 'two', 'new', 'our',
+  ]);
+
+  function extractKeywords(title) {
+    return (title || '')
+      .toLowerCase()
+      .replace(/[&\-–—_/,.()'"!?]+/g, ' ')  // strip symbols
+      .split(/\s+/)
+      .filter(w => w.length >= 3 && !stopWords.has(w));
+  }
+
+  // Build a map: shopify_product_sys_id -> candidates[] (grouped by Square item)
   const candidateCache = {};
 
   const enriched = rows.map(row => {
     const key = row.shopify_product_sys_id;
     if (!candidateCache[key]) {
-      // Split title into keywords (words >= 3 chars, ignore common words)
-      const stopWords = new Set(['the', 'and', 'for', 'with', 'from', 'that', 'this', 'are', 'was', 'has']);
-      const keywords = (row.shopify_product_title || '')
-        .toLowerCase()
-        .split(/[\s\-–—_/,]+/)
-        .filter(w => w.length >= 3 && !stopWords.has(w));
+      const keywords = extractKeywords(row.shopify_product_title);
 
-      const candidates = allSquareVariations.filter(sq => {
-        const sqName = (sq.item_name || '').toLowerCase();
+      // Match Square items where item_name contains ANY keyword from Shopify product title
+      const candidates = allSquareItems.filter(item => {
+        const sqName = (item.item_name || '').toLowerCase().replace(/[&\-–—_/,.()'"!?]+/g, ' ');
         return keywords.some(kw => sqName.includes(kw));
-      }).map(sq => ({
-        item_id: sq.item_id,
-        item_name: sq.item_name,
-        variation_id: sq.variation_id,
-        variation_name: sq.variation_name,
-        sku: sq.sku,
-        gtin: sq.gtin,
-        price: sq.price,
-      }));
+      });
 
       candidateCache[key] = candidates;
     }

@@ -758,28 +758,44 @@
                 <span>Price: <span class="font-mono text-gray-700">{{ item.shopify_price != null ? '$' + item.shopify_price : '—' }}</span></span>
               </div>
 
-              <!-- Candidates list -->
+              <!-- Candidates list: grouped by Square item, with variation selector -->
               <div v-if="item.candidates && item.candidates.length > 0">
                 <div class="text-xs font-medium text-gray-600 mb-2">{{ t('inventory.crossBothCandidates') }}:</div>
                 <div class="space-y-2">
                   <div
                     v-for="candidate in item.candidates"
-                    :key="candidate.variation_id"
-                    class="flex items-center justify-between gap-3 bg-gray-50 rounded-lg px-3 py-2"
+                    :key="candidate.item_id"
+                    class="bg-gray-50 rounded-lg px-3 py-2"
                   >
-                    <div class="min-w-0">
-                      <div class="text-sm text-gray-800 truncate">
-                        <img :src="squareLogoUrl" class="w-3.5 h-3.5 object-contain inline mr-1" />
-                        {{ candidate.item_name }} — {{ candidate.variation_name }}
-                      </div>
-                      <div class="text-xs text-gray-400 mt-0.5">
-                        SKU: {{ candidate.sku || '—' }} · GTIN: {{ candidate.gtin || '—' }} · Price: {{ candidate.price != null ? '$' + (candidate.price / 100).toFixed(2) : '—' }}
-                      </div>
+                    <!-- Square item name -->
+                    <div class="flex items-center gap-1.5 mb-2">
+                      <img :src="squareLogoUrl" class="w-3.5 h-3.5 object-contain shrink-0" />
+                      <span class="text-sm font-medium text-gray-800">{{ candidate.item_name }}</span>
                     </div>
-                    <button
-                      @click="linkCrossBoth(item, candidate)"
-                      class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded shrink-0"
-                    >{{ t('inventory.crossBothLinkTo') }}</button>
+                    <!-- Variation selector + link button -->
+                    <div class="flex items-center gap-2">
+                      <select
+                        v-model="crossBothSelectedVariation[item.shopify_variant_id + '|' + candidate.item_id]"
+                        class="flex-1 text-xs border border-gray-200 rounded px-2 py-1.5 bg-white text-gray-700 min-w-0"
+                      >
+                        <option value="" disabled>{{ t('inventory.crossBothSelectVariation') }}</option>
+                        <option
+                          v-for="v in candidate.variations"
+                          :key="v.variation_id"
+                          :value="v.variation_id"
+                        >
+                          {{ v.variation_name }}
+                          <template v-if="v.sku"> · SKU: {{ v.sku }}</template>
+                          <template v-if="v.gtin"> · GTIN: {{ v.gtin }}</template>
+                          <template v-if="v.price != null"> · ${{ (v.price / 100).toFixed(2) }}</template>
+                        </option>
+                      </select>
+                      <button
+                        @click="linkCrossBoth(item, candidate, crossBothSelectedVariation[item.shopify_variant_id + '|' + candidate.item_id])"
+                        :disabled="!crossBothSelectedVariation[item.shopify_variant_id + '|' + candidate.item_id]"
+                        class="text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded shrink-0"
+                      >{{ t('inventory.crossBothLinkTo') }}</button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1223,6 +1239,8 @@ const crossMatchItems = ref([])
 const crossMatchLoading = ref(false)
 const crossBothIgnored = ref(new Set())
 const crossBothLinked = ref(new Set())
+// Map of "shopify_variant_id|item_id" -> selected variation_id
+const crossBothSelectedVariation = ref({})
 
 // ─── Computed summary (switches by activeSource) ──────────────────────────────
 const activeSummary = computed(() => {
@@ -1914,16 +1932,24 @@ async function addToSquare(item) {
   }
 }
 
-async function linkCrossBoth(item, candidate) {
+async function linkCrossBoth(item, candidate, selectedVariationId) {
+  if (!selectedVariationId) {
+    alert(t('inventory.crossBothSelectVariation'))
+    return
+  }
+  // Find the selected variation details from candidate.variations
+  const variation = (candidate.variations || []).find(v => v.variation_id === selectedVariationId)
+  if (!variation) return
+
   // Stage a diff for user to resolve which side to keep
   const diffs = []
-  if (item.shopify_sku !== candidate.sku) {
-    diffs.push({ field: 'sku', shopifyValue: item.shopify_sku, squareValue: candidate.sku })
+  if (item.shopify_sku !== variation.sku) {
+    diffs.push({ field: 'sku', shopifyValue: item.shopify_sku, squareValue: variation.sku })
   }
-  if (item.shopify_gtin !== candidate.gtin) {
-    diffs.push({ field: 'gtin', shopifyValue: item.shopify_gtin, squareValue: candidate.gtin })
+  if (item.shopify_gtin !== variation.gtin) {
+    diffs.push({ field: 'gtin', shopifyValue: item.shopify_gtin, squareValue: variation.gtin })
   }
-  const priceSquare = candidate.price != null ? (candidate.price / 100).toFixed(2) : null
+  const priceSquare = variation.price != null ? (variation.price / 100).toFixed(2) : null
   if (item.shopify_price != null && priceSquare != null && String(item.shopify_price) !== priceSquare) {
     diffs.push({ field: 'price', shopifyValue: String(item.shopify_price), squareValue: priceSquare })
   }
@@ -1936,9 +1962,9 @@ async function linkCrossBoth(item, candidate) {
         shopifyProductId: item.shopify_product_id,
         shopifyVariantId: item.shopify_variant_id,
         squareItemId: candidate.item_id,
-        squareVariationId: candidate.variation_id,
+        squareVariationId: variation.variation_id,
         squareItemName: candidate.item_name,
-        squareVariationName: candidate.variation_name,
+        squareVariationName: variation.variation_name,
         matchType: 'manual',
         diffs,
       }
