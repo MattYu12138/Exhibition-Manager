@@ -286,10 +286,17 @@
             </button>
             <button
               @click="setIssuesView('cross-sku')"
-              class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg flex items-center gap-2"
+              class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
               :class="viewMode === 'cross-sku' ? 'bg-orange-50 text-orange-700 font-medium' : ''"
             >
               <span>🔀</span> {{ t('inventory.crossSkuMismatch') }}
+            </button>
+            <button
+              @click="setIssuesView('cross-both')"
+              class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg flex items-center gap-2"
+              :class="viewMode === 'cross-both' ? 'bg-orange-50 text-orange-700 font-medium' : ''"
+            >
+              <span>🔀</span> {{ t('inventory.crossBothMismatch') }}
             </button>
           </div>
         </div>
@@ -452,22 +459,71 @@
                     <th class="text-left px-4 py-2">{{ t('inventory.sku') }}</th>
                     <th class="text-left px-4 py-2">GTIN</th>
                     <th class="text-left px-4 py-2">{{ t('inventory.issues') }}</th>
+                    <th class="text-left px-4 py-2">{{ t('inventory.actions') }}</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="variation in group" :key="variation.id"
                     class="border-t"
-                    :class="variation.hasDuplicate ? 'bg-orange-50' : ''">
+                    :class="[
+                      variation.hasDuplicate ? 'bg-orange-50' : '',
+                      stagedSquareEdits[variation.id] ? 'bg-amber-50 ring-1 ring-amber-200' : ''
+                    ]">
                     <td class="px-4 py-2 text-gray-700">{{ variation.variation_name || '—' }}</td>
-                    <td class="px-4 py-2" :class="variation.hasDuplicateSku ? 'text-red-600 font-semibold' : 'text-gray-600'">
-                      {{ variation.sku || '—' }}
+                    <!-- SKU cell: inline edit or display -->
+                    <td class="px-4 py-2">
+                      <template v-if="editingSquareVariation === variation.id">
+                        <input v-model="squareEditForm.sku" class="input-field w-28" :placeholder="t('inventory.squareEditSku')" />
+                      </template>
+                      <template v-else>
+                        <span v-if="stagedSquareEdits[variation.id]?.sku !== undefined" class="text-amber-600 font-medium">
+                          {{ stagedSquareEdits[variation.id].sku || '—' }}
+                        </span>
+                        <span v-else :class="variation.hasDuplicateSku ? 'text-red-600 font-semibold' : 'text-gray-600'">
+                          {{ variation.sku || '—' }}
+                        </span>
+                      </template>
                     </td>
-                    <td class="px-4 py-2" :class="variation.hasDuplicateGtin ? 'text-red-600 font-semibold' : 'text-gray-600'">
-                      {{ variation.gtin || '—' }}
+                    <!-- GTIN cell: inline edit or display -->
+                    <td class="px-4 py-2">
+                      <template v-if="editingSquareVariation === variation.id">
+                        <input v-model="squareEditForm.gtin" class="input-field w-28" :placeholder="t('inventory.squareEditGtin')" />
+                      </template>
+                      <template v-else>
+                        <span v-if="stagedSquareEdits[variation.id]?.gtin !== undefined" class="text-amber-600 font-medium">
+                          {{ stagedSquareEdits[variation.id].gtin || '—' }}
+                        </span>
+                        <span v-else :class="variation.hasDuplicateGtin ? 'text-red-600 font-semibold' : 'text-gray-600'">
+                          {{ variation.gtin || '—' }}
+                        </span>
+                      </template>
                     </td>
                     <td class="px-4 py-2 space-y-0.5">
-                      <span v-if="variation.hasDuplicateSku" class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded text-xs">{{ t('inventory.dupSKU') }}</span>
-                      <span v-if="variation.hasDuplicateGtin" class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded text-xs ml-1">{{ t('inventory.dupBarcode') }}</span>
+                      <span v-if="variation.hasDuplicateSku"
+                        class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded text-xs">
+                        <template v-if="variation.duplicateSkuVariations?.length">
+                          SKU {{ t('inventory.squareDupConflictWith') }}「{{ variation.duplicateSkuVariations.map(v => `${v.itemName} / ${v.variationName}`).join('」「') }}」
+                        </template>
+                        <template v-else>{{ t('inventory.dupSKU') }}</template>
+                      </span>
+                      <span v-if="variation.hasDuplicateGtin"
+                        class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded text-xs">
+                        <template v-if="variation.duplicateGtinVariations?.length">
+                          GTIN {{ t('inventory.squareDupConflictWith') }}「{{ variation.duplicateGtinVariations.map(v => `${v.itemName} / ${v.variationName}`).join('」「') }}」
+                        </template>
+                        <template v-else>{{ t('inventory.dupBarcode') }}</template>
+                      </span>
+                    </td>
+                    <!-- Actions cell -->
+                    <td class="px-4 py-2">
+                      <template v-if="editingSquareVariation === variation.id">
+                        <button @click="saveSquareEdit(variation)" class="text-green-600 hover:underline mr-2">{{ t('inventory.squareSaveStaged') }}</button>
+                        <button @click="cancelSquareEdit" class="text-gray-400 hover:underline">{{ t('inventory.squareDiscardEdit') }}</button>
+                      </template>
+                      <template v-else>
+                        <button @click="startSquareEdit(variation)" class="text-purple-600 hover:underline mr-2">{{ t('inventory.edit') }}</button>
+                        <button v-if="stagedSquareEdits[variation.id]" @click="discardSquareEdit(variation.id)" class="text-red-400 hover:underline text-xs">×</button>
+                      </template>
                     </td>
                   </tr>
                 </tbody>
@@ -664,6 +720,42 @@
                   </tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ── Cross-Match View (both GTIN and SKU mismatch) ── -->
+      <template v-else-if="viewMode === 'cross-both'">
+        <div v-if="crossMatchLoading" class="text-center text-gray-400 py-20">
+          <div class="animate-spin text-3xl mb-3">↻</div>
+          <div>{{ t('inventory.loadingCrossMatch') }}</div>
+        </div>
+        <div v-else-if="crossMatchItems.length === 0" class="text-center text-green-600 py-20 text-lg">
+          ✅ {{ t('inventory.noCrossMatch') }}
+        </div>
+        <div v-else class="space-y-3">
+          <div
+            v-for="(item, idx) in filteredCrossMatchItems"
+            :key="idx"
+            class="bg-white rounded-xl shadow-sm overflow-hidden border-l-4 border-red-400"
+          >
+            <div class="px-4 py-3 flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <span class="text-red-500 text-lg">⚠</span>
+                <div>
+                  <div class="font-medium text-gray-800">{{ item.shopify_product_title }}</div>
+                  <div class="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                    <img :src="shopifyLogoUrl" class="w-3 h-3 object-contain" />
+                    <span>{{ item.shopify_variant_title }}</span>
+                    <span class="text-gray-300 mx-1">·</span>
+                    <span class="font-mono text-gray-500">SKU: {{ item.shopify_sku || '—' }}</span>
+                    <span class="text-gray-300 mx-1">·</span>
+                    <span class="font-mono text-gray-500">GTIN: {{ item.shopify_gtin || '—' }}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="text-xs text-red-500 font-medium">SKU 和 GTIN 均无匹配</div>
             </div>
           </div>
         </div>
@@ -987,6 +1079,40 @@
             </div>
           </div>
 
+          <!-- Square inline edits (need 4) -->
+          <div v-for="(edited, variationId) in stagedSquareEdits" :key="'se-' + variationId">
+            <div class="border rounded-lg overflow-hidden">
+              <div class="bg-orange-50 px-4 py-2 text-xs font-semibold text-orange-700 uppercase tracking-wide flex items-center justify-between">
+                <span class="flex items-center gap-1">
+                  <img :src="squareLogoUrl" class="w-3.5 h-3.5 object-contain" />
+                  Square 直接编辑: {{ squareProducts.find(v => String(v.id) === String(variationId))?.item_name || variationId }} — {{ squareProducts.find(v => String(v.id) === String(variationId))?.variation_name || '' }}
+                </span>
+                <button @click="discardSquareEdit(variationId)" class="text-red-400 hover:text-red-600 text-xs normal-case font-normal">{{ t('inventory.discard') }}</button>
+              </div>
+              <table class="w-full text-sm">
+                <thead class="bg-gray-100 text-gray-500 text-xs">
+                  <tr>
+                    <th class="text-left px-4 py-2 w-1/4">字段</th>
+                    <th class="text-left px-4 py-2 w-5/12">之前</th>
+                    <th class="text-left px-4 py-2 w-5/12">之后</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-if="edited.sku !== undefined" class="border-t">
+                    <td class="px-4 py-2 text-gray-500 text-xs">SKU</td>
+                    <td class="px-4 py-2 text-red-500 line-through text-xs">{{ squareProducts.find(v => String(v.id) === String(variationId))?.sku || '—' }}</td>
+                    <td class="px-4 py-2 text-green-600 font-medium text-xs">{{ edited.sku || '—' }}</td>
+                  </tr>
+                  <tr v-if="edited.gtin !== undefined" class="border-t">
+                    <td class="px-4 py-2 text-gray-500 text-xs">GTIN</td>
+                    <td class="px-4 py-2 text-red-500 line-through text-xs">{{ squareProducts.find(v => String(v.id) === String(variationId))?.gtin || '—' }}</td>
+                    <td class="px-4 py-2 text-green-600 font-medium text-xs">{{ edited.gtin || '—' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
         </div>
 
         <!-- Modal Footer -->
@@ -1121,6 +1247,7 @@ const issuesViewLabel = computed(() => {
     'square-dup': t('inventory.squareDuplicates'),
     'cross-gtin': t('inventory.crossGtinMismatch'),
     'cross-sku': t('inventory.crossSkuMismatch'),
+    'cross-both': t('inventory.crossBothMismatch'),
   }
   return map[viewMode.value] || t('inventory.duplicatesOnly')
 })
@@ -1187,7 +1314,7 @@ async function setIssuesView(mode) {
     if (squareProducts.value.length === 0) await fetchSquareProducts()
   } else if (mode === 'shopify-dup') {
     activeSource.value = 'shopify'
-  } else if (mode === 'cross-gtin' || mode === 'cross-sku') {
+  } else if (mode === 'cross-gtin' || mode === 'cross-sku' || mode === 'cross-both') {
     activeSource.value = 'shopify' // doesn't matter, cross-match has its own template
     await fetchCrossMatch(mode)
   }
@@ -1448,6 +1575,45 @@ function confirmLink() {
 const stagedProducts = ref({})
 const stagedVariants = ref({})
 
+// ─── Square inline edit state (need 4) ───────────────────────────────────────
+const stagedSquareEdits = ref({})   // { [variationId]: { sku, gtin } }
+const editingSquareVariation = ref(null)  // variation.id currently being edited
+const squareEditForm = ref({ sku: '', gtin: '' })
+
+function startSquareEdit(variation) {
+  editingSquareVariation.value = variation.id
+  const existing = stagedSquareEdits.value[variation.id] || {}
+  squareEditForm.value = {
+    sku: existing.sku !== undefined ? existing.sku : (variation.sku || ''),
+    gtin: existing.gtin !== undefined ? existing.gtin : (variation.gtin || ''),
+  }
+}
+
+function saveSquareEdit(variation) {
+  const vid = variation.id
+  const orig = { sku: variation.sku || '', gtin: variation.gtin || '' }
+  const edited = { sku: squareEditForm.value.sku.trim(), gtin: squareEditForm.value.gtin.trim() }
+  if (edited.sku !== orig.sku || edited.gtin !== orig.gtin) {
+    stagedSquareEdits.value = { ...stagedSquareEdits.value, [vid]: edited }
+  } else {
+    // No change — remove any previous staged edit
+    const copy = { ...stagedSquareEdits.value }
+    delete copy[vid]
+    stagedSquareEdits.value = copy
+  }
+  editingSquareVariation.value = null
+}
+
+function cancelSquareEdit() {
+  editingSquareVariation.value = null
+}
+
+function discardSquareEdit(variationId) {
+  const copy = { ...stagedSquareEdits.value }
+  delete copy[variationId]
+  stagedSquareEdits.value = copy
+}
+
 const pendingCount = computed(() => {
   let count = 0
   for (const changes of Object.values(stagedProducts.value)) {
@@ -1459,6 +1625,7 @@ const pendingCount = computed(() => {
     }
   }
   count += Object.values(stagedSquareDiffs.value).filter(Boolean).length
+  count += Object.keys(stagedSquareEdits.value).length
   return count
 })
 
@@ -1672,7 +1839,9 @@ async function fetchCrossMatch(mode) {
   try {
     const endpoint = mode === 'cross-gtin'
       ? '/products/cross-match/gtin-sku-mismatch'
-      : '/products/cross-match/sku-gtin-mismatch'
+      : mode === 'cross-sku'
+        ? '/products/cross-match/sku-gtin-mismatch'
+        : '/products/cross-match/both-mismatch'
     const res = await api.get(endpoint)
     crossMatchItems.value = res.data.items || []
   } catch (err) {
@@ -1709,7 +1878,8 @@ async function syncSquare() {
     if (activeSource.value === 'square') {
       await fetchSquareProducts()
     }
-    alert(`${t('inventory.squareSyncSuccess')}：${res.data.itemCount} items, ${res.data.variationCount} variations synced.`)
+    const removedMsg = res.data.removedCount > 0 ? `\n${t('inventory.squareSyncRemoved')}: ${res.data.removedCount}` : ''
+    alert(`${t('inventory.squareSyncSuccess')}：${res.data.itemCount} items, ${res.data.variationCount} variations synced.${removedMsg}`)
   } catch (err) {
     alert(t('inventory.squareSyncError') + ': ' + (err.response?.data?.error || err.message))
   } finally {
@@ -1870,10 +2040,33 @@ async function commitChanges() {
       }
     }
 
+    // 3. Square inline edits (need 4)
+    const squareEditEntries = Object.entries(stagedSquareEdits.value)
+    if (squareEditEntries.length > 0) {
+      const editItems = squareEditEntries.map(([variationId, edited]) => ({
+        squareVariationId: variationId,
+        target: 'square-direct',
+        newSku: edited.sku,
+        newGtin: edited.gtin,
+      }))
+      const seRes = await api.post('/products/square-batch-update', { items: editItems })
+      if (seRes.data.errors && seRes.data.errors.length > 0) {
+        throw new Error('Square 直接编辑失败: ' + seRes.data.errors.map(e => e.error).join(', '))
+      }
+      // Update local squareProducts cache
+      for (const [variationId, edited] of squareEditEntries) {
+        const idx = squareProducts.value.findIndex(v => String(v.id) === String(variationId))
+        if (idx !== -1) {
+          squareProducts.value[idx] = { ...squareProducts.value[idx], sku: edited.sku, gtin: edited.gtin }
+        }
+      }
+    }
+
     // Clear all staged
     stagedProducts.value = {}
     stagedVariants.value = {}
     stagedSquareDiffs.value = {}
+    stagedSquareEdits.value = {}
     squareDiffs.value = squareDiffs.value.filter(d => {
       const key = squareDiffKey(d)
       return !squareItems.some(s => `${s.shopifyVariantId}_${s.squareVariationId}` === key)

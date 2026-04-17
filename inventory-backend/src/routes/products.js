@@ -382,6 +382,19 @@ router.post('/square-sync', requirePermission('write'), async (req, res) => {
     const db = getDb();
 
     // Replace all square_products with fresh data (full refresh)
+    // Track removed variations for reporting
+    const existingIds = new Set(db.prepare('SELECT id FROM square_products').all().map(r => r.id));
+    const incomingIds = new Set();
+    for (const item of catalog) {
+      for (const variation of item.variations) {
+        incomingIds.add(variation.id);
+      }
+    }
+    const removedCount = [...existingIds].filter(id => !incomingIds.has(id)).length;
+    if (removedCount > 0) {
+      console.log(`Square sync: removing ${removedCount} deleted variation(s) from cache`);
+    }
+
     const upsert = db.transaction(() => {
       db.prepare('DELETE FROM square_products').run();
       for (const item of catalog) {
@@ -414,7 +427,7 @@ router.post('/square-sync', requirePermission('write'), async (req, res) => {
     db.prepare(`INSERT INTO square_sync_log (item_count, variation_count, status, message) VALUES (?, ?, 'success', 'Square sync completed')`)
       .run(itemCount, variationCount);
 
-    res.json({ success: true, itemCount, variationCount });
+    res.json({ success: true, itemCount, variationCount, removedCount });
   } catch (err) {
     console.error('Square sync error:', err.message);
     try {
@@ -464,12 +477,25 @@ router.get('/square-products', requirePermission('read'), (req, res) => {
   const duplicateIds = new Set();
   [...duplicateSkus, ...duplicateGtins].forEach(d => d.variations.forEach(v => duplicateIds.add(v.id)));
 
-  const enriched = rows.map(row => ({
-    ...row,
-    hasDuplicate: duplicateIds.has(row.id),
-    hasDuplicateSku: row.sku ? (skuMap[row.sku]?.length > 1) : false,
-    hasDuplicateGtin: row.gtin ? (gtinMap[row.gtin]?.length > 1) : false,
-  }));
+  const enriched = rows.map(row => {
+    const hasDuplicateSku = row.sku ? (skuMap[row.sku]?.length > 1) : false;
+    const hasDuplicateGtin = row.gtin ? (gtinMap[row.gtin]?.length > 1) : false;
+    // Conflict details: other variations sharing the same SKU/GTIN
+    const duplicateSkuVariations = hasDuplicateSku
+      ? (skuMap[row.sku] || []).filter(v => v.id !== row.id)
+      : [];
+    const duplicateGtinVariations = hasDuplicateGtin
+      ? (gtinMap[row.gtin] || []).filter(v => v.id !== row.id)
+      : [];
+    return {
+      ...row,
+      hasDuplicate: duplicateIds.has(row.id),
+      hasDuplicateSku,
+      hasDuplicateGtin,
+      duplicateSkuVariations,
+      duplicateGtinVariations,
+    };
+  });
 
   res.json({
     products: enriched,
@@ -482,6 +508,40 @@ router.get('/square-products', requirePermission('read'), (req, res) => {
     duplicateSkus,
     duplicateGtins,
   });
+});
+
+/**
+ * GET /api/products/cross-match/both-mismatch
+ * Returns Shopify variants that match neither GTIN nor SKU in Square.
+ */
+router.get('/cross-match/both-mismatch', requirePermission('read'), (req, res) => {
+  const db = getDb();
+  const rows = db.prepare(`
+    SELECT
+      pv.id            AS shopify_variant_id,
+      pv.shopify_variant_id AS shopify_raw_variant_id,
+      pv.shopify_product_id,
+      p.id             AS shopify_product_sys_id,
+      p.title          AS shopify_product_title,
+      pv.variant_title AS shopify_variant_title,
+      pv.sku           AS shopify_sku,
+      pv.gtin          AS shopify_gtin
+    FROM product_variants pv
+    JOIN products p ON pv.product_id = p.id
+    WHERE (pv.sku IS NOT NULL AND pv.sku != '' OR pv.gtin IS NOT NULL AND pv.gtin != '')
+      AND NOT EXISTS (
+        SELECT 1 FROM square_products sq
+        WHERE pv.gtin IS NOT NULL AND pv.gtin != ''
+          AND TRIM(pv.gtin) = TRIM(sq.gtin)
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM square_products sq
+        WHERE pv.sku IS NOT NULL AND pv.sku != ''
+          AND TRIM(pv.sku) = TRIM(sq.sku)
+      )
+    ORDER BY p.title, pv.variant_title
+  `).all();
+  res.json({ success: true, items: rows, count: rows.length });
 });
 
 /**
@@ -696,6 +756,10 @@ router.post('/square-batch-update', requirePermission('write'), async (req, res)
         // Keep Square → update Shopify with Square values
         finalSku = item.squareSku;
         finalGtin = item.squareGtin;
+      } else if (target === 'square-direct') {
+        // Direct Square-only edit: update Square with user-provided values, no Shopify update
+        finalSku = item.newSku;
+        finalGtin = item.newGtin;
       } else {
         throw new Error(`Unknown target: ${target}`);
       }
@@ -712,12 +776,19 @@ router.post('/square-batch-update', requirePermission('write'), async (req, res)
           .run(finalSku ?? varRow?.sku, finalGtin ?? varRow?.gtin, shopifyVariantId);
       }
 
-      // Update Square if needed (when keeping Shopify or manual input)
-      if (target === 'shopify' || target === 'both') {
+      // Update Square if needed (when keeping Shopify, manual input, or direct edit)
+      if (target === 'shopify' || target === 'both' || target === 'square-direct') {
         const squareUpdate = {};
         if (finalSku !== undefined) squareUpdate.sku = finalSku;
         if (finalGtin !== undefined) squareUpdate.gtin = finalGtin;
         await squareService.updateVariationSkuGtin(squareVariationId, squareUpdate);
+
+        // Also update local square_products table for direct edits
+        if (target === 'square-direct') {
+          const db2 = getDb();
+          db2.prepare('UPDATE square_products SET sku = ?, gtin = ? WHERE id = ?')
+            .run(finalSku ?? null, finalGtin ?? null, squareVariationId);
+        }
       }
 
       results.push({ shopifyVariantId, squareVariationId, success: true, target });
