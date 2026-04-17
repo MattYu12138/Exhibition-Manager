@@ -511,40 +511,6 @@ router.get('/square-products', requirePermission('read'), (req, res) => {
 });
 
 /**
- * GET /api/products/cross-match/both-mismatch
- * Returns Shopify variants that match neither GTIN nor SKU in Square.
- */
-router.get('/cross-match/both-mismatch', requirePermission('read'), (req, res) => {
-  const db = getDb();
-  const rows = db.prepare(`
-    SELECT
-      pv.id            AS shopify_variant_id,
-      pv.shopify_variant_id AS shopify_raw_variant_id,
-      pv.shopify_product_id,
-      p.id             AS shopify_product_sys_id,
-      p.title          AS shopify_product_title,
-      pv.variant_title AS shopify_variant_title,
-      pv.sku           AS shopify_sku,
-      pv.gtin          AS shopify_gtin
-    FROM product_variants pv
-    JOIN products p ON pv.product_id = p.id
-    WHERE (pv.sku IS NOT NULL AND pv.sku != '' OR pv.gtin IS NOT NULL AND pv.gtin != '')
-      AND NOT EXISTS (
-        SELECT 1 FROM square_products sq
-        WHERE pv.gtin IS NOT NULL AND pv.gtin != ''
-          AND TRIM(pv.gtin) = TRIM(sq.gtin)
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM square_products sq
-        WHERE pv.sku IS NOT NULL AND pv.sku != ''
-          AND TRIM(pv.sku) = TRIM(sq.sku)
-      )
-    ORDER BY p.title, pv.variant_title
-  `).all();
-  res.json({ success: true, items: rows, count: rows.length });
-});
-
-/**
  * GET /api/products/cross-match/gtin-sku-mismatch
  * Returns pairs where GTIN matches between Shopify and Square but SKU differs.
  */
