@@ -101,5 +101,17 @@ export default {
     matchedBy: 'Matched by',
     squareItem: 'Square Item',
     squareVariation: 'Square Variation',
+    // Cross-both mismatch
+    crossBothMismatch: 'Cross-Platform — No GTIN or SKU Match',
+    crossBothCandidates: 'Similar Square Products (by name)',
+    crossBothNoCandidates: 'No similar products found in Square',
+    crossBothLinkTo: 'Link to this product',
+    crossBothAddToSquare: 'Add to Square',
+    crossBothAddConfirm: 'Add this product to Square?',
+    crossBothAddSuccess: 'Successfully added to Square',
+    crossBothAddError: 'Failed to add to Square',
+    crossBothIgnore: 'Ignore',
+    crossBothIgnored: 'Ignored',
+    crossBothLinked: 'Linked',
   }
 }

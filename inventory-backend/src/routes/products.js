@@ -611,6 +611,150 @@ router.get('/cross-match/sku-gtin-mismatch', requirePermission('read'), (req, re
 });
 
 /**
+ * GET /api/products/cross-match/both-mismatch
+ * Returns Shopify variants that match neither GTIN nor SKU in Square.
+ * Each item includes a `candidates` list: Square products whose name contains
+ * any keyword from the Shopify product title (fuzzy / keyword match).
+ */
+router.get('/cross-match/both-mismatch', requirePermission('read'), (req, res) => {
+  const db = getDb();
+
+  // All Shopify variants that have no GTIN match AND no SKU match in square_products
+  const rows = db.prepare(`
+    SELECT
+      pv.id            AS shopify_variant_id,
+      pv.shopify_variant_id AS shopify_raw_variant_id,
+      pv.shopify_product_id,
+      p.id             AS shopify_product_sys_id,
+      p.title          AS shopify_product_title,
+      pv.variant_title AS shopify_variant_title,
+      pv.sku           AS shopify_sku,
+      pv.gtin          AS shopify_gtin
+    FROM product_variants pv
+    JOIN products p ON pv.product_id = p.id
+    WHERE
+      -- No GTIN match in Square
+      NOT EXISTS (
+        SELECT 1 FROM square_products sq
+        WHERE sq.gtin IS NOT NULL AND sq.gtin != ''
+          AND TRIM(pv.gtin) = TRIM(sq.gtin)
+      )
+      -- No SKU match in Square
+      AND NOT EXISTS (
+        SELECT 1 FROM square_products sq
+        WHERE sq.sku IS NOT NULL AND sq.sku != ''
+          AND TRIM(pv.sku) = TRIM(sq.sku)
+      )
+      -- Only include variants that have at least sku or gtin (exclude completely empty)
+      AND (pv.sku IS NOT NULL AND pv.sku != '' OR pv.gtin IS NOT NULL AND pv.gtin != '')
+    ORDER BY p.title, pv.variant_title
+  `).all();
+
+  // For each Shopify product title, find Square candidates by keyword matching
+  // Include all variation details for linking
+  const allSquareVariations = db.prepare(
+    'SELECT item_id, item_name, variation_id, variation_name, sku, gtin, price FROM square_products'
+  ).all();
+
+  // Build a map: shopify_product_sys_id -> candidates[]
+  const candidateCache = {};
+
+  const enriched = rows.map(row => {
+    const key = row.shopify_product_sys_id;
+    if (!candidateCache[key]) {
+      // Split title into keywords (words >= 3 chars, ignore common words)
+      const stopWords = new Set(['the', 'and', 'for', 'with', 'from', 'that', 'this', 'are', 'was', 'has']);
+      const keywords = (row.shopify_product_title || '')
+        .toLowerCase()
+        .split(/[\s\-–—_/,]+/)
+        .filter(w => w.length >= 3 && !stopWords.has(w));
+
+      const candidates = allSquareVariations.filter(sq => {
+        const sqName = (sq.item_name || '').toLowerCase();
+        return keywords.some(kw => sqName.includes(kw));
+      }).map(sq => ({
+        item_id: sq.item_id,
+        item_name: sq.item_name,
+        variation_id: sq.variation_id,
+        variation_name: sq.variation_name,
+        sku: sq.sku,
+        gtin: sq.gtin,
+        price: sq.price,
+      }));
+
+      candidateCache[key] = candidates;
+    }
+
+    return { ...row, candidates: candidateCache[key] };
+  });
+
+  res.json({ success: true, items: enriched, count: enriched.length });
+});
+
+/**
+ * POST /api/products/square-add-item
+ * Add a Shopify product (with its variants) to Square as a new catalog item.
+ * Body: { shopifyProductSysId }
+ */
+router.post('/square-add-item', requirePermission('write'), async (req, res) => {
+  const { shopifyProductSysId } = req.body;
+  if (!shopifyProductSysId) {
+    return res.status(400).json({ error: 'shopifyProductSysId is required' });
+  }
+  try {
+    const db = getDb();
+    const product = db.prepare('SELECT * FROM products WHERE id = ?').get(shopifyProductSysId);
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+
+    const variants = db.prepare(
+      'SELECT * FROM product_variants WHERE product_id = ? ORDER BY id'
+    ).all(shopifyProductSysId);
+    if (variants.length === 0) return res.status(400).json({ error: 'No variants found' });
+
+    const squareService = require('../utils/square');
+    const locationId = squareService.locationId;
+
+    // Build Square catalog object
+    const itemId = `#new-item-${shopifyProductSysId}`;
+    const variations = variants.map((v, i) => ({
+      type: 'ITEM_VARIATION',
+      id: `#var-${shopifyProductSysId}-${i}`,
+      itemVariationData: {
+        itemId,
+        name: v.variant_title || 'Default',
+        sku: v.sku || '',
+        upc: v.gtin || '',
+        pricingType: 'FIXED_PRICING',
+        priceMoney: {
+          amount: Math.round((v.price || 0) * 100),
+          currency: 'AUD',
+        },
+        locationOverrides: locationId ? [{ locationId, trackInventory: true }] : [],
+      },
+    }));
+
+    const upsertRes = await squareService.client.catalog.object.upsert({
+      idempotencyKey: `add-item-${shopifyProductSysId}-${Date.now()}`,
+      object: {
+        type: 'ITEM',
+        id: itemId,
+        itemData: {
+          name: product.title,
+          description: product.description || '',
+          variations,
+        },
+      },
+    });
+
+    squareService.invalidateCatalogCache();
+    res.json({ success: true, squareItemId: upsertRes.catalogObject?.id });
+  } catch (err) {
+    console.error('square-add-item error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * POST /api/products/square-compare
  * On-demand cross-match: compare square_products table with product_variants.
  * Returns matchedWithDiffs and unmatched (Square variations with no Shopify match).

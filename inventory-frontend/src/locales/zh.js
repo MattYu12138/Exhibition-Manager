@@ -101,5 +101,17 @@ export default {
     matchedBy: '匹配方式',
     squareItem: 'Square 商品',
     squareVariation: 'Square 变体',
+    // Cross-both mismatch
+    crossBothMismatch: '跨平台 — GTIN 和 SKU 均无匹配',
+    crossBothCandidates: '名称相似的 Square 商品',
+    crossBothNoCandidates: 'Square 中无相似商品',
+    crossBothLinkTo: '关联到此商品',
+    crossBothAddToSquare: '添加到 Square',
+    crossBothAddConfirm: '确认将此商品添加到 Square？',
+    crossBothAddSuccess: '已成功添加到 Square',
+    crossBothAddError: '添加到 Square 失败',
+    crossBothIgnore: '忽略',
+    crossBothIgnored: '已忽略',
+    crossBothLinked: '已关联',
   }
 }

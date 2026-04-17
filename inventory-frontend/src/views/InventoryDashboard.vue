@@ -296,7 +296,7 @@
               class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg flex items-center gap-2"
               :class="viewMode === 'cross-both' ? 'bg-orange-50 text-orange-700 font-medium' : ''"
             >
-              <span>🔀</span> {{ t('inventory.crossBothMismatch') }}
+              <span>⚠️</span> {{ t('inventory.crossBothMismatch') }}
             </button>
           </div>
         </div>
@@ -725,37 +725,73 @@
         </div>
       </template>
 
-      <!-- ── Cross-Match View (both GTIN and SKU mismatch) ── -->
+
+      <!-- ── Cross-Both Mismatch View ── -->
       <template v-else-if="viewMode === 'cross-both'">
-        <div v-if="crossMatchLoading" class="text-center text-gray-400 py-20">
-          <div class="animate-spin text-3xl mb-3">↻</div>
-          <div>{{ t('inventory.loadingCrossMatch') }}</div>
+        <div v-if="crossMatchItems.length === 0 && !crossMatchLoading" class="text-center text-gray-400 py-20">
+          <div class="text-4xl mb-3">✅</div>
+          <div class="text-sm">{{ t('inventory.noCrossMatch') }}</div>
         </div>
-        <div v-else-if="crossMatchItems.length === 0" class="text-center text-green-600 py-20 text-lg">
-          ✅ {{ t('inventory.noCrossMatch') }}
-        </div>
-        <div v-else class="space-y-3">
+        <div v-else class="space-y-4">
           <div
-            v-for="(item, idx) in filteredCrossMatchItems"
-            :key="idx"
-            class="bg-white rounded-xl shadow-sm overflow-hidden border-l-4 border-red-400"
+            v-for="item in crossMatchItems.filter(i => !crossBothIgnored.has(i.shopify_variant_id) && !crossBothLinked.has(i.shopify_variant_id))"
+            :key="item.shopify_variant_id"
+            class="bg-white rounded-xl shadow-sm overflow-hidden"
           >
-            <div class="px-4 py-3 flex items-center justify-between">
-              <div class="flex items-center gap-3">
-                <span class="text-red-500 text-lg">⚠</span>
-                <div>
-                  <div class="font-medium text-gray-800">{{ item.shopify_product_title }}</div>
-                  <div class="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
-                    <img :src="shopifyLogoUrl" class="w-3 h-3 object-contain" />
-                    <span>{{ item.shopify_variant_title }}</span>
-                    <span class="text-gray-300 mx-1">·</span>
-                    <span class="font-mono text-gray-500">SKU: {{ item.shopify_sku || '—' }}</span>
-                    <span class="text-gray-300 mx-1">·</span>
-                    <span class="font-mono text-gray-500">GTIN: {{ item.shopify_gtin || '—' }}</span>
+            <div class="px-4 py-3 bg-orange-50 border-b border-orange-100 flex items-center justify-between">
+              <div class="flex items-center gap-2 min-w-0">
+                <img :src="shopifyLogoUrl" class="w-4 h-4 object-contain shrink-0" />
+                <span class="font-semibold text-orange-800 text-sm truncate">
+                  {{ item.shopify_product_title }} — {{ item.shopify_variant_title }}
+                </span>
+              </div>
+              <button
+                @click="ignoreCrossBoth(item)"
+                class="text-xs text-gray-400 hover:text-gray-600 shrink-0 ml-2"
+              >{{ t('inventory.crossBothIgnore') }}</button>
+            </div>
+            <div class="px-4 py-3">
+              <!-- Shopify variant info -->
+              <div class="flex gap-6 text-xs text-gray-500 mb-3">
+                <span>SKU: <span class="font-mono text-gray-700">{{ item.shopify_sku || '—' }}</span></span>
+                <span>GTIN: <span class="font-mono text-gray-700">{{ item.shopify_gtin || '—' }}</span></span>
+                <span>Price: <span class="font-mono text-gray-700">{{ item.shopify_price != null ? '$' + item.shopify_price : '—' }}</span></span>
+              </div>
+
+              <!-- Candidates list -->
+              <div v-if="item.candidates && item.candidates.length > 0">
+                <div class="text-xs font-medium text-gray-600 mb-2">{{ t('inventory.crossBothCandidates') }}:</div>
+                <div class="space-y-2">
+                  <div
+                    v-for="candidate in item.candidates"
+                    :key="candidate.variation_id"
+                    class="flex items-center justify-between gap-3 bg-gray-50 rounded-lg px-3 py-2"
+                  >
+                    <div class="min-w-0">
+                      <div class="text-sm text-gray-800 truncate">
+                        <img :src="squareLogoUrl" class="w-3.5 h-3.5 object-contain inline mr-1" />
+                        {{ candidate.item_name }} — {{ candidate.variation_name }}
+                      </div>
+                      <div class="text-xs text-gray-400 mt-0.5">
+                        SKU: {{ candidate.sku || '—' }} · GTIN: {{ candidate.gtin || '—' }} · Price: {{ candidate.price != null ? '$' + (candidate.price / 100).toFixed(2) : '—' }}
+                      </div>
+                    </div>
+                    <button
+                      @click="linkCrossBoth(item, candidate)"
+                      class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded shrink-0"
+                    >{{ t('inventory.crossBothLinkTo') }}</button>
                   </div>
                 </div>
               </div>
-              <div class="text-xs text-red-500 font-medium">SKU 和 GTIN 均无匹配</div>
+
+              <!-- No candidates -->
+              <div v-else class="flex items-center justify-between gap-3 bg-gray-50 rounded-lg px-3 py-2">
+                <span class="text-xs text-gray-400">{{ t('inventory.crossBothNoCandidates') }}</span>
+                <button
+                  @click="addToSquare(item)"
+                  class="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded shrink-0"
+                >{{ t('inventory.crossBothAddToSquare') }}</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1185,6 +1221,8 @@ const expandedCrossItems = ref(new Set())
 // ─── Cross-match data ─────────────────────────────────────────────────────────
 const crossMatchItems = ref([])
 const crossMatchLoading = ref(false)
+const crossBothIgnored = ref(new Set())
+const crossBothLinked = ref(new Set())
 
 // ─── Computed summary (switches by activeSource) ──────────────────────────────
 const activeSummary = computed(() => {
@@ -1317,6 +1355,9 @@ async function setIssuesView(mode) {
   } else if (mode === 'cross-gtin' || mode === 'cross-sku' || mode === 'cross-both') {
     activeSource.value = 'shopify' // doesn't matter, cross-match has its own template
     await fetchCrossMatch(mode)
+  } else if (mode === 'cross-both') {
+    activeSource.value = 'shopify'
+    await fetchCrossMatch('cross-both')
   }
 }
 
@@ -1837,11 +1878,12 @@ async function fetchCrossMatch(mode) {
   crossMatchLoading.value = true
   crossMatchItems.value = []
   try {
-    const endpoint = mode === 'cross-gtin'
-      ? '/products/cross-match/gtin-sku-mismatch'
-      : mode === 'cross-sku'
-        ? '/products/cross-match/sku-gtin-mismatch'
-        : '/products/cross-match/both-mismatch'
+    const endpointMap = {
+      'cross-gtin': '/products/cross-match/gtin-sku-mismatch',
+      'cross-sku': '/products/cross-match/sku-gtin-mismatch',
+      'cross-both': '/products/cross-match/both-mismatch',
+    }
+    const endpoint = endpointMap[mode] || '/products/cross-match/sku-gtin-mismatch'
     const res = await api.get(endpoint)
     crossMatchItems.value = res.data.items || []
   } catch (err) {
@@ -1849,6 +1891,62 @@ async function fetchCrossMatch(mode) {
   } finally {
     crossMatchLoading.value = false
   }
+}
+
+
+// ─── Cross-Both methods ───────────────────────────────────────────────────────
+function ignoreCrossBoth(item) {
+  const newSet = new Set(crossBothIgnored.value)
+  newSet.add(item.shopify_variant_id)
+  crossBothIgnored.value = newSet
+}
+
+async function addToSquare(item) {
+  if (!confirm(t('inventory.crossBothAddConfirm'))) return
+  try {
+    await api.post('/products/square-add-item', { shopifyProductSysId: item.shopify_product_sys_id })
+    alert(t('inventory.crossBothAddSuccess'))
+    const newSet = new Set(crossBothLinked.value)
+    newSet.add(item.shopify_variant_id)
+    crossBothLinked.value = newSet
+  } catch (err) {
+    alert(t('inventory.crossBothAddError') + ': ' + (err.response?.data?.error || err.message))
+  }
+}
+
+async function linkCrossBoth(item, candidate) {
+  // Stage a diff for user to resolve which side to keep
+  const diffs = []
+  if (item.shopify_sku !== candidate.sku) {
+    diffs.push({ field: 'sku', shopifyValue: item.shopify_sku, squareValue: candidate.sku })
+  }
+  if (item.shopify_gtin !== candidate.gtin) {
+    diffs.push({ field: 'gtin', shopifyValue: item.shopify_gtin, squareValue: candidate.gtin })
+  }
+  const priceSquare = candidate.price != null ? (candidate.price / 100).toFixed(2) : null
+  if (item.shopify_price != null && priceSquare != null && String(item.shopify_price) !== priceSquare) {
+    diffs.push({ field: 'price', shopifyValue: String(item.shopify_price), squareValue: priceSquare })
+  }
+  if (diffs.length > 0) {
+    squareDiffs.value = [
+      ...squareDiffs.value,
+      {
+        shopifyProductTitle: item.shopify_product_title,
+        shopifyVariantTitle: item.shopify_variant_title,
+        shopifyProductId: item.shopify_product_id,
+        shopifyVariantId: item.shopify_variant_id,
+        squareItemId: candidate.item_id,
+        squareVariationId: candidate.variation_id,
+        squareItemName: candidate.item_name,
+        squareVariationName: candidate.variation_name,
+        matchType: 'manual',
+        diffs,
+      }
+    ]
+  }
+  const newSet = new Set(crossBothLinked.value)
+  newSet.add(item.shopify_variant_id)
+  crossBothLinked.value = newSet
 }
 
 async function syncShopify() {
