@@ -623,18 +623,18 @@ router.get('/cross-match/both-mismatch', requirePermission('read'), (req, res) =
   // Build a map: item_id -> { item_id, item_name, variations[] }
   const squareItemMap = {};
   const allSquareVariations = db.prepare(
-    'SELECT item_id, item_name, variation_id, variation_name, sku, gtin, price FROM square_products ORDER BY item_name, variation_name'
+    'SELECT square_item_id, item_name, id AS variation_id, variation_name, sku, gtin, price_amount AS price FROM square_products ORDER BY item_name, variation_name'
   ).all();
 
   for (const sq of allSquareVariations) {
-    if (!squareItemMap[sq.item_id]) {
-      squareItemMap[sq.item_id] = {
-        item_id: sq.item_id,
+    if (!squareItemMap[sq.square_item_id]) {
+      squareItemMap[sq.square_item_id] = {
+        item_id: sq.square_item_id,
         item_name: sq.item_name,
         variations: [],
       };
     }
-    squareItemMap[sq.item_id].variations.push({
+    squareItemMap[sq.square_item_id].variations.push({
       variation_id: sq.variation_id,
       variation_name: sq.variation_name,
       sku: sq.sku || '',
