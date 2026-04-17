@@ -738,19 +738,28 @@
             :key="item.shopify_variant_id"
             class="bg-white rounded-xl shadow-sm overflow-hidden"
           >
-            <div class="px-4 py-3 bg-orange-50 border-b border-orange-100 flex items-center justify-between">
+            <div
+              class="px-4 py-3 bg-orange-50 border-b border-orange-100 flex items-center justify-between cursor-pointer select-none"
+              @click="crossBothCollapsed[item.shopify_variant_id] = !crossBothCollapsed[item.shopify_variant_id]"
+            >
               <div class="flex items-center gap-2 min-w-0">
                 <img :src="shopifyLogoUrl" class="w-4 h-4 object-contain shrink-0" />
                 <span class="font-semibold text-orange-800 text-sm truncate">
                   {{ item.shopify_product_title }} — {{ item.shopify_variant_title }}
                 </span>
+                <span v-if="item.candidates && item.candidates.length > 0" class="text-xs text-blue-500 shrink-0">
+                  ({{ item.candidates.length }})
+                </span>
               </div>
-              <button
-                @click="ignoreCrossBoth(item)"
-                class="text-xs text-gray-400 hover:text-gray-600 shrink-0 ml-2"
-              >{{ t('inventory.crossBothIgnore') }}</button>
+              <div class="flex items-center gap-2 shrink-0 ml-2">
+                <button
+                  @click.stop="ignoreCrossBoth(item)"
+                  class="text-xs text-gray-400 hover:text-gray-600"
+                >{{ t('inventory.crossBothIgnore') }}</button>
+                <span class="text-gray-400 text-xs">{{ crossBothCollapsed[item.shopify_variant_id] ? '▶' : '▼' }}</span>
+              </div>
             </div>
-            <div class="px-4 py-3">
+            <div v-show="!crossBothCollapsed[item.shopify_variant_id]" class="px-4 py-3">
               <!-- Shopify variant info -->
               <div class="flex gap-6 text-xs text-gray-500 mb-3">
                 <span>SKU: <span class="font-mono text-gray-700">{{ item.shopify_sku || '—' }}</span></span>
@@ -1185,7 +1194,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import axios from 'axios'
 import shopifyLogoUrl from '../assets/shopify-logo.png'
@@ -1238,6 +1247,7 @@ const expandedCrossItems = ref(new Set())
 const crossMatchItems = ref([])
 const crossMatchLoading = ref(false)
 const crossBothIgnored = ref(new Set())
+const crossBothCollapsed = reactive({})
 const crossBothLinked = ref(new Set())
 // Map of "shopify_variant_id|item_id" -> selected variation_id
 const crossBothSelectedVariation = ref({})
