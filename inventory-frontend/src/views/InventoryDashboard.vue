@@ -732,12 +732,24 @@
           <div class="text-4xl mb-3">✅</div>
           <div class="text-sm">{{ t('inventory.noCrossMatch') }}</div>
         </div>
+        <!-- Bulk add button -->
+        <div class="flex justify-end mb-3">
+          <button
+            @click="bulkAddToSquare"
+            :disabled="bulkAddLoading"
+            class="text-sm bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium"
+          >
+            <span v-if="bulkAddLoading">{{ t('inventory.crossBothBulkAdding') }}</span>
+            <span v-else>{{ t('inventory.crossBothBulkAdd') }}</span>
+          </button>
+        </div>
         <div v-else class="space-y-4">
           <div
-            v-for="item in crossMatchItems.filter(i => !crossBothIgnored.has(i.shopify_variant_id) && !crossBothLinked.has(i.shopify_variant_id))"
+            v-for="item in crossMatchItems.filter(i => !crossBothIgnored.has(i.shopify_variant_id))"
             :key="item.shopify_variant_id"
             class="bg-white rounded-xl shadow-sm overflow-hidden"
           >
+            <!-- Card header: collapsible -->
             <div
               class="px-4 py-3 bg-orange-50 border-b border-orange-100 flex items-center justify-between cursor-pointer select-none"
               @click="crossBothCollapsed[item.shopify_variant_id] = !crossBothCollapsed[item.shopify_variant_id]"
@@ -747,18 +759,20 @@
                 <span class="font-semibold text-orange-800 text-sm truncate">
                   {{ item.shopify_product_title }} — {{ item.shopify_variant_title }}
                 </span>
-                <span v-if="item.candidates && item.candidates.length > 0" class="text-xs text-blue-500 shrink-0">
-                  ({{ item.candidates.length }})
-                </span>
               </div>
               <div class="flex items-center gap-2 shrink-0 ml-2">
+                <button @click.stop="ignoreCrossBoth(item)" class="text-xs text-gray-400 hover:text-gray-600">
+                  {{ t('inventory.crossBothIgnore') }}
+                </button>
                 <button
-                  @click.stop="ignoreCrossBoth(item)"
-                  class="text-xs text-gray-400 hover:text-gray-600"
-                >{{ t('inventory.crossBothIgnore') }}</button>
+                  @click.stop="addToSquare(item)"
+                  class="text-xs bg-green-600 hover:bg-green-700 text-white px-2.5 py-1 rounded"
+                >{{ t('inventory.crossBothAddToSquare') }}</button>
                 <span class="text-gray-400 text-xs">{{ crossBothCollapsed[item.shopify_variant_id] ? '▶' : '▼' }}</span>
               </div>
             </div>
+
+            <!-- Card body: collapsible -->
             <div v-show="!crossBothCollapsed[item.shopify_variant_id]" class="px-4 py-3">
               <!-- Shopify variant info -->
               <div class="flex gap-6 text-xs text-gray-500 mb-3">
@@ -767,21 +781,28 @@
                 <span>Price: <span class="font-mono text-gray-700">{{ item.shopify_price != null ? '$' + item.shopify_price : '—' }}</span></span>
               </div>
 
-              <!-- Candidates list: grouped by Square item, with variation selector -->
-              <div v-if="item.candidates && item.candidates.length > 0">
-                <div class="text-xs font-medium text-gray-600 mb-2">{{ t('inventory.crossBothCandidates') }}:</div>
-                <div class="space-y-2">
+              <!-- Manual Square search -->
+              <div class="space-y-2">
+                <div class="flex gap-2">
+                  <input
+                    v-model="crossBothSearchQuery[item.shopify_variant_id]"
+                    @input="debouncedSquareSearch(item.shopify_variant_id)"
+                    type="text"
+                    :placeholder="t('inventory.crossBothSearchPlaceholder')"
+                    class="flex-1 text-xs border border-gray-200 rounded px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  />
+                </div>
+                <!-- Search results -->
+                <div v-if="crossBothSearchResults[item.shopify_variant_id] && crossBothSearchResults[item.shopify_variant_id].length > 0" class="space-y-1.5">
                   <div
-                    v-for="candidate in item.candidates"
+                    v-for="candidate in crossBothSearchResults[item.shopify_variant_id]"
                     :key="candidate.item_id"
                     class="bg-gray-50 rounded-lg px-3 py-2"
                   >
-                    <!-- Square item name -->
-                    <div class="flex items-center gap-1.5 mb-2">
+                    <div class="flex items-center gap-1.5 mb-1.5">
                       <img :src="squareLogoUrl" class="w-3.5 h-3.5 object-contain shrink-0" />
                       <span class="text-sm font-medium text-gray-800">{{ candidate.item_name }}</span>
                     </div>
-                    <!-- Variation selector + link button -->
                     <div class="flex items-center gap-2">
                       <select
                         v-model="crossBothSelectedVariation[item.shopify_variant_id + '|' + candidate.item_id]"
@@ -807,15 +828,10 @@
                     </div>
                   </div>
                 </div>
-              </div>
-
-              <!-- No candidates -->
-              <div v-else class="flex items-center justify-between gap-3 bg-gray-50 rounded-lg px-3 py-2">
-                <span class="text-xs text-gray-400">{{ t('inventory.crossBothNoCandidates') }}</span>
-                <button
-                  @click="addToSquare(item)"
-                  class="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded shrink-0"
-                >{{ t('inventory.crossBothAddToSquare') }}</button>
+                <div
+                  v-else-if="crossBothSearchQuery[item.shopify_variant_id] && crossBothSearchQuery[item.shopify_variant_id].length >= 2"
+                  class="text-xs text-gray-400 px-1"
+                >{{ t('inventory.crossBothNoSearchResults') }}</div>
               </div>
             </div>
           </div>
@@ -1251,6 +1267,10 @@ const crossBothCollapsed = reactive({})
 const crossBothLinked = ref(new Set())
 // Map of "shopify_variant_id|item_id" -> selected variation_id
 const crossBothSelectedVariation = ref({})
+// Manual Square search per card
+const crossBothSearchQuery = reactive({})
+const crossBothSearchResults = reactive({})
+const bulkAddLoading = ref(false)
 
 // ─── Computed summary (switches by activeSource) ──────────────────────────────
 const activeSummary = computed(() => {
@@ -1983,6 +2003,40 @@ async function linkCrossBoth(item, candidate, selectedVariationId) {
   const newSet = new Set(crossBothLinked.value)
   newSet.add(item.shopify_variant_id)
   crossBothLinked.value = newSet
+}
+
+// Debounced Square search for cross-both cards
+let squareSearchTimers = {}
+async function debouncedSquareSearch(variantId) {
+  clearTimeout(squareSearchTimers[variantId])
+  const q = (crossBothSearchQuery[variantId] || '').trim()
+  if (q.length < 2) {
+    crossBothSearchResults[variantId] = []
+    return
+  }
+  squareSearchTimers[variantId] = setTimeout(async () => {
+    try {
+      const res = await api.get('/products/square-search', { params: { q } })
+      crossBothSearchResults[variantId] = res.data.items || []
+    } catch (err) {
+      crossBothSearchResults[variantId] = []
+    }
+  }, 300)
+}
+
+async function bulkAddToSquare() {
+  if (!confirm(t('inventory.crossBothBulkAddConfirm'))) return
+  bulkAddLoading.value = true
+  try {
+    const res = await api.post('/products/bulk-add-to-square')
+    const { added, failed } = res.data
+    alert(t('inventory.crossBothBulkAddResult', { added, failed }))
+    await fetchCrossMatch('cross-both')
+  } catch (err) {
+    alert(t('inventory.crossBothAddError') + ': ' + (err.response?.data?.error || err.message))
+  } finally {
+    bulkAddLoading.value = false
+  }
 }
 
 async function syncShopify() {

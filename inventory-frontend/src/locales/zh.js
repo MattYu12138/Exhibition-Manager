@@ -114,5 +114,11 @@ export default {
     crossBothIgnore: '忽略',
     crossBothIgnored: '已忽略',
     crossBothLinked: '已关联',
+    crossBothSearchPlaceholder: '搜索 Square 商品...',
+    crossBothNoSearchResults: '未找到相关 Square 商品',
+    crossBothBulkAdd: '全部添加到 Square',
+    crossBothBulkAdding: '正在添加...',
+    crossBothBulkAddConfirm: '确认将所有未匹配的 Shopify 商品全部添加到 Square？此操作不可撤销。',
+    crossBothBulkAddResult: '完成：成功添加 {added} 件，失败 {failed} 件',
   }
 }

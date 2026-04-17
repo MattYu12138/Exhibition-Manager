@@ -114,5 +114,11 @@ export default {
     crossBothIgnore: 'Ignore',
     crossBothIgnored: 'Ignored',
     crossBothLinked: 'Linked',
+    crossBothSearchPlaceholder: 'Search Square products...',
+    crossBothNoSearchResults: 'No matching Square products found',
+    crossBothBulkAdd: 'Add All to Square',
+    crossBothBulkAdding: 'Adding...',
+    crossBothBulkAddConfirm: 'Add ALL unmatched Shopify products to Square? This cannot be undone.',
+    crossBothBulkAddResult: 'Done: {added} added, {failed} failed',
   }
 }

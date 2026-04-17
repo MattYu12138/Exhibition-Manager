@@ -616,82 +616,7 @@ router.get('/cross-match/both-mismatch', requirePermission('read'), (req, res) =
     ORDER BY p.title, pv.variant_title
   `).all();
 
-  // For each Shopify product title, find Square candidate ITEMS by keyword matching.
-  // Matching is done on product name only (not variant), using loose keyword matching.
-  // Candidates are grouped by Square item (not variation), so the user can pick a variation.
-
-  // Build a map: item_id -> { item_id, item_name, variations[] }
-  const squareItemMap = {};
-  const allSquareVariations = db.prepare(
-    'SELECT square_item_id, item_name, id AS variation_id, variation_name, sku, gtin, price_amount AS price FROM square_products ORDER BY item_name, variation_name'
-  ).all();
-
-  for (const sq of allSquareVariations) {
-    if (!squareItemMap[sq.square_item_id]) {
-      squareItemMap[sq.square_item_id] = {
-        item_id: sq.square_item_id,
-        item_name: sq.item_name,
-        variations: [],
-      };
-    }
-    squareItemMap[sq.square_item_id].variations.push({
-      variation_id: sq.variation_id,
-      variation_name: sq.variation_name,
-      sku: sq.sku || '',
-      gtin: sq.gtin || '',
-      price: sq.price,
-    });
-  }
-
-  const allSquareItems = Object.values(squareItemMap);
-
-  // Helper: extract meaningful keywords from a product title
-  // - strip symbols (&, -, /, etc.)
-  // - lowercase
-  // - split on whitespace
-  // - keep words >= 3 chars
-  // - remove common stop words
-  // Generic words that appear in almost every product name - exclude from matching
-  const stopWords = new Set([
-    'the', 'and', 'for', 'with', 'from', 'that', 'this', 'are', 'was', 'has',
-    'its', 'not', 'but', 'all', 'one', 'two', 'new', 'our',
-    // Generic product category words
-    'organic', 'cotton', 'bamboo', 'baby', 'size', 'set', 'pack', 'gift',
-    'lummi', 'colour', 'color', 'lumi', 'colour',
-  ]);
-
-  function extractKeywords(title) {
-    return (title || '')
-      .toLowerCase()
-      .replace(/[&\-–—_/,.()'\'"!?]+/g, ' ')  // strip symbols
-      .split(/\s+/)
-      .filter(w => w.length >= 3 && !stopWords.has(w));
-  }
-
-  // Build a map: shopify_product_sys_id -> candidates[] (grouped by Square item)
-  const candidateCache = {};
-
-  const enriched = rows.map(row => {
-    const key = row.shopify_product_sys_id;
-    if (!candidateCache[key]) {
-      const keywords = extractKeywords(row.shopify_product_title);
-
-      // Match Square items where item_name contains AT LEAST 2 keywords from Shopify product title
-      // (or 1 keyword if there is only 1 meaningful keyword)
-      const minMatches = keywords.length >= 2 ? 2 : 1;
-      const candidates = allSquareItems.filter(item => {
-        const sqName = (item.item_name || '').toLowerCase().replace(/[&\-–—_/,.()'\'"!?]+/g, ' ');
-        const matchCount = keywords.filter(kw => sqName.includes(kw)).length;
-        return matchCount >= minMatches;
-      });
-
-      candidateCache[key] = candidates;
-    }
-
-    return { ...row, candidates: candidateCache[key] };
-  });
-
-  res.json({ success: true, items: enriched, count: enriched.length });
+  res.json({ success: true, items: rows, count: rows.length });
 });
 
 /**
@@ -949,6 +874,127 @@ router.post('/square-batch-update', requirePermission('write'), async (req, res)
     return res.status(207).json({ success: false, results, errors });
   }
   res.json({ success: true, results });
+});
+
+/**
+ * GET /api/products/square-search?q=keyword
+ * Search Square products by keyword in item_name or variation_name.
+ * Returns grouped items with their variations.
+ */
+router.get('/square-search', requirePermission('read'), (req, res) => {
+  const q = (req.query.q || '').trim().toLowerCase();
+  if (!q || q.length < 2) return res.json({ success: true, items: [] });
+  try {
+    const db = getDb();
+    const rows = db.prepare(`
+      SELECT square_item_id, item_name, id AS variation_id, variation_name,
+             sku, gtin, price_amount AS price
+      FROM square_products
+      WHERE LOWER(item_name) LIKE ? OR LOWER(variation_name) LIKE ?
+      ORDER BY item_name, variation_name
+      LIMIT 50
+    `).all(`%${q}%`, `%${q}%`);
+
+    // Group by item
+    const itemMap = {};
+    for (const row of rows) {
+      if (!itemMap[row.square_item_id]) {
+        itemMap[row.square_item_id] = { item_id: row.square_item_id, item_name: row.item_name, variations: [] };
+      }
+      itemMap[row.square_item_id].variations.push({
+        variation_id: row.variation_id,
+        variation_name: row.variation_name,
+        sku: row.sku || '',
+        gtin: row.gtin || '',
+        price: row.price,
+      });
+    }
+    res.json({ success: true, items: Object.values(itemMap) });
+  } catch (err) {
+    console.error('square-search error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/products/bulk-add-to-square
+ * Add ALL Shopify products (with all variants) that have no GTIN/SKU match in Square.
+ * Returns a summary of added items.
+ */
+router.post('/bulk-add-to-square', requirePermission('write'), async (req, res) => {
+  try {
+    const db = getDb();
+    // Get all unmatched Shopify products (distinct product IDs)
+    const unmatchedProducts = db.prepare(`
+      SELECT DISTINCT p.id AS product_id, p.title, p.description
+      FROM product_variants pv
+      JOIN products p ON pv.product_id = p.id
+      WHERE
+        NOT EXISTS (
+          SELECT 1 FROM square_products sq
+          WHERE sq.gtin IS NOT NULL AND sq.gtin != ''
+            AND TRIM(pv.gtin) = TRIM(sq.gtin)
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM square_products sq
+          WHERE sq.sku IS NOT NULL AND sq.sku != ''
+            AND TRIM(pv.sku) = TRIM(sq.sku)
+        )
+        AND (pv.sku IS NOT NULL AND pv.sku != '' OR pv.gtin IS NOT NULL AND pv.gtin != '')
+      ORDER BY p.title
+    `).all();
+
+    const squareService = require('../utils/square');
+    const locationId = squareService.locationId;
+    const results = [];
+    const errors = [];
+
+    for (const product of unmatchedProducts) {
+      const variants = db.prepare(
+        'SELECT * FROM product_variants WHERE product_id = ? ORDER BY id'
+      ).all(product.product_id);
+      if (variants.length === 0) continue;
+
+      const itemId = `#bulk-item-${product.product_id}`;
+      const variations = variants.map((v, i) => ({
+        type: 'ITEM_VARIATION',
+        id: `#bulk-var-${product.product_id}-${i}`,
+        itemVariationData: {
+          itemId,
+          name: v.variant_title || 'Default',
+          sku: v.sku || '',
+          upc: v.gtin || '',
+          pricingType: 'FIXED_PRICING',
+          priceMoney: { amount: Math.round((v.price || 0) * 100), currency: 'AUD' },
+          locationOverrides: locationId ? [{ locationId, trackInventory: true }] : [],
+        },
+      }));
+
+      try {
+        const upsertRes = await squareService.client.catalog.object.upsert({
+          idempotencyKey: `bulk-add-${product.product_id}-${Date.now()}`,
+          object: {
+            type: 'ITEM',
+            id: itemId,
+            itemData: {
+              name: product.title,
+              description: product.description || '',
+              variations,
+            },
+          },
+        });
+        results.push({ product_id: product.product_id, title: product.title, squareItemId: upsertRes.catalogObject?.id });
+      } catch (err) {
+        errors.push({ product_id: product.product_id, title: product.title, error: err.message });
+      }
+    }
+
+    squareService.invalidateCatalogCache();
+    res.json({ success: true, added: results.length, failed: errors.length, results, errors });
+  } catch (err) {
+    console.error('bulk-add-to-square error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;
