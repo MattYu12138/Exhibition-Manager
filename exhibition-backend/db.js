@@ -227,11 +227,6 @@ const migrations = [
   'ALTER TABLE exhibition_items ADD COLUMN variant_id TEXT',
   // 新增加密密码字段（AES-256-CBC 对称加密）
   'ALTER TABLE users ADD COLUMN password_encrypted TEXT',
-  // 新增 square_quantity_synced 字段：记录展会前同步后 Square 的实际总量（仅供参考）
-  // square_quantity_before 已更正为存储带走数量（plannedQty），用于展会后计算卖出量
-  'ALTER TABLE inventory_snapshots ADD COLUMN square_quantity_synced INTEGER DEFAULT NULL',
-  // 将 square_quantity_after 默认值语义修正：NULL 表示尚未执行展会后同步
-  'UPDATE inventory_snapshots SET square_quantity_after = NULL, sold_quantity = NULL, remaining_quantity = NULL WHERE square_quantity_after = 0 AND sold_quantity = 0 AND remaining_quantity = 0',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (e) { /* 字段已存在，忽略 */ }

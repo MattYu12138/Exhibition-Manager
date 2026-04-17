@@ -33,9 +33,9 @@ router.get('/catalog', async (req, res) => {
  *   4. 计算卖出量和剩余量，写入快照
  *
  * 字段说明：
- *   square_quantity_before  = 带走数量（plannedQty），用于展会后计算卖出量
- *   square_quantity_synced  = 同步后 Square 实际总量（原有库存 + 带走增量），仅供参考
- *   square_quantity_after   = 展会结束后从 Square 读取的实际剩余量
+ *   square_quantity_before  = 展会前同步后 Square 实际总量（原有库存 + 带走数量）
+ *                             用于展会后计算卖出量：sold = square_quantity_before - square_quantity_after
+ *   square_quantity_after   = 展会结束后从 Square 读取的实际剩余量（NULL 表示尚未执行展会后同步）
  *   sold_quantity           = square_quantity_before - square_quantity_after（卖出量）
  *   remaining_quantity      = planned_quantity - sold_quantity（应剩余待清点）
  */
@@ -156,16 +156,16 @@ router.post('/sync', async (req, res) => {
             ? plannedQty - lastSyncedQty
             : plannedQty;
 
+          // newTotalQty = Square 同步后实际总量（原有库存 + 带走增量）
           const newTotalQty = Math.max(0, currentQty + deltaQty);
 
           // 写入 Square 库存
           await squareService.setInventoryQuantity(match.variationId, newTotalQty);
 
           // 记录快照
-          // square_quantity_before = plannedQty（带走数量），用于展会后计算卖出量
-          //   卖出量 = square_quantity_before - square_quantity_after
-          //   应剩余 = planned_quantity - 卖出量
-          // square_quantity_synced = newTotalQty（同步后 Square 实际总量），仅供参考
+          // square_quantity_before = newTotalQty（Square 同步后实际总量）
+          // 展会后计算：sold = square_quantity_before - square_quantity_after
+          //             remaining = planned_quantity - sold
           try {
             const existing = db.prepare(
               'SELECT id FROM inventory_snapshots WHERE exhibition_id = ? AND shopify_variant_id = ?'
@@ -173,12 +173,12 @@ router.post('/sync', async (req, res) => {
 
             if (existing) {
               db.prepare(
-                'UPDATE inventory_snapshots SET square_catalog_variation_id = ?, square_quantity_before = ?, square_quantity_synced = ?, square_quantity_after = NULL, sold_quantity = NULL, remaining_quantity = NULL, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
-              ).run(match.variationId, plannedQty, newTotalQty, existing.id);
+                'UPDATE inventory_snapshots SET square_catalog_variation_id = ?, square_quantity_before = ?, square_quantity_after = NULL, sold_quantity = NULL, remaining_quantity = NULL, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
+              ).run(match.variationId, newTotalQty, existing.id);
             } else {
               db.prepare(
-                'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before, square_quantity_synced) VALUES (?, ?, ?, ?, ?, ?)'
-              ).run(snapshotId(db), exhibition_id, item.shopify_variant_id, match.variationId, plannedQty, newTotalQty);
+                'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before) VALUES (?, ?, ?, ?, ?)'
+              ).run(snapshotId(db), exhibition_id, item.shopify_variant_id, match.variationId, newTotalQty);
             }
 
             db.prepare(
@@ -211,7 +211,7 @@ router.post('/sync', async (req, res) => {
       //
       // 计算逻辑：
       //   square_quantity_after = Square 当前实际剩余（展会结束后）
-      //   sold_quantity = square_quantity_before（带走数量）- square_quantity_after（Square 剩余）
+      //   sold_quantity = square_quantity_before（展会前同步后总量）- square_quantity_after（展会后剩余）
       //   remaining_quantity = planned_quantity（带走数量）- sold_quantity（卖出量）
       // ═══════════════════════════════════════════
       for (const { item, match } of matched) {
@@ -221,7 +221,7 @@ router.post('/sync', async (req, res) => {
           'SELECT * FROM inventory_snapshots WHERE exhibition_id = ? AND shopify_variant_id = ?'
         ).get(exhibition_id, item.shopify_variant_id);
 
-        // square_quantity_before 现在存储的是带走数量（plannedQty），用于计算卖出量
+        // square_quantity_before = 展会前同步后 Square 实际总量
         const qtyBefore = snapshot ? snapshot.square_quantity_before : item.planned_quantity;
         const soldQty = Math.max(0, qtyBefore - squareRemaining);
         const remainingQty = Math.max(0, item.planned_quantity - soldQty);
@@ -298,6 +298,7 @@ router.post('/create-items', async (req, res) => {
         }
 
         // 3. 记录快照（失败不影响商品创建成功状态）
+        // 新创建的商品 Square 原有库存为 0，所以 square_quantity_before = plannedQty
         try {
           const existing = db.prepare(
             'SELECT id FROM inventory_snapshots WHERE exhibition_id = ? AND shopify_variant_id = ?'
@@ -305,12 +306,12 @@ router.post('/create-items', async (req, res) => {
 
           if (existing) {
             db.prepare(
-              'UPDATE inventory_snapshots SET square_catalog_variation_id = ?, square_quantity_before = ?, square_quantity_synced = ?, square_quantity_after = NULL, sold_quantity = NULL, remaining_quantity = NULL, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
-            ).run(variationId, plannedQty, plannedQty, existing.id);
+              'UPDATE inventory_snapshots SET square_catalog_variation_id = ?, square_quantity_before = ?, square_quantity_after = NULL, sold_quantity = NULL, remaining_quantity = NULL, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
+            ).run(variationId, plannedQty, existing.id);
           } else {
             db.prepare(
-              'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before, square_quantity_synced) VALUES (?, ?, ?, ?, ?, ?)'
-            ).run(snapshotId(db), exhibition_id, item.shopify_variant_id, variationId, plannedQty, plannedQty);
+              'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before) VALUES (?, ?, ?, ?, ?)'
+            ).run(snapshotId(db), exhibition_id, item.shopify_variant_id, variationId, plannedQty);
           }
 
           // 4. 更新 last_synced_quantity

@@ -35,6 +35,7 @@
       <el-empty v-if="!snapshots.length && !loadingSnap" :description="t('inventoryResult.emptyHint')" />
 
       <div v-else v-loading="loadingSnap">
+        <!-- Summary Stats -->
         <el-row :gutter="16" class="summary-row" v-if="snapshots.length">
           <el-col :span="8">
             <div class="summary-item">
@@ -56,7 +57,23 @@
           </el-col>
         </el-row>
 
-        <el-table :data="snapshots" stripe border style="margin-top: 16px">
+        <!-- Search Bar -->
+        <div class="search-bar">
+          <el-input
+            v-model="searchKeyword"
+            :placeholder="t('inventoryResult.searchPlaceholder')"
+            clearable
+            prefix-icon="Search"
+            style="max-width: 360px"
+            @input="currentPage = 1"
+          />
+          <span v-if="searchKeyword" class="search-hint">
+            {{ t('inventoryResult.searchResult', { n: filteredSnapshots.length }) }}
+          </span>
+        </div>
+
+        <!-- Table -->
+        <el-table :data="pagedSnapshots" stripe border style="margin-top: 12px">
           <el-table-column :label="t('inventoryResult.colProduct')" min-width="200">
             <template #default="{ row }">
               <div>
@@ -70,6 +87,16 @@
               <el-tag type="info">{{ row.item_planned_qty ?? '-' }}</el-tag>
             </template>
           </el-table-column>
+          <!-- Square 同步后总量（展会前同步后 Square 实际库存 = 原有库存 + 带走数量） -->
+          <el-table-column :label="t('inventoryResult.colSquareSynced')" width="130" align="center">
+            <template #default="{ row }">
+              <span v-if="row.square_quantity_before !== null && row.square_quantity_before !== undefined">
+                {{ row.square_quantity_before }}
+              </span>
+              <span v-else style="color: #c0c4cc">{{ t('inventoryResult.pendingSync') }}</span>
+            </template>
+          </el-table-column>
+          <!-- 展会后 Square 剩余（展会结束后同步获取） -->
           <el-table-column :label="t('inventoryResult.colSquareRemaining')" width="120" align="center">
             <template #default="{ row }">
               <span v-if="row.square_quantity_after !== null && row.square_quantity_after !== undefined">
@@ -114,6 +141,18 @@
             </template>
           </el-table-column>
         </el-table>
+
+        <!-- Pagination -->
+        <div class="pagination-bar" v-if="filteredSnapshots.length > pageSize">
+          <el-pagination
+            v-model:current-page="currentPage"
+            :page-size="pageSize"
+            :total="filteredSnapshots.length"
+            layout="total, prev, pager, next"
+            background
+            @current-change="currentPage = $event"
+          />
+        </div>
       </div>
     </el-card>
 
@@ -239,10 +278,32 @@ const syncing = ref(null)
 const loadingSnap = ref(false)
 const currentStep = ref(0)
 
+// 搜索和分页
+const searchKeyword = ref('')
+const currentPage = ref(1)
+const pageSize = 10
+
 // 未匹配商品弹窗
 const unmatchedDialogVisible = ref(false)
 const unmatchedItems = ref([])
 const addingToSquare = ref(false)
+
+// 过滤后的数据（按关键词搜索商品名称或变体名称）
+const filteredSnapshots = computed(() => {
+  const kw = searchKeyword.value.trim().toLowerCase()
+  if (!kw) return snapshots.value
+  return snapshots.value.filter((row) => {
+    const title = (row.product_title || '').toLowerCase()
+    const variant = (row.variant_title || '').toLowerCase()
+    return title.includes(kw) || variant.includes(kw)
+  })
+})
+
+// 当前页数据
+const pagedSnapshots = computed(() => {
+  const start = (currentPage.value - 1) * pageSize
+  return filteredSnapshots.value.slice(start, start + pageSize)
+})
 
 const totalPlanned = computed(() =>
   snapshots.value.reduce((s, r) => s + (r.item_planned_qty || 0), 0)
@@ -259,6 +320,7 @@ async function loadSnapshotData() {
   try {
     const data = await store.loadSnapshots(id)
     snapshots.value = data || []
+    currentPage.value = 1
     if (snapshots.value.some((s) => s.square_quantity_before > 0)) currentStep.value = 1
     if (snapshots.value.some((s) => s.square_quantity_after !== null && s.square_quantity_after !== undefined)) currentStep.value = 2
   } finally {
@@ -278,18 +340,16 @@ async function handleSyncBefore() {
     
     // 检查是否有未匹配商品
     if (result?.unmatched && result.unmatched.length > 0) {
-      // 初始化未匹配商品列表，添加自定义字段
       unmatchedItems.value = result.unmatched.map((item) => ({
         ...item,
         customName: item.product_title || '',
         customVariantName: item.variant_title || 'Default',
         customPrice: 0,
         customDescription: '',
-        includeInSquare: true, // 默认选中
+        includeInSquare: true,
       }))
       unmatchedDialogVisible.value = true
     } else {
-      // 全部匹配成功
       await loadSnapshotData()
       currentStep.value = 1
       const syncedCount = result?.data?.filter(r => r.status === 'synced').length || 0
@@ -335,7 +395,6 @@ async function confirmAddToSquare() {
     return
   }
 
-  // 验证必填字段
   for (const item of selectedItems) {
     if (!item.customName || !item.customVariantName) {
       ElMessage.warning(`${item.product_title} - ${item.variant_title}: ${t('unmatchedDialog.itemNamePlaceholder')}`)
@@ -357,7 +416,7 @@ async function confirmAddToSquare() {
       variantName: item.customVariantName,
       sku: item.sku || '',
       gtin: item.gtin || '',
-      priceCents: Math.round((item.customPrice || 0) * 100), // 转换为分
+      priceCents: Math.round((item.customPrice || 0) * 100),
       description: item.customDescription || '',
       planned_quantity: item.planned_quantity,
     }))
@@ -413,4 +472,9 @@ onMounted(async () => {
 .summary-num.green { color: #67c23a; }
 .summary-num.red { color: #f56c6c; }
 .summary-label { font-size: 13px; color: #909399; margin-top: 4px; }
+
+.search-bar { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+.search-hint { font-size: 13px; color: #909399; }
+
+.pagination-bar { display: flex; justify-content: flex-end; margin-top: 16px; }
 </style>
