@@ -651,15 +651,19 @@ router.get('/cross-match/both-mismatch', requirePermission('read'), (req, res) =
   // - split on whitespace
   // - keep words >= 3 chars
   // - remove common stop words
+  // Generic words that appear in almost every product name - exclude from matching
   const stopWords = new Set([
     'the', 'and', 'for', 'with', 'from', 'that', 'this', 'are', 'was', 'has',
     'its', 'not', 'but', 'all', 'one', 'two', 'new', 'our',
+    // Generic product category words
+    'organic', 'cotton', 'bamboo', 'baby', 'size', 'set', 'pack', 'gift',
+    'lummi', 'colour', 'color', 'lumi', 'colour',
   ]);
 
   function extractKeywords(title) {
     return (title || '')
       .toLowerCase()
-      .replace(/[&\-–—_/,.()'"!?]+/g, ' ')  // strip symbols
+      .replace(/[&\-–—_/,.()'\'"!?]+/g, ' ')  // strip symbols
       .split(/\s+/)
       .filter(w => w.length >= 3 && !stopWords.has(w));
   }
@@ -672,10 +676,13 @@ router.get('/cross-match/both-mismatch', requirePermission('read'), (req, res) =
     if (!candidateCache[key]) {
       const keywords = extractKeywords(row.shopify_product_title);
 
-      // Match Square items where item_name contains ANY keyword from Shopify product title
+      // Match Square items where item_name contains AT LEAST 2 keywords from Shopify product title
+      // (or 1 keyword if there is only 1 meaningful keyword)
+      const minMatches = keywords.length >= 2 ? 2 : 1;
       const candidates = allSquareItems.filter(item => {
-        const sqName = (item.item_name || '').toLowerCase().replace(/[&\-–—_/,.()'"!?]+/g, ' ');
-        return keywords.some(kw => sqName.includes(kw));
+        const sqName = (item.item_name || '').toLowerCase().replace(/[&\-–—_/,.()'\'"!?]+/g, ' ');
+        const matchCount = keywords.filter(kw => sqName.includes(kw)).length;
+        return matchCount >= minMatches;
       });
 
       candidateCache[key] = candidates;
