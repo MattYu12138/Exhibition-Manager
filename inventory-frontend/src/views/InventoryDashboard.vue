@@ -626,6 +626,20 @@
               </table>
             </div>
           </div>
+          <!-- Pagination -->
+          <div v-if="crossMatchTotalPages > 1" class="flex items-center justify-center gap-2 pt-2 pb-1">
+            <button
+              @click="crossMatchPage = Math.max(1, crossMatchPage - 1)"
+              :disabled="crossMatchPage <= 1"
+              class="text-xs px-3 py-1.5 rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >← 上一页</button>
+            <span class="text-xs text-gray-500">{{ crossMatchPage }} / {{ crossMatchTotalPages }}</span>
+            <button
+              @click="crossMatchPage = Math.min(crossMatchTotalPages, crossMatchPage + 1)"
+              :disabled="crossMatchPage >= crossMatchTotalPages"
+              class="text-xs px-3 py-1.5 rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >下一页 →</button>
+          </div>
         </div>
       </template>
 
@@ -722,6 +736,20 @@
               </table>
             </div>
           </div>
+          <!-- Pagination -->
+          <div v-if="crossMatchTotalPages > 1" class="flex items-center justify-center gap-2 pt-2 pb-1">
+            <button
+              @click="crossMatchPage = Math.max(1, crossMatchPage - 1)"
+              :disabled="crossMatchPage <= 1"
+              class="text-xs px-3 py-1.5 rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >← 上一页</button>
+            <span class="text-xs text-gray-500">{{ crossMatchPage }} / {{ crossMatchTotalPages }}</span>
+            <button
+              @click="crossMatchPage = Math.min(crossMatchTotalPages, crossMatchPage + 1)"
+              :disabled="crossMatchPage >= crossMatchTotalPages"
+              class="text-xs px-3 py-1.5 rounded border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >下一页 →</button>
+          </div>
         </div>
       </template>
 
@@ -732,108 +760,28 @@
           <div class="text-4xl mb-3">✅</div>
           <div class="text-sm">{{ t('inventory.noCrossMatch') }}</div>
         </div>
-        <div v-else class="space-y-4">
-          <!-- Bulk add button -->
-          <div class="flex justify-end mb-3">
-            <button
-              @click="bulkAddToSquare"
-              :disabled="bulkAddLoading"
-              class="text-sm bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium"
-            >
-              <span v-if="bulkAddLoading">{{ t('inventory.crossBothBulkAdding') }}</span>
-              <span v-else>{{ t('inventory.crossBothBulkAdd') }}</span>
-            </button>
-          </div>
+        <div v-else class="space-y-3">
           <div
             v-for="item in crossMatchItems.filter(i => !crossBothIgnored.has(i.shopify_variant_id))"
             :key="item.shopify_variant_id"
-            class="bg-white rounded-xl shadow-sm overflow-hidden"
+            class="bg-white rounded-xl shadow-sm px-4 py-3 flex items-center justify-between gap-4"
           >
-            <!-- Card header: collapsible -->
-            <div
-              class="px-4 py-3 bg-orange-50 border-b border-orange-100 flex items-center justify-between cursor-pointer select-none"
-              @click="crossBothCollapsed[item.shopify_variant_id] = !crossBothCollapsed[item.shopify_variant_id]"
-            >
-              <div class="flex items-center gap-2 min-w-0">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 mb-1">
                 <img :src="shopifyLogoUrl" class="w-4 h-4 object-contain shrink-0" />
                 <span class="font-semibold text-orange-800 text-sm truncate">
                   {{ item.shopify_product_title }} — {{ item.shopify_variant_title }}
                 </span>
               </div>
-              <div class="flex items-center gap-2 shrink-0 ml-2">
-                <button @click.stop="ignoreCrossBoth(item)" class="text-xs text-gray-400 hover:text-gray-600">
-                  {{ t('inventory.crossBothIgnore') }}
-                </button>
-                <button
-                  @click.stop="addToSquare(item)"
-                  class="text-xs bg-green-600 hover:bg-green-700 text-white px-2.5 py-1 rounded"
-                >{{ t('inventory.crossBothAddToSquare') }}</button>
-                <span class="text-gray-400 text-xs">{{ crossBothCollapsed[item.shopify_variant_id] ? '▶' : '▼' }}</span>
-              </div>
-            </div>
-
-            <!-- Card body: collapsible -->
-            <div v-show="!crossBothCollapsed[item.shopify_variant_id]" class="px-4 py-3">
-              <!-- Shopify variant info -->
-              <div class="flex gap-6 text-xs text-gray-500 mb-3">
+              <div class="flex gap-4 text-xs text-gray-500">
                 <span>SKU: <span class="font-mono text-gray-700">{{ item.shopify_sku || '—' }}</span></span>
                 <span>GTIN: <span class="font-mono text-gray-700">{{ item.shopify_gtin || '—' }}</span></span>
                 <span>Price: <span class="font-mono text-gray-700">{{ item.shopify_price != null ? '$' + item.shopify_price : '—' }}</span></span>
               </div>
-
-              <!-- Manual Square search -->
-              <div class="space-y-2">
-                <div class="flex gap-2">
-                  <input
-                    v-model="crossBothSearchQuery[item.shopify_variant_id]"
-                    @input="debouncedSquareSearch(item.shopify_variant_id)"
-                    type="text"
-                    :placeholder="t('inventory.crossBothSearchPlaceholder')"
-                    class="flex-1 text-xs border border-gray-200 rounded px-3 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-blue-400"
-                  />
-                </div>
-                <!-- Search results -->
-                <div v-if="crossBothSearchResults[item.shopify_variant_id] && crossBothSearchResults[item.shopify_variant_id].length > 0" class="space-y-1.5">
-                  <div
-                    v-for="candidate in crossBothSearchResults[item.shopify_variant_id]"
-                    :key="candidate.item_id"
-                    class="bg-gray-50 rounded-lg px-3 py-2"
-                  >
-                    <div class="flex items-center gap-1.5 mb-1.5">
-                      <img :src="squareLogoUrl" class="w-3.5 h-3.5 object-contain shrink-0" />
-                      <span class="text-sm font-medium text-gray-800">{{ candidate.item_name }}</span>
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <select
-                        v-model="crossBothSelectedVariation[item.shopify_variant_id + '|' + candidate.item_id]"
-                        class="flex-1 text-xs border border-gray-200 rounded px-2 py-1.5 bg-white text-gray-700 min-w-0"
-                      >
-                        <option value="" disabled>{{ t('inventory.crossBothSelectVariation') }}</option>
-                        <option
-                          v-for="v in candidate.variations"
-                          :key="v.variation_id"
-                          :value="v.variation_id"
-                        >
-                          {{ v.variation_name }}
-                          <template v-if="v.sku"> · SKU: {{ v.sku }}</template>
-                          <template v-if="v.gtin"> · GTIN: {{ v.gtin }}</template>
-                          <template v-if="v.price != null"> · ${{ (v.price / 100).toFixed(2) }}</template>
-                        </option>
-                      </select>
-                      <button
-                        @click="linkCrossBoth(item, candidate, crossBothSelectedVariation[item.shopify_variant_id + '|' + candidate.item_id])"
-                        :disabled="!crossBothSelectedVariation[item.shopify_variant_id + '|' + candidate.item_id]"
-                        class="text-xs bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded shrink-0"
-                      >{{ t('inventory.crossBothLinkTo') }}</button>
-                    </div>
-                  </div>
-                </div>
-                <div
-                  v-else-if="crossBothSearchQuery[item.shopify_variant_id] && crossBothSearchQuery[item.shopify_variant_id].length >= 2"
-                  class="text-xs text-gray-400 px-1"
-                >{{ t('inventory.crossBothNoSearchResults') }}</div>
-              </div>
             </div>
+            <button @click="ignoreCrossBoth(item)" class="text-xs text-gray-400 hover:text-gray-600 shrink-0">
+              {{ t('inventory.crossBothIgnore') }}
+            </button>
           </div>
         </div>
       </template>
@@ -1262,6 +1210,8 @@ const expandedCrossItems = ref(new Set())
 // ─── Cross-match data ─────────────────────────────────────────────────────────
 const crossMatchItems = ref([])
 const crossMatchLoading = ref(false)
+const crossMatchPage = ref(1)
+const crossMatchPerPage = 10
 const crossBothIgnored = ref(new Set())
 const crossBothCollapsed = reactive({})
 const crossBothLinked = ref(new Set())
@@ -1310,8 +1260,8 @@ const groupedSquareProducts = computed(() => {
   return groups
 })
 
-// ─── Filtered cross-match items ───────────────────────────────────────────────
-const filteredCrossMatchItems = computed(() => {
+// ─── Filtered cross-match items ─────────────────────────────────────────────
+const allFilteredCrossMatchItems = computed(() => {
   if (!searchQuery.value.trim()) return crossMatchItems.value
   const kw = searchQuery.value.trim().toLowerCase()
   return crossMatchItems.value.filter(item =>
@@ -1323,6 +1273,13 @@ const filteredCrossMatchItems = computed(() => {
     (item.shopify_gtin || '').toLowerCase().includes(kw) ||
     (item.square_gtin || '').toLowerCase().includes(kw)
   )
+})
+
+const crossMatchTotalPages = computed(() => Math.max(1, Math.ceil(allFilteredCrossMatchItems.value.length / crossMatchPerPage)))
+
+const filteredCrossMatchItems = computed(() => {
+  const start = (crossMatchPage.value - 1) * crossMatchPerPage
+  return allFilteredCrossMatchItems.value.slice(start, start + crossMatchPerPage)
 })
 
 // ─── Issues view label ────────────────────────────────────────────────────────
@@ -1925,6 +1882,7 @@ async function fetchSquareProducts() {
 async function fetchCrossMatch(mode) {
   crossMatchLoading.value = true
   crossMatchItems.value = []
+  crossMatchPage.value = 1
   try {
     const endpointMap = {
       'cross-gtin': '/products/cross-match/gtin-sku-mismatch',
