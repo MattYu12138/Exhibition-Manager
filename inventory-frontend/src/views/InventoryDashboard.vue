@@ -732,18 +732,18 @@
           <div class="text-4xl mb-3">✅</div>
           <div class="text-sm">{{ t('inventory.noCrossMatch') }}</div>
         </div>
-        <!-- Bulk add button -->
-        <div class="flex justify-end mb-3">
-          <button
-            @click="bulkAddToSquare"
-            :disabled="bulkAddLoading"
-            class="text-sm bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium"
-          >
-            <span v-if="bulkAddLoading">{{ t('inventory.crossBothBulkAdding') }}</span>
-            <span v-else>{{ t('inventory.crossBothBulkAdd') }}</span>
-          </button>
-        </div>
         <div v-else class="space-y-4">
+          <!-- Bulk add button -->
+          <div class="flex justify-end mb-3">
+            <button
+              @click="bulkAddToSquare"
+              :disabled="bulkAddLoading"
+              class="text-sm bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium"
+            >
+              <span v-if="bulkAddLoading">{{ t('inventory.crossBothBulkAdding') }}</span>
+              <span v-else>{{ t('inventory.crossBothBulkAdd') }}</span>
+            </button>
+          </div>
           <div
             v-for="item in crossMatchItems.filter(i => !crossBothIgnored.has(i.shopify_variant_id))"
             :key="item.shopify_variant_id"
