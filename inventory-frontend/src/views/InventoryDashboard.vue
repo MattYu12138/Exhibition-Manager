@@ -293,10 +293,25 @@
             </button>
             <button
               @click="setIssuesView('cross-both')"
-              class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg flex items-center gap-2"
+              class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
               :class="viewMode === 'cross-both' ? 'bg-orange-50 text-orange-700 font-medium' : ''"
             >
               <span>⚠️</span> {{ t('inventory.crossBothMismatch') }}
+            </button>
+            <div class="border-t border-gray-100 my-1"></div>
+            <button
+              @click="setIssuesView('shopify-missing')"
+              class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+              :class="viewMode === 'shopify-missing' ? 'bg-orange-50 text-orange-700 font-medium' : ''"
+            >
+              <img :src="shopifyLogoUrl" class="w-4 h-4 object-contain" /> {{ t('inventory.shopifyMissingSkuGtin') }}
+            </button>
+            <button
+              @click="setIssuesView('square-missing')"
+              class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg flex items-center gap-2"
+              :class="viewMode === 'square-missing' ? 'bg-orange-50 text-orange-700 font-medium' : ''"
+            >
+              <img :src="squareLogoUrl" class="w-4 h-4 object-contain" /> {{ t('inventory.squareMissingSkuGtin') }}
             </button>
           </div>
         </div>
@@ -309,12 +324,15 @@
       </div>
 
       <!-- ── Shopify Products List ── -->
-      <template v-else-if="activeSource === 'shopify' && (viewMode === 'all' || viewMode === 'shopify-dup')">
+      <template v-else-if="activeSource === 'shopify' && (viewMode === 'all' || viewMode === 'shopify-dup' || viewMode === 'shopify-missing')">
         <div v-if="filteredProducts.length === 0 && products.length === 0" class="text-center text-gray-400 py-20">
           {{ t('inventory.noProducts') }}
         </div>
         <div v-else-if="filteredProducts.length === 0 && viewMode === 'shopify-dup'" class="text-center text-green-600 py-20 text-lg">
           ✅ {{ t('inventory.noDuplicates') }}
+        </div>
+        <div v-else-if="filteredProducts.length === 0 && viewMode === 'shopify-missing'" class="text-center text-green-600 py-20 text-lg">
+          ✅ {{ t('inventory.noMissingSkuGtin') }}
         </div>
         <div v-else-if="filteredProducts.length === 0" class="text-center text-gray-400 py-20">
           {{ t('inventory.noProducts') }}
@@ -370,6 +388,7 @@
                     class="border-t"
                     :class="[
                       (variant.hasDuplicateSKU || variant.hasDuplicateBarcode) ? 'bg-orange-50' : '',
+                      (viewMode === 'shopify-missing' && (!variant.sku || !variant.barcode)) ? 'bg-yellow-50' : '',
                       hasVariantPendingChanges(product.id, variant.id) ? 'bg-amber-50' : ''
                     ]">
                     <td class="px-4 py-2 text-gray-700">{{ variant.title }}</td>
@@ -414,6 +433,14 @@
                           {{ t('inventory.dupBarcode') }}
                         </template>
                       </span>
+                      <span v-if="!variant.sku"
+                        class="inline-block bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded mr-1 text-xs leading-tight">
+                        {{ t('inventory.missingSku') }}
+                      </span>
+                      <span v-if="!variant.barcode"
+                        class="inline-block bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded text-xs leading-tight">
+                        {{ t('inventory.missingGtin') }}
+                      </span>
                     </td>
                     <td class="px-4 py-2">
                       <button @click="openEditVariant(product, variant)" class="text-purple-600 hover:underline">{{ t('inventory.edit') }}</button>
@@ -427,7 +454,7 @@
       </template>
 
       <!-- ── Square Products List ── -->
-      <template v-else-if="activeSource === 'square' && (viewMode === 'all' || viewMode === 'square-dup')">
+      <template v-else-if="activeSource === 'square' && (viewMode === 'all' || viewMode === 'square-dup' || viewMode === 'square-missing')">
         <div v-if="squareProducts.length === 0" class="text-center text-gray-400 py-20">
           <div class="mb-3"><img :src="squareLogoUrl" class="w-12 h-12 object-contain mx-auto" /></div>
           <div>{{ squareLastSync ? t('inventory.noSquareProducts') : t('inventory.squareNotSynced') }}</div>
@@ -435,6 +462,9 @@
         </div>
         <div v-else-if="Object.keys(groupedSquareProducts).length === 0 && viewMode === 'square-dup'" class="text-center text-green-600 py-20 text-lg">
           ✅ {{ t('inventory.noDuplicates') }}
+        </div>
+        <div v-else-if="Object.keys(groupedSquareProducts).length === 0 && viewMode === 'square-missing'" class="text-center text-green-600 py-20 text-lg">
+          ✅ {{ t('inventory.noMissingSkuGtin') }}
         </div>
         <div v-else class="space-y-1">
           <!-- Group by item_name -->
@@ -467,6 +497,7 @@
                     class="border-t"
                     :class="[
                       variation.hasDuplicate ? 'bg-orange-50' : '',
+                      (viewMode === 'square-missing' && (!variation.sku || !variation.gtin)) ? 'bg-yellow-50' : '',
                       stagedSquareEdits[variation.id] ? 'bg-amber-50 ring-1 ring-amber-200' : ''
                     ]">
                     <td class="px-4 py-2 text-gray-700">{{ variation.variation_name || '—' }}</td>
@@ -512,6 +543,14 @@
                           GTIN {{ t('inventory.squareDupConflictWith') }}「{{ variation.duplicateGtinVariations.map(v => `${v.itemName} / ${v.variationName}`).join('」「') }}」
                         </template>
                         <template v-else>{{ t('inventory.dupBarcode') }}</template>
+                      </span>
+                      <span v-if="!variation.sku"
+                        class="inline-block bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded text-xs">
+                        {{ t('inventory.missingSku') }}
+                      </span>
+                      <span v-if="!variation.gtin"
+                        class="inline-block bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded text-xs">
+                        {{ t('inventory.missingGtin') }}
                       </span>
                     </td>
                     <!-- Actions cell -->
@@ -1197,7 +1236,7 @@ const activeStatus = ref('active')
 // ─── Source & View mode ───────────────────────────────────────────────────────
 // activeSource: 'shopify' | 'square'
 const activeSource = ref('shopify')
-// viewMode: 'all' | 'shopify-dup' | 'square-dup' | 'cross-gtin' | 'cross-sku'
+// viewMode: 'all' | 'shopify-dup' | 'square-dup' | 'cross-gtin' | 'cross-sku' | 'shopify-missing' | 'square-missing'
 const viewMode = ref('all')
 
 // ─── Square data ──────────────────────────────────────────────────────────────
@@ -1239,7 +1278,9 @@ const activeSummary = computed(() => {
 const groupedSquareProducts = computed(() => {
   const list = viewMode.value === 'square-dup'
     ? squareProducts.value.filter(v => v.hasDuplicate)
-    : squareProducts.value
+    : viewMode.value === 'square-missing'
+      ? squareProducts.value.filter(v => !v.sku || !v.gtin)
+      : squareProducts.value
 
   const filtered = searchQuery.value.trim()
     ? list.filter(v => {
@@ -1291,6 +1332,8 @@ const issuesViewLabel = computed(() => {
     'cross-gtin': t('inventory.crossGtinMismatch'),
     'cross-sku': t('inventory.crossSkuMismatch'),
     'cross-both': t('inventory.crossBothMismatch'),
+    'shopify-missing': t('inventory.shopifyMissingSkuGtin'),
+    'square-missing': t('inventory.squareMissingSkuGtin'),
   }
   return map[viewMode.value] || t('inventory.duplicatesOnly')
 })
@@ -1360,9 +1403,11 @@ async function setIssuesView(mode) {
   } else if (mode === 'cross-gtin' || mode === 'cross-sku' || mode === 'cross-both') {
     activeSource.value = 'shopify' // doesn't matter, cross-match has its own template
     await fetchCrossMatch(mode)
-  } else if (mode === 'cross-both') {
+  } else if (mode === 'shopify-missing') {
     activeSource.value = 'shopify'
-    await fetchCrossMatch('cross-both')
+  } else if (mode === 'square-missing') {
+    activeSource.value = 'square'
+    if (squareProducts.value.length === 0) await fetchSquareProducts()
   }
 }
 
@@ -1824,6 +1869,9 @@ function discardVariantStage(productId, variantId) {
 const filteredProducts = computed(() => {
   let list = products.value
   if (viewMode.value === 'shopify-dup') list = list.filter(p => p.hasDuplicate)
+  if (viewMode.value === 'shopify-missing') list = list.filter(p =>
+    (p.variants || []).some(v => !v.sku || !v.barcode)
+  )
   if (searchQuery.value) {
     const raw = searchQuery.value.trim().toLowerCase()
     const keywords = raw.split(/\s+/).filter(Boolean)
