@@ -660,16 +660,20 @@ onMounted(() => store.loadExhibition(id))
 
 /* Tab + 搜索行 */
 .tab-search-row {
-  display: flex; align-items: center; gap: 12px;
-  margin-bottom: 20px; flex-wrap: wrap;
+  display: flex; flex-direction: column; gap: 10px;
+  margin-bottom: 20px;
 }
 .tab-toggle {
-  display: flex; background: #f5f7fa; border-radius: 8px; padding: 4px; gap: 4px; flex-shrink: 0;
+  display: flex; background: #f5f7fa; border-radius: 8px; padding: 4px; gap: 4px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
+.tab-toggle::-webkit-scrollbar { display: none; }
 .tab-btn {
   display: flex; align-items: center; gap: 6px;
-  padding: 7px 16px; border-radius: 6px; border: none; cursor: pointer;
+  padding: 7px 14px; border-radius: 6px; border: none; cursor: pointer;
   font-size: 14px; font-weight: 600; background: transparent; color: #606266;
+  white-space: nowrap; flex-shrink: 0;
   transition: all 0.2s;
 }
 .tab-btn:hover { background: #e9ecef; color: #303133; }
