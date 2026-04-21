@@ -71,9 +71,15 @@ export const useExhibitionStore = defineStore('exhibition', () => {
   const productLoading = ref(false)
 
   // ==================== 计算属性 ====================
+  // 判断单个 item 是否已完成（方案A：前端计算，不依赖 DB checked 字段）
+  function isItemDone(item) {
+    const hangerOk = !!(item.hanger_done) || (item.rack_quantity ?? 0) === 0
+    const storageOk = !!(item.storage_done) || (item.stock_quantity ?? 0) === 0
+    return hangerOk && storageOk
+  }
   const checkedCount = computed(() => {
     if (!currentExhibition.value?.items) return 0
-    return currentExhibition.value.items.filter((i) => i.checked).length
+    return currentExhibition.value.items.filter((i) => isItemDone(i)).length
   })
 
   const totalItems = computed(() => {
@@ -346,6 +352,7 @@ export const useExhibitionStore = defineStore('exhibition', () => {
     updateExhibition,
     deleteExhibition,
     addItemsToExhibition,
+    isItemDone,
     toggleItemCheck,
     toggleItemSubState,
     toggleProductCheck,

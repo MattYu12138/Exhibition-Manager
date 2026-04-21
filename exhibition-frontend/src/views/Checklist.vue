@@ -170,7 +170,7 @@
               <div>
                 <div class="group-title">{{ group.product_title }}</div>
                 <div class="group-meta">
-                  {{ $t('checklist.sizesChecked', { done: group.variants.filter((v) => v.checked).length, total: group.variants.length }) }}
+                  {{ $t('checklist.sizesChecked', { done: group.variants.filter((v) => store.isItemDone(v)).length, total: group.variants.length }) }}
                 </div>
               </div>
             </div>
@@ -195,11 +195,11 @@
               v-for="variant in group.variants"
               :key="variant.id"
               class="variant-check-row"
-              :class="{ checked: variant.checked }"
+              :class="{ checked: store.isItemDone(variant) }"
             >
               <div class="check-icon-wrap" @click="toggleVariantCheck(variant)">
                 <transition name="check-bounce">
-                  <el-icon v-if="variant.checked" class="check-icon checked-icon" size="22" color="#67c23a">
+                  <el-icon v-if="store.isItemDone(variant)" class="check-icon checked-icon" size="22" color="#67c23a">
                     <CircleCheck />
                   </el-icon>
                   <el-icon v-else class="check-icon unchecked-icon" size="22" color="#dcdfe6">
@@ -446,24 +446,21 @@ const filteredGroups = computed(() => {
   })
 })
 
-/** 未清点分区：至少有一个变体未清点的商品组 */
+//** 未清点分区：至少有一个变体未完成的商品组 */
 const uncheckedGroups = computed(() =>
-  filteredGroups.value.filter((g) => !g.variants.every((v) => v.checked))
+  filteredGroups.value.filter((g) => !g.variants.every((v) => store.isItemDone(v)))
 )
-
-/** 已清点分区：所有变体都已清点的商品组 */
+/** 已清点分区：所有变体都已完成的商品组 */
 const checkedGroups = computed(() =>
-  filteredGroups.value.filter((g) => g.variants.every((v) => v.checked))
+  filteredGroups.value.filter((g) => g.variants.every((v) => store.isItemDone(v)))
 )
-
-/** 需挂衣架分区：至少有一个变体 hanger_done=0 且未清点的商品组 */
+/** 需挂衣架分区：至少有一个变体 hanger_done=0 且 rack_quantity>0 且未完成的商品组 */
 const hangerGroups = computed(() =>
-  filteredGroups.value.filter((g) => g.variants.some((v) => !v.hanger_done && !v.checked))
+  filteredGroups.value.filter((g) => g.variants.some((v) => !v.hanger_done && (v.rack_quantity ?? 0) > 0 && !store.isItemDone(v)))
 )
-
-/** 需备货分区：至少有一个变体 storage_done=0 且未清点的商品组 */
+/** 需备货分区：至少有一个变体 storage_done=0 且 stock_quantity>0 且未完成的商品组 */
 const storageGroups = computed(() =>
-  filteredGroups.value.filter((g) => g.variants.some((v) => !v.storage_done && !v.checked))
+  filteredGroups.value.filter((g) => g.variants.some((v) => !v.storage_done && (v.stock_quantity ?? 0) > 0 && !store.isItemDone(v)))
 )
 
 /** 当前标签页显示的商品组 */
@@ -517,8 +514,8 @@ async function onLocalQtyChange(variant) {
       stock_quantity: newStock,
       planned_quantity: newTotal,
     })
-    if (variant.checked) {
-      await store.toggleItemCheck(id, variant.id, false)
+    if (store.isItemDone(variant)) {
+      // 数量变化后不再自动取消已完成状态（方案A：状态由前端计算）
     }
   } catch (err) {
     ElMessage.error(t('checklist.qtyUpdateFailed', { msg: err.message }))
@@ -526,11 +523,13 @@ async function onLocalQtyChange(variant) {
 }
 
 function isProductAllChecked(group) {
-  return group.variants.every((v) => v.checked)
+  return group.variants.every((v) => store.isItemDone(v))
 }
-
 async function toggleVariantCheck(variant) {
-  await store.toggleItemCheck(id, variant.id, !variant.checked)
+  // 方案A：手动点击勾选圆圈时，切换两个子状态
+  const done = store.isItemDone(variant)
+  await store.toggleItemSubState(id, variant.id, 'hanger_done', done ? 0 : 1)
+  await store.toggleItemSubState(id, variant.id, 'storage_done', done ? 0 : 1)
 }
 
 async function toggleSubState(variant, field) {
