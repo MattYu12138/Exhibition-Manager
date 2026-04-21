@@ -97,6 +97,22 @@
           <span class="tab-count">{{ uncheckedGroups.length }}</span>
         </button>
         <button
+          class="tab-btn tab-btn-hanger"
+          :class="{ active: activeTab === 'hanger' }"
+          @click="activeTab = 'hanger'"
+        >
+          {{ $t('checklist.sectionHanger') }}
+          <span class="tab-count tab-count-hanger">{{ hangerGroups.length }}</span>
+        </button>
+        <button
+          class="tab-btn tab-btn-storage"
+          :class="{ active: activeTab === 'storage' }"
+          @click="activeTab = 'storage'"
+        >
+          {{ $t('checklist.sectionStorage') }}
+          <span class="tab-count tab-count-storage">{{ storageGroups.length }}</span>
+        </button>
+        <button
           class="tab-btn"
           :class="{ active: activeTab === 'checked' }"
           @click="activeTab = 'checked'"
@@ -132,7 +148,7 @@
 
       <el-empty
         v-else-if="store.groupedItems.length && activeGroups.length === 0"
-        :description="searchQuery ? $t('checklist.searchEmpty') : (activeTab === 'unchecked' ? $t('checklist.tabUncheckedEmpty') : $t('checklist.tabCheckedEmpty'))"
+        :description="searchQuery ? $t('checklist.searchEmpty') : emptyTabDescription"
       />
 
       <template v-else>
@@ -202,28 +218,53 @@
 
               <div class="checklist-qty-area" @click.stop>
                 <div class="checklist-qty-group">
-                  <div class="checklist-qty-field">
-                    <div class="checklist-qty-label">{{ $t('checklist.rack') }}</div>
-                    <el-input-number
-                      v-model="localQty[variant.id].rack"
-                      :min="0"
-                      :max="9999"
-                      size="small"
-                      style="width: 80px"
-                      @change="onLocalQtyChange(variant)"
-                    />
+                  <!-- Rack + On Hanger button -->
+                  <div class="checklist-qty-col">
+                    <div class="checklist-qty-field">
+                      <div class="checklist-qty-label">{{ $t('checklist.rack') }}</div>
+                      <el-input-number
+                        v-model="localQty[variant.id].rack"
+                        :min="0"
+                        :max="9999"
+                        size="small"
+                        style="width: 80px"
+                        @change="onLocalQtyChange(variant)"
+                      />
+                    </div>
+                    <button
+                      class="sub-inline-btn"
+                      :class="variant.hanger_done ? 'sub-inline-btn--hanger-done' : 'sub-inline-btn--hanger'"
+                      @click.stop="toggleSubState(variant, 'hanger_done')"
+                    >
+                      <span class="sub-inline-dot" />
+                      {{ $t('checklist.hangerDone') }}
+                    </button>
                   </div>
-                  <div class="checklist-qty-field">
-                    <div class="checklist-qty-label">{{ $t('checklist.storage') }}</div>
-                    <el-input-number
-                      v-model="localQty[variant.id].stock"
-                      :min="0"
-                      :max="9999"
-                      size="small"
-                      style="width: 80px"
-                      @change="onLocalQtyChange(variant)"
-                    />
+
+                  <!-- Storage + Storage Ready button -->
+                  <div class="checklist-qty-col">
+                    <div class="checklist-qty-field">
+                      <div class="checklist-qty-label">{{ $t('checklist.storage') }}</div>
+                      <el-input-number
+                        v-model="localQty[variant.id].stock"
+                        :min="0"
+                        :max="9999"
+                        size="small"
+                        style="width: 80px"
+                        @change="onLocalQtyChange(variant)"
+                      />
+                    </div>
+                    <button
+                      class="sub-inline-btn"
+                      :class="variant.storage_done ? 'sub-inline-btn--storage-done' : 'sub-inline-btn--storage'"
+                      @click.stop="toggleSubState(variant, 'storage_done')"
+                    >
+                      <span class="sub-inline-dot" />
+                      {{ $t('checklist.storageDone') }}
+                    </button>
                   </div>
+
+                  <!-- Total -->
                   <div class="checklist-qty-field checklist-qty-total">
                     <div class="checklist-qty-label">{{ $t('checklist.totalLabel') }}</div>
                     <div class="checklist-total-value">
@@ -231,34 +272,6 @@
                     </div>
                   </div>
                 </div>
-              </div>
-
-              <!-- 子状态按鈕区域 -->
-              <div class="sub-state-area" @click.stop>
-                <el-tooltip :content="$t('checklist.hangerDoneTitle')" placement="top">
-                  <el-button
-                    size="small"
-                    :type="variant.hanger_done ? 'primary' : 'default'"
-                    :icon="variant.hanger_done ? 'Check' : ''"
-                    @click.stop="toggleSubState(variant, 'hanger_done')"
-                    class="sub-state-btn"
-                    :class="{ 'sub-state-done': variant.hanger_done }"
-                  >
-                    {{ $t('checklist.hangerDone') }}
-                  </el-button>
-                </el-tooltip>
-                <el-tooltip :content="$t('checklist.storageDoneTitle')" placement="top">
-                  <el-button
-                    size="small"
-                    :type="variant.storage_done ? 'warning' : 'default'"
-                    :icon="variant.storage_done ? 'Check' : ''"
-                    @click.stop="toggleSubState(variant, 'storage_done')"
-                    class="sub-state-btn"
-                    :class="{ 'sub-state-done': variant.storage_done }"
-                  >
-                    {{ $t('checklist.storageDone') }}
-                  </el-button>
-                </el-tooltip>
               </div>
             </div>
           </div>
@@ -441,10 +454,31 @@ const checkedGroups = computed(() =>
   filteredGroups.value.filter((g) => g.variants.every((v) => v.checked))
 )
 
-/** 当前标签页显示的商品组 */
-const activeGroups = computed(() =>
-  activeTab.value === 'unchecked' ? uncheckedGroups.value : checkedGroups.value
+/** 已挂衣架分区：至少有一个变体 hanger_done=1 的商品组 */
+const hangerGroups = computed(() =>
+  filteredGroups.value.filter((g) => g.variants.some((v) => v.hanger_done))
 )
+
+/** 已备货分区：至少有一个变体 storage_done=1 的商品组 */
+const storageGroups = computed(() =>
+  filteredGroups.value.filter((g) => g.variants.some((v) => v.storage_done))
+)
+
+/** 当前标签页显示的商品组 */
+const activeGroups = computed(() => {
+  if (activeTab.value === 'unchecked') return uncheckedGroups.value
+  if (activeTab.value === 'hanger') return hangerGroups.value
+  if (activeTab.value === 'storage') return storageGroups.value
+  return checkedGroups.value
+})
+
+/** 当前标签页空状提示文字 */
+const emptyTabDescription = computed(() => {
+  if (activeTab.value === 'unchecked') return t('checklist.tabUncheckedEmpty')
+  if (activeTab.value === 'hanger') return t('checklist.tabHangerEmpty')
+  if (activeTab.value === 'storage') return t('checklist.tabStorageEmpty')
+  return t('checklist.tabCheckedEmpty')
+})
 
 // Local qty state: { [variantId]: { rack, stock } }
 const localQty = reactive({})
@@ -638,6 +672,8 @@ onMounted(() => store.loadExhibition(id))
 }
 .tab-btn:hover { background: #e9ecef; color: #303133; }
 .tab-btn.active { background: #fff; color: #409eff; box-shadow: 0 1px 4px rgba(0,0,0,0.12); }
+.tab-btn-hanger.active { color: #409eff; }
+.tab-btn-storage.active { color: #e6a23c; }
 .tab-count {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 20px; height: 20px; padding: 0 6px;
@@ -645,6 +681,9 @@ onMounted(() => store.loadExhibition(id))
   background: #e9ecef; color: #606266;
 }
 .tab-btn.active .tab-count { background: #ecf5ff; color: #409eff; }
+.tab-btn-hanger.active .tab-count { background: #ecf5ff; color: #409eff; }
+.tab-btn-storage.active .tab-count { background: #fdf6ec; color: #e6a23c; }
+.tab-count-storage { }
 .tab-search-input { flex: 1; min-width: 200px; }
 
 .product-groups { display: flex; flex-direction: column; gap: 16px; }
@@ -683,10 +722,18 @@ onMounted(() => store.loadExhibition(id))
 .variant-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .checklist-qty-area { display: flex; align-items: center; }
-.checklist-qty-group { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.checklist-qty-group { display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+
+/* Each column: number input on top, sub-state button below */
+.checklist-qty-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
 .checklist-qty-field { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .checklist-qty-label { font-size: 11px; color: #909399; font-weight: 500; }
-.checklist-qty-total { min-width: 52px; }
+.checklist-qty-total { min-width: 52px; align-self: flex-end; padding-bottom: 2px; }
 .checklist-total-value {
   font-size: 18px; font-weight: 700; color: #409eff;
   background: #ecf5ff; border-radius: 8px;
@@ -694,20 +741,59 @@ onMounted(() => store.loadExhibition(id))
   border: 1px solid #c6e2ff;
 }
 
-.sub-state-area {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex-shrink: 0;
-}
-.sub-state-btn {
-  min-width: 88px;
-  font-size: 12px;
-  transition: all 0.2s;
-}
-.sub-state-btn.sub-state-done {
+/* Inline sub-state pill button */
+.sub-inline-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1.5px solid;
+  font-size: 11px;
   font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s;
+  white-space: nowrap;
+  width: 80px;
+  justify-content: center;
 }
+.sub-inline-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background 0.18s;
+}
+/* Hanger - inactive */
+.sub-inline-btn--hanger {
+  border-color: #c6e2ff;
+  color: #909399;
+  background: #f5f7fa;
+}
+.sub-inline-btn--hanger .sub-inline-dot { background: #c6e2ff; }
+.sub-inline-btn--hanger:hover { border-color: #409eff; color: #409eff; background: #ecf5ff; }
+/* Hanger - done */
+.sub-inline-btn--hanger-done {
+  border-color: #409eff;
+  color: #409eff;
+  background: #ecf5ff;
+}
+.sub-inline-btn--hanger-done .sub-inline-dot { background: #409eff; }
+/* Storage - inactive */
+.sub-inline-btn--storage {
+  border-color: #fde2b5;
+  color: #909399;
+  background: #f5f7fa;
+}
+.sub-inline-btn--storage .sub-inline-dot { background: #fde2b5; }
+.sub-inline-btn--storage:hover { border-color: #e6a23c; color: #e6a23c; background: #fdf6ec; }
+/* Storage - done */
+.sub-inline-btn--storage-done {
+  border-color: #e6a23c;
+  color: #e6a23c;
+  background: #fdf6ec;
+}
+.sub-inline-btn--storage-done .sub-inline-dot { background: #e6a23c; }
 
 .sync-footer { margin-bottom: 20px; }
 .sync-card { border: 2px solid #409eff; border-radius: 12px; }

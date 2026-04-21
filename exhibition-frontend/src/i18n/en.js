@@ -246,8 +246,12 @@ export default {
     searchEmpty: 'No matching products found',
     sectionUnchecked: 'Unchecked',
     sectionChecked: 'Checked',
+    sectionHanger: 'On Hanger',
+    sectionStorage: 'Storage Ready',
     tabUncheckedEmpty: 'All items have been checked!',
     tabCheckedEmpty: 'No checked items yet',
+    tabHangerEmpty: 'No items on hanger yet',
+    tabStorageEmpty: 'No items storage-ready yet',
   },
 
   // Inventory Result
