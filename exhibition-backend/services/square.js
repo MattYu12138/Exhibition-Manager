@@ -144,34 +144,47 @@ class SquareService {
   }
 
   /**
-   * 创建 Square 商品（ITEM + ITEM_VARIATION）
-   * 创建成功后自动清除目录缓存
+   * 创建 Square 商品（支持多个 variation 一次性创建）
+   * @param {object} itemData - { name, description }
+   * @param {Array}  variations - [{ variantName, sku, gtin, priceCents, clientId }]
+   *   clientId: 调用方自定义的临时 ID，用于在 idMappings 中找到真实 variationId
    */
-  async createCatalogItem(itemData) {
+  async createCatalogItem(itemData, variations) {
     const idempotencyKey = `create-item-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-    
+
+    // 兼容旧的单变体调用方式
+    if (!variations) {
+      variations = [{
+        variantName: itemData.variantName || 'Default',
+        sku: itemData.sku || '',
+        gtin: itemData.gtin || '',
+        priceCents: itemData.priceCents || 0,
+        clientId: `#variation-${idempotencyKey}`,
+      }];
+    }
+
+    const variationObjects = variations.map((v, idx) => ({
+      type: 'ITEM_VARIATION',
+      id: v.clientId || `#variation-${idempotencyKey}-${idx}`,
+      itemVariationData: {
+        name: v.variantName || 'Default',
+        sku: v.sku || '',
+        upc: v.gtin || '',
+        pricingType: 'FIXED_PRICING',
+        priceMoney: {
+          amount: BigInt(v.priceCents || 0),
+          currency: 'AUD',
+        },
+      },
+    }));
+
     const itemObject = {
       type: 'ITEM',
       id: `#item-${idempotencyKey}`,
       itemData: {
         name: itemData.name,
         description: itemData.description || '',
-        variations: [
-          {
-            type: 'ITEM_VARIATION',
-            id: `#variation-${idempotencyKey}`,
-            itemVariationData: {
-              name: itemData.variantName || 'Default',
-              sku: itemData.sku || '',
-              upc: itemData.gtin || '',
-              pricingType: 'FIXED_PRICING',
-              priceMoney: {
-                amount: BigInt(itemData.priceCents || 0),
-                currency: 'AUD',
-              },
-            },
-          },
-        ],
+        variations: variationObjects,
       },
     };
 
@@ -183,24 +196,30 @@ class SquareService {
       });
 
       const createdItem = response.catalogObject;
-      const variationMapping = response.idMappings?.find(
-        (m) => m.clientObjectId === `#variation-${idempotencyKey}`
-      );
+      const idMappings = response.idMappings || [];
 
-      const variationId =
-        variationMapping?.objectId ||
-        createdItem?.itemData?.variations?.[0]?.id;
-
-      if (!variationId) {
-        throw new Error('无法获取创建的变体 ID，请检查 Square API 响应');
+      // 构建 clientId -> realId 映射
+      const idMap = {};
+      for (const mapping of idMappings) {
+        idMap[mapping.clientObjectId] = mapping.objectId;
       }
+
+      // 为每个 variation 找到真实 ID
+      const variationResults = variations.map((v, idx) => {
+        const clientId = v.clientId || `#variation-${idempotencyKey}-${idx}`;
+        const realId = idMap[clientId] || createdItem?.itemData?.variations?.[idx]?.id;
+        return { clientId, variationId: realId };
+      });
 
       // 新商品创建后清除缓存，确保下次同步能拿到最新目录
       this.invalidateCatalogCache();
 
       return {
         itemId: createdItem.id,
-        variationId,
+        // 兼容旧调用：单变体时直接返回 variationId
+        variationId: variationResults[0]?.variationId,
+        // 多变体时返回完整映射
+        variationResults,
       };
     } catch (err) {
       console.error('创建 Square 商品失败:', err.message);

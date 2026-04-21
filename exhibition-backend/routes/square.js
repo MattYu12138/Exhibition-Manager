@@ -279,67 +279,101 @@ router.post('/create-items', async (req, res) => {
 
     const results = [];
 
+    // ── 按商品名分组，同一商品的所有 variant 合并为一个 Square ITEM ──
+    const groups = {};
     for (const item of items) {
+      const key = item.name.trim();
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(item);
+    }
+
+    for (const [groupName, groupItems] of Object.entries(groups)) {
       try {
-        // 1. 在 Square 创建商品（createCatalogItem 内部会清除目录缓存）
-        const { itemId, variationId } = await squareService.createCatalogItem({
-          name: item.name,
-          description: item.description || '',
+        // 为该商品组的每个 variant 生成唯一 clientId
+        const ts = Date.now();
+        const variationsPayload = groupItems.map((item, idx) => ({
           variantName: item.variantName || 'Default',
           sku: item.sku || '',
           gtin: item.gtin || '',
           priceCents: item.priceCents || 0,
-        });
+          clientId: `#variation-${ts}-${idx}`,
+          // 保留对应关系
+          _item: item,
+        }));
 
-        // 2. 写入库存数量
-        const plannedQty = item.planned_quantity || 0;
-        if (plannedQty > 0) {
-          await squareService.setInventoryQuantity(variationId, plannedQty);
-        }
+        // 1. 在 Square 创建商品（所有 variant 合并为一个 ITEM）
+        const { itemId, variationResults } = await squareService.createCatalogItem(
+          { name: groupName, description: groupItems[0].description || '' },
+          variationsPayload
+        );
 
-        // 3. 记录快照（失败不影响商品创建成功状态）
-        // 新创建的商品 Square 原有库存为 0，所以 square_quantity_before = plannedQty
-        try {
-          const existing = db.prepare(
-            'SELECT id FROM inventory_snapshots WHERE exhibition_id = ? AND shopify_variant_id = ?'
-          ).get(exhibition_id, item.shopify_variant_id);
+        // 2. 逐个处理库存写入和快照
+        for (let i = 0; i < groupItems.length; i++) {
+          const item = groupItems[i];
+          const variationId = variationResults[i]?.variationId;
+          const plannedQty = item.planned_quantity || 0;
 
-          if (existing) {
-            db.prepare(
-              'UPDATE inventory_snapshots SET square_catalog_variation_id = ?, square_quantity_before = ?, square_quantity_after = NULL, sold_quantity = NULL, remaining_quantity = NULL, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
-            ).run(variationId, plannedQty, existing.id);
-          } else {
-            db.prepare(
-              'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before) VALUES (?, ?, ?, ?, ?)'
-            ).run(snapshotId(db), exhibition_id, item.shopify_variant_id, variationId, plannedQty);
+          if (!variationId) {
+            results.push({
+              shopify_variant_id: item.shopify_variant_id,
+              product_title: item.name,
+              variant_title: item.variantName,
+              status: 'error',
+              message: '无法获取 Square variation ID',
+            });
+            continue;
           }
 
-          // 4. 更新 last_synced_quantity
-          db.prepare(
-            'UPDATE exhibition_items SET last_synced_quantity = ? WHERE exhibition_id = ? AND shopify_variant_id = ?'
-          ).run(plannedQty, exhibition_id, item.shopify_variant_id);
-        } catch (dbErr) {
-          console.warn('[create-items] 快照写入失败（不影响商品创建）:', dbErr.message);
-        }
+          // 写入库存
+          if (plannedQty > 0) {
+            await squareService.setInventoryQuantity(variationId, plannedQty);
+          }
 
-        results.push({
-          shopify_variant_id: item.shopify_variant_id,
-          product_title: item.name,
-          variant_title: item.variantName,
-          square_item_id: itemId,
-          square_variation_id: variationId,
-          planned_quantity: plannedQty,
-          status: 'created',
-          message: `已在 Square 创建商品并写入库存 ${plannedQty} 件`,
-        });
-      } catch (itemErr) {
-        results.push({
-          shopify_variant_id: item.shopify_variant_id,
-          product_title: item.name,
-          variant_title: item.variantName,
-          status: 'error',
-          message: itemErr.message,
-        });
+          // 快照
+          try {
+            const existing = db.prepare(
+              'SELECT id FROM inventory_snapshots WHERE exhibition_id = ? AND shopify_variant_id = ?'
+            ).get(exhibition_id, item.shopify_variant_id);
+
+            if (existing) {
+              db.prepare(
+                'UPDATE inventory_snapshots SET square_catalog_variation_id = ?, square_quantity_before = ?, square_quantity_after = NULL, sold_quantity = NULL, remaining_quantity = NULL, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
+              ).run(variationId, plannedQty, existing.id);
+            } else {
+              db.prepare(
+                'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before) VALUES (?, ?, ?, ?, ?)'
+              ).run(snapshotId(db), exhibition_id, item.shopify_variant_id, variationId, plannedQty);
+            }
+
+            db.prepare(
+              'UPDATE exhibition_items SET last_synced_quantity = ? WHERE exhibition_id = ? AND shopify_variant_id = ?'
+            ).run(plannedQty, exhibition_id, item.shopify_variant_id);
+          } catch (dbErr) {
+            console.warn('[create-items] 快照写入失败（不影响商品创建）:', dbErr.message);
+          }
+
+          results.push({
+            shopify_variant_id: item.shopify_variant_id,
+            product_title: item.name,
+            variant_title: item.variantName,
+            square_item_id: itemId,
+            square_variation_id: variationId,
+            planned_quantity: plannedQty,
+            status: 'created',
+            message: `已在 Square 创建商品并写入库存 ${plannedQty} 件`,
+          });
+        }
+      } catch (groupErr) {
+        // 整个商品组创建失败，所有 variant 标记为 error
+        for (const item of groupItems) {
+          results.push({
+            shopify_variant_id: item.shopify_variant_id,
+            product_title: item.name,
+            variant_title: item.variantName,
+            status: 'error',
+            message: groupErr.message,
+          });
+        }
       }
     }
 
