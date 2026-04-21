@@ -265,10 +265,12 @@
                   </div>
 
                   <!-- Total -->
-                  <div class="checklist-qty-field checklist-qty-total">
-                    <div class="checklist-qty-label">{{ $t('checklist.totalLabel') }}</div>
-                    <div class="checklist-total-value">
-                      {{ (localQty[variant.id].rack || 0) + (localQty[variant.id].stock || 0) }}
+                  <div class="checklist-qty-col checklist-qty-col--total">
+                    <div class="checklist-qty-field">
+                      <div class="checklist-qty-label">{{ $t('checklist.totalLabel') }}</div>
+                      <div class="checklist-total-value">
+                        {{ (localQty[variant.id].rack || 0) + (localQty[variant.id].stock || 0) }}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -454,14 +456,14 @@ const checkedGroups = computed(() =>
   filteredGroups.value.filter((g) => g.variants.every((v) => v.checked))
 )
 
-/** 已挂衣架分区：至少有一个变体 hanger_done=1 的商品组 */
+/** 需挂衣架分区：至少有一个变体 hanger_done=0 且未清点的商品组 */
 const hangerGroups = computed(() =>
-  filteredGroups.value.filter((g) => g.variants.some((v) => v.hanger_done))
+  filteredGroups.value.filter((g) => g.variants.some((v) => !v.hanger_done && !v.checked))
 )
 
-/** 已备货分区：至少有一个变体 storage_done=1 的商品组 */
+/** 需备货分区：至少有一个变体 storage_done=0 且未清点的商品组 */
 const storageGroups = computed(() =>
-  filteredGroups.value.filter((g) => g.variants.some((v) => v.storage_done))
+  filteredGroups.value.filter((g) => g.variants.some((v) => !v.storage_done && !v.checked))
 )
 
 /** 当前标签页显示的商品组 */
@@ -722,7 +724,7 @@ onMounted(() => store.loadExhibition(id))
 .variant-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 
 .checklist-qty-area { display: flex; align-items: center; }
-.checklist-qty-group { display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; }
+.checklist-qty-group { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 
 /* Each column: number input on top, sub-state button below */
 .checklist-qty-col {
@@ -731,13 +733,16 @@ onMounted(() => store.loadExhibition(id))
   align-items: center;
   gap: 6px;
 }
+/* Total column: vertically centered, no pill button below */
+.checklist-qty-col--total {
+  justify-content: center;
+}
 .checklist-qty-field { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .checklist-qty-label { font-size: 11px; color: #909399; font-weight: 500; }
-.checklist-qty-total { min-width: 52px; align-self: flex-end; padding-bottom: 2px; }
 .checklist-total-value {
-  font-size: 18px; font-weight: 700; color: #409eff;
+  font-size: 20px; font-weight: 700; color: #409eff;
   background: #ecf5ff; border-radius: 8px;
-  padding: 3px 10px; text-align: center; min-width: 52px;
+  padding: 4px 12px; text-align: center; min-width: 52px;
   border: 1px solid #c6e2ff;
 }
 
