@@ -195,6 +195,19 @@ export const useExhibitionStore = defineStore('exhibition', () => {
     }
   }
 
+  // 切换子状态：hanger_done 或 storage_done
+  async function toggleItemSubState(exhibitionId, itemId, field, value) {
+    try {
+      const res = await exhibitionApi.updateItem(exhibitionId, itemId, { [field]: value })
+      if (currentExhibition.value?.items) {
+        const idx = currentExhibition.value.items.findIndex((i) => i.id === itemId)
+        if (idx !== -1) currentExhibition.value.items[idx] = res.data
+      }
+    } catch (err) {
+      ElMessage.error('更新状态失败: ' + err.message)
+    }
+  }
+
   async function toggleProductCheck(exhibitionId, productId, checked) {
     try {
       const res = await exhibitionApi.checkProduct(exhibitionId, productId, checked)
@@ -334,6 +347,7 @@ export const useExhibitionStore = defineStore('exhibition', () => {
     deleteExhibition,
     addItemsToExhibition,
     toggleItemCheck,
+    toggleItemSubState,
     toggleProductCheck,
     updateItemQuantity,
     removeItem,

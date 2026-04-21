@@ -245,7 +245,8 @@ router.put('/:id/items/product/:productId/check', requireStaff, (req, res) => {
 // 更新单个商品的清点状态或数量
 router.put('/:id/items/:itemId', requireStaff, (req, res) => {
   try {
-    const { checked, planned_quantity, rack_quantity, stock_quantity } = req.body;
+    const { checked, planned_quantity, rack_quantity, stock_quantity, hanger_done, storage_done } = req.body;
+
     // 如果传入 rack_quantity 或 stock_quantity，自动重算 planned_quantity
     let computedTotal = null;
     if (rack_quantity !== undefined || stock_quantity !== undefined) {
@@ -254,15 +255,35 @@ router.put('/:id/items/:itemId', requireStaff, (req, res) => {
       const newStock = stock_quantity !== undefined ? stock_quantity : (existing?.stock_quantity || 5);
       computedTotal = newRack + newStock;
     }
+
+    // 如果传入 hanger_done 或 storage_done，先读取当前状态，再判断是否自动 checked
+    let autoChecked = null;
+    if (hanger_done !== undefined || storage_done !== undefined) {
+      const current = db.prepare('SELECT hanger_done, storage_done FROM exhibition_items WHERE id = ?').get(req.params.itemId);
+      const newHanger = hanger_done !== undefined ? (hanger_done ? 1 : 0) : (current?.hanger_done || 0);
+      const newStorage = storage_done !== undefined ? (storage_done ? 1 : 0) : (current?.storage_done || 0);
+      // 两个子状态都完成时自动设为 checked；任意一个取消时取消 checked
+      autoChecked = (newHanger === 1 && newStorage === 1) ? 1 : 0;
+    }
+
+    // 如果明确传入 checked（手动覆盖），则优先使用；否则用 autoChecked
+    const finalChecked = checked !== undefined
+      ? (checked ? 1 : 0)
+      : (autoChecked !== null ? autoChecked : null);
+
     db.prepare(
-      `UPDATE exhibition_items SET 
+      `UPDATE exhibition_items SET
         checked = COALESCE(?, checked),
+        hanger_done = COALESCE(?, hanger_done),
+        storage_done = COALESCE(?, storage_done),
         rack_quantity = COALESCE(?, rack_quantity),
         stock_quantity = COALESCE(?, stock_quantity),
         planned_quantity = COALESCE(?, planned_quantity)
       WHERE id = ? AND exhibition_id = ?`
     ).run(
-      checked !== undefined ? (checked ? 1 : 0) : null,
+      finalChecked,
+      hanger_done !== undefined ? (hanger_done ? 1 : 0) : null,
+      storage_done !== undefined ? (storage_done ? 1 : 0) : null,
       rack_quantity !== undefined ? rack_quantity : null,
       stock_quantity !== undefined ? stock_quantity : null,
       computedTotal !== null ? computedTotal : (planned_quantity !== undefined ? planned_quantity : null),

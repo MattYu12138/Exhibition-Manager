@@ -37,6 +37,8 @@ db.exec(`
     stock_quantity INTEGER DEFAULT 5,
     planned_quantity INTEGER DEFAULT 10,
     checked INTEGER DEFAULT 0,
+    hanger_done INTEGER DEFAULT 0,
+    storage_done INTEGER DEFAULT 0,
     last_synced_quantity INTEGER DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(exhibition_id, shopify_variant_id),
@@ -146,6 +148,8 @@ try {
       ei.stock_quantity,
       ei.planned_quantity,
       ei.checked,
+      ei.hanger_done,
+      ei.storage_done,
       ei.last_synced_quantity,
       ei.created_at,
       pv.variant_title,
@@ -225,6 +229,8 @@ const migrations = [
   'ALTER TABLE exhibition_items ADD COLUMN stock_quantity INTEGER DEFAULT 5',
   'ALTER TABLE exhibition_items ADD COLUMN product_id TEXT',
   'ALTER TABLE exhibition_items ADD COLUMN variant_id TEXT',
+  'ALTER TABLE exhibition_items ADD COLUMN hanger_done INTEGER DEFAULT 0',
+  'ALTER TABLE exhibition_items ADD COLUMN storage_done INTEGER DEFAULT 0',
   // 新增加密密码字段（AES-256-CBC 对称加密）
   'ALTER TABLE users ADD COLUMN password_encrypted TEXT',
 ];

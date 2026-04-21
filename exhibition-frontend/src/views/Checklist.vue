@@ -233,14 +233,33 @@
                 </div>
               </div>
 
-              <el-button
-                size="small"
-                :type="variant.checked ? 'success' : 'default'"
-                @click.stop="toggleVariantCheck(variant)"
-                style="min-width: 72px; flex-shrink: 0"
-              >
-                {{ variant.checked ? $t('checklist.checked') : $t('checklist.markCheck') }}
-              </el-button>
+              <!-- 子状态按鈕区域 -->
+              <div class="sub-state-area" @click.stop>
+                <el-tooltip :content="$t('checklist.hangerDoneTitle')" placement="top">
+                  <el-button
+                    size="small"
+                    :type="variant.hanger_done ? 'primary' : 'default'"
+                    :icon="variant.hanger_done ? 'Check' : ''"
+                    @click.stop="toggleSubState(variant, 'hanger_done')"
+                    class="sub-state-btn"
+                    :class="{ 'sub-state-done': variant.hanger_done }"
+                  >
+                    {{ $t('checklist.hangerDone') }}
+                  </el-button>
+                </el-tooltip>
+                <el-tooltip :content="$t('checklist.storageDoneTitle')" placement="top">
+                  <el-button
+                    size="small"
+                    :type="variant.storage_done ? 'warning' : 'default'"
+                    :icon="variant.storage_done ? 'Check' : ''"
+                    @click.stop="toggleSubState(variant, 'storage_done')"
+                    class="sub-state-btn"
+                    :class="{ 'sub-state-done': variant.storage_done }"
+                  >
+                    {{ $t('checklist.storageDone') }}
+                  </el-button>
+                </el-tooltip>
+              </div>
             </div>
           </div>
         </el-card>
@@ -478,6 +497,11 @@ async function toggleVariantCheck(variant) {
   await store.toggleItemCheck(id, variant.id, !variant.checked)
 }
 
+async function toggleSubState(variant, field) {
+  const currentVal = variant[field] ? 1 : 0
+  await store.toggleItemSubState(id, variant.id, field, currentVal === 1 ? 0 : 1)
+}
+
 async function toggleProductCheck(group) {
   const allChecked = isProductAllChecked(group)
   await store.toggleProductCheck(id, group.product_id, !allChecked)
@@ -668,6 +692,21 @@ onMounted(() => store.loadExhibition(id))
   background: #ecf5ff; border-radius: 8px;
   padding: 3px 10px; text-align: center; min-width: 52px;
   border: 1px solid #c6e2ff;
+}
+
+.sub-state-area {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.sub-state-btn {
+  min-width: 88px;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+.sub-state-btn.sub-state-done {
+  font-weight: 600;
 }
 
 .sync-footer { margin-bottom: 20px; }
