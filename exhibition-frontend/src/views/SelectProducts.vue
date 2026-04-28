@@ -17,10 +17,12 @@
                 <span style="font-weight: 600">{{ $t('selectProducts.shopifyLib') }}（{{ store.shopifyProducts.length }} 个）</span>
                 <el-tag v-if="syncStatus === 'syncing'" type="info" size="small" effect="plain">⟳ 同步中...</el-tag>
                 <el-tag v-else-if="syncStatus === 'done'" type="success" size="small" effect="plain">✓ 已同步</el-tag>
+                <el-tag v-else-if="syncStatus === 'cooldown'" type="warning" size="small" effect="plain">{{ cooldownLabel }}</el-tag>
                 <el-tag v-else-if="syncStatus === 'error'" type="danger" size="small" effect="plain">同步失败</el-tag>
                 <el-button
                   size="small"
                   :loading="syncStatus === 'syncing'"
+                  :disabled="syncStatus === 'cooldown'"
                   @click="syncShopifyProducts"
                   style="margin-left:4px"
                 >{{ $t('selectProducts.refreshProducts') }}</el-button>
@@ -247,6 +249,10 @@ const imgError = reactive({})
 const currentPage = ref(1)
 const pageSize = 20
 const syncStatus = ref('idle')
+const SYNC_COOLDOWN_MS = 10 * 60 * 1000 // 10 minutes
+const lastSyncTime = ref(0)
+const cooldownLabel = ref('')
+let cooldownTimer = null
 
 // 商品状态筛选
 const activeStatus = ref('active')
@@ -527,13 +533,37 @@ async function saveToExhibition() {
   }
 }
 
+function startCooldownTimer() {
+  if (cooldownTimer) clearInterval(cooldownTimer)
+  cooldownTimer = setInterval(() => {
+    const remaining = SYNC_COOLDOWN_MS - (Date.now() - lastSyncTime.value)
+    if (remaining <= 0) {
+      clearInterval(cooldownTimer)
+      cooldownTimer = null
+      syncStatus.value = 'idle'
+      cooldownLabel.value = ''
+    } else {
+      const mins = Math.ceil(remaining / 60000)
+      cooldownLabel.value = `${mins} 分钟后可再次同步`
+      syncStatus.value = 'cooldown'
+    }
+  }, 5000)
+}
+
 async function syncShopifyProducts() {
   if (syncStatus.value === 'syncing') return
+  if (syncStatus.value === 'cooldown') return
+  if (lastSyncTime.value && (Date.now() - lastSyncTime.value) < SYNC_COOLDOWN_MS) {
+    startCooldownTimer()
+    return
+  }
   syncStatus.value = 'syncing'
   try {
     await shopifyApi.syncProducts()
+    lastSyncTime.value = Date.now()
     syncStatus.value = 'done'
     await store.loadShopifyProductsByStatus(activeStatus.value)
+    startCooldownTimer()
   } catch (e) {
     syncStatus.value = 'error'
     console.error('Shopify sync failed:', e)
