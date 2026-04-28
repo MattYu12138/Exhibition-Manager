@@ -64,17 +64,19 @@ router.post('/sync-products', requireStaff, async (req, res) => {
           productId = existing.id;
           db.prepare(`
             UPDATE products SET title = ?, vendor = ?, product_type = ?, status = ?,
-              handle = ?, tags = ?, raw_json = ?, cached_at = datetime('now')
+              handle = ?, tags = ?, main_image = ?, updated_at = datetime('now')
             WHERE id = ?
           `).run(p.title, p.vendor || null, p.product_type || null, p.status,
-                 p.handle || null, (p.tags || []).join(','), JSON.stringify(p), productId);
+                 p.handle || null, (p.tags || []).join(','),
+                 (p.images && p.images[0] ? p.images[0].src : null), productId);
         } else {
           productId = snowflakeId();
           db.prepare(`
-            INSERT INTO products (id, shopify_product_id, title, vendor, product_type, status, handle, tags, raw_json)
+            INSERT INTO products (id, shopify_product_id, title, vendor, product_type, status, handle, tags, main_image)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).run(productId, shopifyProductId, p.title, p.vendor || null, p.product_type || null,
-                 p.status, p.handle || null, (p.tags || []).join(','), JSON.stringify(p));
+                 p.status, p.handle || null, (p.tags || []).join(','),
+                 (p.images && p.images[0] ? p.images[0].src : null));
         }
 
         for (const v of (p.variants || [])) {
