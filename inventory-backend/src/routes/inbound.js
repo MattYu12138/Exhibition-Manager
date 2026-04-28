@@ -781,7 +781,13 @@ router.post('/factory-form/:token/submit', (req, res) => {
     });
 
     const result = submitAll();
-    res.json({ success: true, data: result });
+    // Return boxes with qr_token and items so frontend can render QR codes
+    const boxRows = db.prepare('SELECT id, box_no, qr_token FROM inbound_boxes WHERE shipment_id = ? ORDER BY box_no').all(shipment.id);
+    const boxes_out = boxRows.map(b => {
+      const items = db.prepare('SELECT raw_sku, quantity FROM inbound_box_items WHERE box_id = ? ORDER BY sort_order').all(b.id);
+      return { id: b.id, box_no: b.box_no, qr_token: b.qr_token, items };
+    });
+    res.json({ success: true, data: { ...result, boxes: boxes_out } });
   } catch (err) {
     console.error('[inbound] factory-form submit:', err.message);
     res.status(500).json({ success: false, error: err.message });
