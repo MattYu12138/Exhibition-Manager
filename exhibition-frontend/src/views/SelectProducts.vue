@@ -17,15 +17,14 @@
                 <span style="font-weight: 600">{{ $t('selectProducts.shopifyLib') }}（{{ store.shopifyProducts.length }} 个）</span>
                 <el-tag v-if="syncStatus === 'syncing'" type="info" size="small" effect="plain">⟳ 同步中...</el-tag>
                 <el-tag v-else-if="syncStatus === 'done'" type="success" size="small" effect="plain">✓ 已同步</el-tag>
-                <el-tag v-else-if="syncStatus === 'cooldown'" type="warning" size="small" effect="plain">{{ cooldownLabel }}</el-tag>
                 <el-tag v-else-if="syncStatus === 'error'" type="danger" size="small" effect="plain">同步失败</el-tag>
                 <el-button
                   size="small"
                   :loading="syncStatus === 'syncing'"
-                  :disabled="syncStatus === 'cooldown'"
-                  @click="syncShopifyProducts"
+                  :disabled="syncStatus === 'syncing' || manualCooldown > 0"
+                  @click="syncShopifyProducts(true)"
                   style="margin-left:4px"
-                >{{ $t('selectProducts.refreshProducts') }}</el-button>
+                >{{ manualCooldown > 0 ? `${manualCooldown}s` : $t('selectProducts.refreshProducts') }}</el-button>
               </div>
               <el-input
                 v-model="searchQuery"
@@ -249,10 +248,12 @@ const imgError = reactive({})
 const currentPage = ref(1)
 const pageSize = 20
 const syncStatus = ref('idle')
-const SYNC_COOLDOWN_MS = 10 * 60 * 1000 // 10 minutes
+const AUTO_SYNC_COOLDOWN_MS = 10 * 60 * 1000 // 10 minutes for auto-sync
+const MANUAL_COOLDOWN_SEC = 30 // 30 seconds for manual refresh
 const lastSyncTime = ref(0)
-const cooldownLabel = ref('')
-let cooldownTimer = null
+const manualCooldown = ref(0) // seconds remaining for manual button cooldown
+let autoCooldownTimer = null
+let manualCooldownTimer = null
 
 // 商品状态筛选
 const activeStatus = ref('active')
@@ -533,28 +534,23 @@ async function saveToExhibition() {
   }
 }
 
-function startCooldownTimer() {
-  if (cooldownTimer) clearInterval(cooldownTimer)
-  cooldownTimer = setInterval(() => {
-    const remaining = SYNC_COOLDOWN_MS - (Date.now() - lastSyncTime.value)
-    if (remaining <= 0) {
-      clearInterval(cooldownTimer)
-      cooldownTimer = null
-      syncStatus.value = 'idle'
-      cooldownLabel.value = ''
-    } else {
-      const mins = Math.ceil(remaining / 60000)
-      cooldownLabel.value = `${mins} 分钟后可再次同步`
-      syncStatus.value = 'cooldown'
+function startManualCooldown() {
+  if (manualCooldownTimer) clearInterval(manualCooldownTimer)
+  manualCooldown.value = MANUAL_COOLDOWN_SEC
+  manualCooldownTimer = setInterval(() => {
+    manualCooldown.value -= 1
+    if (manualCooldown.value <= 0) {
+      clearInterval(manualCooldownTimer)
+      manualCooldownTimer = null
+      manualCooldown.value = 0
     }
-  }, 5000)
+  }, 1000)
 }
 
-async function syncShopifyProducts() {
+async function syncShopifyProducts(manual = false) {
   if (syncStatus.value === 'syncing') return
-  if (syncStatus.value === 'cooldown') return
-  if (lastSyncTime.value && (Date.now() - lastSyncTime.value) < SYNC_COOLDOWN_MS) {
-    startCooldownTimer()
+  // Auto-sync: skip if within 10-minute cooldown
+  if (!manual && lastSyncTime.value && (Date.now() - lastSyncTime.value) < AUTO_SYNC_COOLDOWN_MS) {
     return
   }
   syncStatus.value = 'syncing'
@@ -563,7 +559,8 @@ async function syncShopifyProducts() {
     lastSyncTime.value = Date.now()
     syncStatus.value = 'done'
     await store.loadShopifyProductsByStatus(activeStatus.value)
-    startCooldownTimer()
+    // Start 30s manual button cooldown after any sync
+    startManualCooldown()
   } catch (e) {
     syncStatus.value = 'error'
     console.error('Shopify sync failed:', e)
