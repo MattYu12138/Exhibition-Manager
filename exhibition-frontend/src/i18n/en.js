@@ -203,6 +203,7 @@ export default {
     statusDraft: 'Draft',
     statusArchived: 'Archived',
     statusUnlisted: 'Unlisted',
+    refreshProducts: 'Refresh Products',
   },
 
   // Checklist

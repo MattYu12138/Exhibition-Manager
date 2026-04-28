@@ -13,7 +13,18 @@
         <el-card>
           <template #header>
             <div class="card-header">
-              <span style="font-weight: 600">{{ $t('selectProducts.shopifyLib') }}（{{ store.shopifyProducts.length }} 个）</span>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <span style="font-weight: 600">{{ $t('selectProducts.shopifyLib') }}（{{ store.shopifyProducts.length }} 个）</span>
+                <el-tag v-if="syncStatus === 'syncing'" type="info" size="small" effect="plain">⟳ 同步中...</el-tag>
+                <el-tag v-else-if="syncStatus === 'done'" type="success" size="small" effect="plain">✓ 已同步</el-tag>
+                <el-tag v-else-if="syncStatus === 'error'" type="danger" size="small" effect="plain">同步失败</el-tag>
+                <el-button
+                  size="small"
+                  :loading="syncStatus === 'syncing'"
+                  @click="syncShopifyProducts"
+                  style="margin-left:4px"
+                >{{ $t('selectProducts.refreshProducts') }}</el-button>
+              </div>
               <el-input
                 v-model="searchQuery"
                 :placeholder="$t('selectProducts.searchPlaceholder')"
@@ -217,7 +228,7 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useExhibitionStore } from '@/stores/exhibition'
-import { exhibitionApi } from '@/api'
+import { exhibitionApi, shopifyApi } from '@/api'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -235,6 +246,7 @@ const imgError = reactive({})
 
 const currentPage = ref(1)
 const pageSize = 20
+const syncStatus = ref('idle')
 
 // 商品状态筛选
 const activeStatus = ref('active')
@@ -515,7 +527,23 @@ async function saveToExhibition() {
   }
 }
 
-onMounted(loadProducts)
+async function syncShopifyProducts() {
+  if (syncStatus.value === 'syncing') return
+  syncStatus.value = 'syncing'
+  try {
+    await shopifyApi.syncProducts()
+    syncStatus.value = 'done'
+    await store.loadShopifyProductsByStatus(activeStatus.value)
+  } catch (e) {
+    syncStatus.value = 'error'
+    console.error('Shopify sync failed:', e)
+  }
+}
+
+onMounted(() => {
+  loadProducts()
+  syncShopifyProducts()
+})
 </script>
 
 <style scoped>

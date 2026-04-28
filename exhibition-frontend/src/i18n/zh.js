@@ -203,6 +203,7 @@ export default {
     statusDraft: '草稿',
     statusArchived: '已归档',
     statusUnlisted: '未上架',
+    refreshProducts: '刷新商品库',
   },
 
   // 清点页

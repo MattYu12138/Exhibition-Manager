@@ -46,6 +46,7 @@ export const shopifyApi = {
     return api.get('/shopify/products', { params })
   },
   getProduct: (id) => api.get(`/shopify/products/${id}`),
+  syncProducts: () => api.post('/shopify/sync-products'),
 }
 // ==================== Square ====================
 export const squareApi = {
