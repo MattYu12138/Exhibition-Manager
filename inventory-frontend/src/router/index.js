@@ -14,7 +14,21 @@ const routes = [
     name: 'InventoryDashboard',
     component: () => import('../views/InventoryDashboard.vue'),
     meta: { requiresAuth: true },
-  }
+  },
+  // Public QR scan page — no auth required
+  {
+    path: '/scan/:qrToken',
+    name: 'ScanReceive',
+    component: () => import('../views/ScanReceive.vue'),
+    meta: { public: true },
+  },
+  // Public factory packing list form — no auth required
+  {
+    path: '/factory/submit',
+    name: 'FactoryForm',
+    component: () => import('../views/FactoryForm.vue'),
+    meta: { public: true },
+  },
 ]
 
 const router = createRouter({

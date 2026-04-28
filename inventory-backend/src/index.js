@@ -7,6 +7,7 @@ const path = require('path');
 const fs = require('fs');
 
 const productsRouter = require('./routes/products');
+const inboundRouter = require('./routes/inbound');
 const ssoRouter = require('./routes/sso');
 const authRouter = require('./routes/auth');
 const { getDb } = require('./db');
@@ -57,6 +58,7 @@ app.use('/api/sso', ssoRouter);
 app.use('/api/auth', authRouter);
 
 app.use('/api/products', productsRouter);
+app.use('/api/inbound', inboundRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'inventory-backend', timestamp: new Date().toISOString() });

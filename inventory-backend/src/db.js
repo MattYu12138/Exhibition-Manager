@@ -94,6 +94,91 @@ function initSchema() {
     -- Index for fast SKU / GTIN lookups on square_products
     CREATE INDEX IF NOT EXISTS idx_square_products_sku  ON square_products(sku);
     CREATE INDEX IF NOT EXISTS idx_square_products_gtin ON square_products(gtin);
+
+    -- ── Inbound shipments (factory packing batches) ───────────────────────────
+    -- id: SHP + 8-digit zero-padded sequential number, e.g. SHP00000001
+    CREATE TABLE IF NOT EXISTS inbound_shipments (
+      id            TEXT PRIMARY KEY,
+      ref_no        TEXT UNIQUE NOT NULL,       -- human-readable batch ref, e.g. SHP00000001
+      factory       TEXT,                       -- factory name
+      note          TEXT,                       -- optional notes
+      status        TEXT NOT NULL DEFAULT 'pending',
+        -- pending | partial | received | cancelled
+      source        TEXT NOT NULL DEFAULT 'manual',
+        -- manual | form | excel
+      form_token    TEXT UNIQUE,                -- token for factory form link (NULL if not used)
+      form_token_expires_at DATETIME,           -- expiry for form token
+      total_boxes   INTEGER NOT NULL DEFAULT 0, -- denormalised count, updated on box add/remove
+      total_qty     INTEGER NOT NULL DEFAULT 0, -- denormalised total planned qty
+      received_boxes INTEGER NOT NULL DEFAULT 0,
+      created_by    TEXT,                       -- user_id
+      created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+      received_at   DATETIME                    -- set when status -> received
+    );
+
+    -- ── Inbound boxes (individual cartons) ───────────────────────────────────
+    -- id: BX + 10-digit zero-padded sequential number, e.g. BX0000000001
+    CREATE TABLE IF NOT EXISTS inbound_boxes (
+      id            TEXT PRIMARY KEY,
+      shipment_id   TEXT NOT NULL,
+      box_no        TEXT NOT NULL,              -- e.g. "1", "2" or "A1"
+      qr_token      TEXT UNIQUE NOT NULL,       -- random token encoded in QR code URL
+      status        TEXT NOT NULL DEFAULT 'pending',
+        -- pending | received
+      note          TEXT,
+      received_at   DATETIME,
+      received_by   TEXT,                       -- user_id
+      created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(shipment_id, box_no),
+      FOREIGN KEY (shipment_id) REFERENCES inbound_shipments(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_inbound_boxes_shipment ON inbound_boxes(shipment_id);
+    CREATE INDEX IF NOT EXISTS idx_inbound_boxes_qr_token ON inbound_boxes(qr_token);
+
+    -- ── Inbound box items (SKU lines per box) ────────────────────────────────
+    -- id: BXI + 10-digit zero-padded sequential number, e.g. BXI0000000001
+    CREATE TABLE IF NOT EXISTS inbound_box_items (
+      id                  TEXT PRIMARY KEY,
+      box_id              TEXT NOT NULL,
+      -- Factory-supplied raw data (never overwritten)
+      raw_sku             TEXT,                 -- e.g. "GS26020-0000"
+      raw_gtin            TEXT,
+      raw_product_name    TEXT,
+      raw_variant_name    TEXT,
+      -- System-resolved match
+      shopify_variant_id  TEXT,                 -- NULL if unmatched
+      variant_title       TEXT,                 -- denormalised for display
+      product_title       TEXT,                 -- denormalised for display
+      match_status        TEXT NOT NULL DEFAULT 'matched',
+        -- matched | unmatched | manual | ignored
+      -- Quantities
+      quantity            INTEGER NOT NULL CHECK(quantity > 0),
+      received_qty        INTEGER NOT NULL DEFAULT 0,
+      -- Ordering
+      sort_order          INTEGER NOT NULL DEFAULT 0,
+      created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (box_id) REFERENCES inbound_boxes(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_bxi_box        ON inbound_box_items(box_id);
+    CREATE INDEX IF NOT EXISTS idx_bxi_variant    ON inbound_box_items(shopify_variant_id);
+
+    -- ── Inbound log (receive audit trail) ────────────────────────────────────
+    CREATE TABLE IF NOT EXISTS inbound_log (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      box_id        TEXT NOT NULL,
+      shipment_id   TEXT NOT NULL,
+      operated_by   TEXT,                       -- user_id
+      operated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+      note          TEXT,
+      variant_count INTEGER,                    -- number of distinct SKUs received
+      total_qty     INTEGER                     -- total units received in this operation
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_inbound_log_box      ON inbound_log(box_id);
+    CREATE INDEX IF NOT EXISTS idx_inbound_log_shipment ON inbound_log(shipment_id);
   `);
 }
 

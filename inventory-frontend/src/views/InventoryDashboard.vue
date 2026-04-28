@@ -56,7 +56,28 @@
       </div>
     </header>
 
+    <!-- Page Tab Switch -->
+    <div class="bg-white border-b border-gray-200">
+      <div class="max-w-7xl mx-auto px-4">
+        <div class="flex gap-0">
+          <button
+            @click="activeTab = 'inventory'"
+            :class="activeTab === 'inventory' ? 'border-b-2 border-purple-600 text-purple-700 font-semibold' : 'text-gray-500 hover:text-gray-700'"
+            class="px-5 py-3 text-sm transition-colors"
+          >{{ t('inventory.tabInventory') }}</button>
+          <button
+            @click="activeTab = 'inbound'"
+            :class="activeTab === 'inbound' ? 'border-b-2 border-purple-600 text-purple-700 font-semibold' : 'text-gray-500 hover:text-gray-700'"
+            class="px-5 py-3 text-sm transition-colors"
+          >{{ t('inventory.tabInbound') }}</button>
+        </div>
+      </div>
+    </div>
     <main class="max-w-7xl mx-auto px-4 py-6">
+      <!-- Factory Inbound Tab -->
+      <InboundView v-if="activeTab === 'inbound'" />
+      <!-- Inventory Tab -->
+      <template v-if="activeTab === 'inventory'">
       <!-- Last Sync Info -->
       <div class="text-xs text-gray-400 mb-4 flex items-center gap-4">
         <span>
@@ -825,6 +846,7 @@
         </div>
       </template>
 
+      </template>
     </main>
 
     <!-- Edit Product Modal -->
@@ -1202,8 +1224,12 @@ import { useI18n } from 'vue-i18n'
 import axios from 'axios'
 import shopifyLogoUrl from '../assets/shopify-logo.png'
 import squareLogoUrl from '../assets/square-logo.png'
+import InboundView from './InboundView.vue'
 
 const { t, locale } = useI18n()
+
+// Page tab: 'inventory' | 'inbound'
+const activeTab = ref('inventory')
 const api = axios.create({ baseURL: '/api', withCredentials: true })
 
 const platformUrl = import.meta.env.VITE_PLATFORM_URL || 'http://localhost:5174'
