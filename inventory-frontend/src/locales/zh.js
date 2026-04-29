@@ -249,5 +249,14 @@ export default {
     // Delete shipment
     deleteShipment: '删除批次',
     confirmDeleteShipment: '确认删除该批次及其所有箱子？此操作不可撤销。',
+    // Link shipment modal
+    linkShipmentTitle: '关联到发货批次',
+    linkShipmentNew: '新建发货批次',
+    linkShipmentExisting: '关联已有批次',
+    selectShipment: '选择批次',
+    selectShipmentPlaceholder: '— 请选择批次 —',
+    noLinkableShipments: '暂无可关联的待处理批次。',
+    noFactory: '未设置工厂',
+    link: '关联',
   }
 }

@@ -376,7 +376,7 @@
               <td class="px-4 py-3 text-gray-400 text-xs">{{ formatDate(po.created_at) }}</td>
               <td class="px-4 py-3 text-right">
                 <div class="flex items-center gap-2 justify-end">
-                  <button v-if="!po.shipment_id" @click="createShipmentFromPo(po)" class="text-xs text-purple-600 hover:underline">{{ t('inbound.createShipment') }}</button>
+                  <button v-if="!po.shipment_id" @click="openLinkShipmentModal(po)" class="text-xs text-purple-600 hover:underline">{{ t('inbound.createShipment') }}</button>
                   <button v-else @click="goToShipment(po.shipment_id)" class="text-xs text-blue-600 hover:underline">{{ t('inbound.viewShipment') }}</button>
                   <button @click="deletePo(po)" class="text-xs text-red-400 hover:text-red-600">{{ t('inbound.delete') }}</button>
                 </div>
@@ -405,6 +405,65 @@
           <button @click="showCreateModal = false" class="text-sm text-gray-500 hover:text-gray-700 px-4 py-2">{{ t('inbound.cancel') }}</button>
           <button @click="createShipment" :disabled="creating" class="bg-purple-600 hover:bg-purple-700 text-white text-sm px-5 py-2 rounded-lg disabled:opacity-50">
             {{ creating ? t('inbound.creating') : t('inbound.create') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Link Shipment Modal ──────────────────────────────────────────────────── -->
+    <div v-if="showLinkShipmentModal" class="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+        <h3 class="text-base font-bold text-gray-800 mb-1">{{ t('inbound.linkShipmentTitle') }}</h3>
+        <p class="text-xs text-gray-400 mb-4">{{ linkShipmentPo?.po_number }}</p>
+
+        <!-- Tab switcher -->
+        <div class="flex gap-1 mb-4 bg-gray-100 rounded-lg p-1">
+          <button
+            @click="linkShipmentMode = 'new'"
+            :class="linkShipmentMode === 'new' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'"
+            class="flex-1 text-xs font-medium py-1.5 rounded-md transition-all"
+          >{{ t('inbound.linkShipmentNew') }}</button>
+          <button
+            @click="linkShipmentMode = 'existing'"
+            :class="linkShipmentMode === 'existing' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'"
+            class="flex-1 text-xs font-medium py-1.5 rounded-md transition-all"
+          >{{ t('inbound.linkShipmentExisting') }}</button>
+        </div>
+
+        <!-- New shipment form -->
+        <div v-if="linkShipmentMode === 'new'" class="space-y-3">
+          <div>
+            <label class="text-xs text-gray-500 mb-1 block">{{ t('inbound.factory') }}</label>
+            <input v-model="createForm.factory" :placeholder="t('inbound.factoryPlaceholder')" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400" />
+          </div>
+          <div>
+            <label class="text-xs text-gray-500 mb-1 block">{{ t('inbound.note') }}</label>
+            <textarea v-model="createForm.note" rows="2" :placeholder="t('inbound.notePlaceholder')" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 resize-none"></textarea>
+          </div>
+        </div>
+
+        <!-- Link to existing shipment -->
+        <div v-else class="space-y-3">
+          <div>
+            <label class="text-xs text-gray-500 mb-1 block">{{ t('inbound.selectShipment') }}</label>
+            <select v-model="linkShipmentTarget" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400">
+              <option value="">{{ t('inbound.selectShipmentPlaceholder') }}</option>
+              <option v-for="s in linkableShipments" :key="s.id" :value="s.id">
+                {{ s.ref_no }} — {{ s.factory || t('inbound.noFactory') }} ({{ t('inbound.poStatus_' + s.status) }})
+              </option>
+            </select>
+            <p v-if="linkableShipments.length === 0" class="text-xs text-gray-400 mt-1">{{ t('inbound.noLinkableShipments') }}</p>
+          </div>
+        </div>
+
+        <div class="flex justify-end gap-2 mt-5">
+          <button @click="showLinkShipmentModal = false" class="text-sm text-gray-500 hover:text-gray-700 px-4 py-2">{{ t('inbound.cancel') }}</button>
+          <button
+            @click="confirmLinkShipment"
+            :disabled="linking || (linkShipmentMode === 'existing' && !linkShipmentTarget)"
+            class="bg-purple-600 hover:bg-purple-700 text-white text-sm px-5 py-2 rounded-lg disabled:opacity-50"
+          >
+            {{ linking ? t('inbound.creating') : (linkShipmentMode === 'new' ? t('inbound.create') : t('inbound.link')) }}
           </button>
         </div>
       </div>
@@ -527,6 +586,18 @@ const poImportResult = ref('')
 // ── Remaining qty ─────────────────────────────────────────────────────────────
 const remainingQty = ref([])
 const showRemainingPanel = ref(true)
+
+// ── Link Shipment Modal ───────────────────────────────────────────────────────
+const showLinkShipmentModal = ref(false)
+const linkShipmentPo = ref(null)
+const linkShipmentMode = ref('new')  // 'new' | 'existing'
+const linkShipmentTarget = ref('')   // selected existing shipment ID
+const linking = ref(false)
+
+// Shipments that can be linked to (pending or partial, not yet received)
+const linkableShipments = computed(() => {
+  return shipments.value.filter(s => s.status === 'pending' || s.status === 'partial')
+})
 
 // ── Computed ──────────────────────────────────────────────────────────────────
 const unmatchedCount = computed(() => {
@@ -849,6 +920,48 @@ async function createShipmentFromPo(po) {
     await loadShipments()
     await openShipment(data.data)
   } catch (e) { console.error(e) }
+}
+
+function openLinkShipmentModal(po) {
+  linkShipmentPo.value = po
+  linkShipmentMode.value = 'new'
+  linkShipmentTarget.value = ''
+  createForm.value = { factory: '', note: '' }
+  showLinkShipmentModal.value = true
+}
+
+async function confirmLinkShipment() {
+  if (!linkShipmentPo.value) return
+  linking.value = true
+  try {
+    if (linkShipmentMode.value === 'new') {
+      // Create a new shipment and link the PO to it
+      const { data: shipData } = await api.post('/inbound/shipments', createForm.value)
+      const newShipment = shipData.data
+      await api.post(`/inbound/purchase-orders/${linkShipmentPo.value.id}/link-shipment`, { shipment_id: newShipment.id })
+      showLinkShipmentModal.value = false
+      createForm.value = { factory: '', note: '' }
+      inboundTab.value = 'shipments'
+      await loadShipments()
+      await openShipment(newShipment)
+    } else {
+      // Link PO to an existing shipment
+      if (!linkShipmentTarget.value) return
+      await api.post(`/inbound/purchase-orders/${linkShipmentPo.value.id}/link-shipment`, { shipment_id: linkShipmentTarget.value })
+      showLinkShipmentModal.value = false
+      // Refresh PO list to show updated shipment_id
+      await loadPos()
+      // Navigate to the linked shipment
+      inboundTab.value = 'shipments'
+      await loadShipments()
+      const target = shipments.value.find(s => s.id === linkShipmentTarget.value)
+      if (target) await openShipment(target)
+    }
+  } catch (e) {
+    alert(e.response?.data?.error || 'Failed to link shipment')
+  } finally {
+    linking.value = false
+  }
 }
 
 function goToShipment(shipmentId) {

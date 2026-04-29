@@ -254,5 +254,14 @@ export default {
     // Delete shipment
     deleteShipment: 'Delete Shipment',
     confirmDeleteShipment: 'Delete this shipment and all its boxes? This cannot be undone.',
+    // Link shipment modal
+    linkShipmentTitle: 'Link to Shipment',
+    linkShipmentNew: 'Create New Shipment',
+    linkShipmentExisting: 'Link to Existing',
+    selectShipment: 'Select Shipment',
+    selectShipmentPlaceholder: '— Select a shipment —',
+    noLinkableShipments: 'No pending shipments available to link.',
+    noFactory: 'No factory',
+    link: 'Link',
   }
 }
