@@ -105,8 +105,10 @@ const unmatchedCount = computed(() => (box.value?.items || []).filter(i => i.mat
 onMounted(async () => {
   try {
     const res = await api.get(`/inbound/scan/${qrToken.value}`)
-    box.value = res.data.data.box
-    shipment.value = res.data.data.shipment
+    const data = res.data.data
+    // items are returned at the top level, not nested inside box
+    box.value = { ...data.box, items: data.items || [] }
+    shipment.value = data.shipment
   } catch (e) {
     error.value = e.response?.data?.error || 'Invalid QR code'
   } finally {
