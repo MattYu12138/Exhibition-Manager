@@ -54,6 +54,11 @@
                 {{ s.total_boxes || 0 }} {{ t('inbound.boxes') }} · {{ s.total_qty || 0 }} {{ t('inbound.units') }} · {{ formatDate(s.created_at) }}
               </div>
             </div>
+            <button
+              v-if="s.status !== 'received'"
+              @click.stop="deleteShipment(s)"
+              class="shrink-0 text-xs text-red-400 hover:text-red-600 p-1.5 rounded hover:bg-red-50"
+            >🗑</button>
             <svg class="w-4 h-4 text-gray-300 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
           </div>
         </div>
@@ -84,6 +89,11 @@
               :disabled="addingBox"
               class="text-xs bg-gray-700 hover:bg-gray-800 text-white rounded px-3 py-1.5"
             >+ {{ t('inbound.addBox') }}</button>
+            <button
+              v-if="activeShipment.status !== 'received'"
+              @click="deleteShipment(activeShipment)"
+              class="text-xs text-red-400 hover:text-red-600 border border-red-200 hover:border-red-400 rounded px-3 py-1.5"
+            >🗑 {{ t('inbound.deleteShipment') }}</button>
           </div>
         </div>
 
@@ -617,6 +627,20 @@ function closeShipment() {
   activeShipment.value = null
   remainingQty.value = []
   loadShipments()
+}
+
+async function deleteShipment(s) {
+  if (!confirm(t('inbound.confirmDeleteShipment'))) return
+  try {
+    await api.delete(`/inbound/shipments/${s.id}`)
+    if (activeShipment.value?.id === s.id) {
+      activeShipment.value = null
+      remainingQty.value = []
+    }
+    await loadShipments()
+  } catch (e) {
+    alert(e.response?.data?.error || 'Delete failed')
+  }
 }
 
 // ── Create shipment ───────────────────────────────────────────────────────────

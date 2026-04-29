@@ -233,5 +233,26 @@ export default {
     remainingToPackTitle: 'Remaining to Pack',
     skusRemaining: 'SKU(s) remaining',
     unitsRemaining: 'units remaining',
+    // Shipment detail
+    shipments: 'Shipments',
+    units: 'units',
+    ordered: 'ordered',
+    allocated: 'Allocated',
+    remaining: 'Remaining',
+    linkedPOs: 'Linked POs',
+    noPosLinked: 'No POs linked yet. Import a PO Excel file above.',
+    downloadPoTemplate: 'Download PO Template',
+    // Add item form
+    styleNo: 'Style No.',
+    styleNoPlaceholder: 'e.g. GS26020',
+    size: 'Size',
+    selectSize: 'Select size',
+    matchedProduct: 'Matched Product',
+    overAllocated: 'Exceeds PO quantity',
+    // PO table
+    created: 'Created',
+    // Delete shipment
+    deleteShipment: 'Delete Shipment',
+    confirmDeleteShipment: 'Delete this shipment and all its boxes? This cannot be undone.',
   }
 }

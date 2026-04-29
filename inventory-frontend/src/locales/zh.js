@@ -228,5 +228,26 @@ export default {
     remainingToPackTitle: '待打包数量',
     skusRemaining: '个SKU待打包',
     unitsRemaining: '件待打包',
+    // Shipment detail
+    shipments: '发货批次',
+    units: '件',
+    ordered: '已订购',
+    allocated: '已分配',
+    remaining: '剩余',
+    linkedPOs: '关联的采购订单',
+    noPosLinked: '暂未关联采购订单，请在上方导入 PO Excel 文件。',
+    downloadPoTemplate: '下载 PO 模板',
+    // Add item form
+    styleNo: '款号',
+    styleNoPlaceholder: '如 GS26020',
+    size: '尺码',
+    selectSize: '选择尺码',
+    matchedProduct: '匹配商品',
+    overAllocated: '超过采购订单数量',
+    // PO table
+    created: '创建时间',
+    // Delete shipment
+    deleteShipment: '删除批次',
+    confirmDeleteShipment: '确认删除该批次及其所有箱子？此操作不可撤销。',
   }
 }
