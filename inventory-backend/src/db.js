@@ -179,6 +179,52 @@ function initSchema() {
 
     CREATE INDEX IF NOT EXISTS idx_inbound_log_box      ON inbound_log(box_id);
     CREATE INDEX IF NOT EXISTS idx_inbound_log_shipment ON inbound_log(shipment_id);
+
+    -- ── Purchase Orders ──────────────────────────────────────────────────────────
+    -- id: PO + 8-digit zero-padded sequential number, e.g. PO00000001
+    CREATE TABLE IF NOT EXISTS purchase_orders (
+      id              TEXT PRIMARY KEY,
+      po_number       TEXT UNIQUE NOT NULL,     -- e.g. PO#LIC26003
+      factory         TEXT,
+      note            TEXT,
+      status          TEXT NOT NULL DEFAULT 'open',
+        -- open | partial | fulfilled | cancelled
+      shipment_id     TEXT,                     -- linked inbound_shipment (if created)
+      created_by      TEXT,
+      created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (shipment_id) REFERENCES inbound_shipments(id) ON DELETE SET NULL
+    );
+
+    -- ── Purchase Order Items ──────────────────────────────────────────────────────
+    -- id: POI + 10-digit zero-padded sequential number, e.g. POI0000000001
+    CREATE TABLE IF NOT EXISTS purchase_order_items (
+      id                  TEXT PRIMARY KEY,
+      po_id               TEXT NOT NULL,
+      -- Raw data from PO Excel
+      raw_sku             TEXT,                 -- e.g. "GS26020-0000"
+      raw_gtin            TEXT,
+      raw_product_name    TEXT,
+      raw_variant_name    TEXT,
+      -- Resolved match
+      shopify_variant_id  TEXT,
+      variant_title       TEXT,
+      product_title       TEXT,
+      match_status        TEXT NOT NULL DEFAULT 'matched',
+        -- matched | unmatched | manual
+      -- Quantities
+      ordered_qty         INTEGER NOT NULL CHECK(ordered_qty > 0),
+      received_qty        INTEGER NOT NULL DEFAULT 0,
+      -- Display
+      unit_price          REAL,
+      sort_order          INTEGER NOT NULL DEFAULT 0,
+      created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (po_id) REFERENCES purchase_orders(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_po_items_po       ON purchase_order_items(po_id);
+    CREATE INDEX IF NOT EXISTS idx_po_items_variant  ON purchase_order_items(shopify_variant_id);
+    CREATE INDEX IF NOT EXISTS idx_po_shipment       ON purchase_orders(shipment_id);
   `);
 }
 
@@ -207,6 +253,11 @@ function runMigrations() {
     `ALTER TABLE product_variants ADD COLUMN inventory_quantity INTEGER`,
     `ALTER TABLE product_variants ADD COLUMN created_at DATETIME`,
     `ALTER TABLE product_variants ADD COLUMN updated_at DATETIME`,
+    // purchase_orders table
+    `ALTER TABLE purchase_orders ADD COLUMN shipment_id TEXT`,
+    `ALTER TABLE purchase_orders ADD COLUMN updated_at DATETIME`,
+    // inbound_shipments — add po_id reference
+    `ALTER TABLE inbound_shipments ADD COLUMN po_id TEXT`,
   ];
 
   for (const sql of migrations) {

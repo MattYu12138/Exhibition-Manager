@@ -55,6 +55,35 @@
           <p v-if="shipment.note" class="text-sm text-gray-500 mt-0.5">{{ shipment.note }}</p>
         </div>
 
+        <!-- PO Reference Panel (shown if shipment has a linked PO) -->
+        <div v-if="shipment.po_number" class="mb-5 bg-blue-50 border border-blue-200 rounded-xl p-4">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="text-sm font-semibold text-blue-800">📋 Purchase Order Reference</span>
+            <span class="font-mono text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded">{{ shipment.po_number }}</span>
+          </div>
+          <p class="text-xs text-blue-600 mb-3">The following items were ordered. Please pack all items and fill in the box numbers below.</p>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+              <thead>
+                <tr class="text-blue-500 uppercase">
+                  <th class="text-left pb-1.5">SKU</th>
+                  <th class="text-left pb-1.5">Product</th>
+                  <th class="text-right pb-1.5">Ordered</th>
+                  <th class="text-right pb-1.5">Received</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-blue-100">
+                <tr v-for="item in shipment.po_items" :key="item.raw_sku" class="">
+                  <td class="py-1 font-mono text-blue-800">{{ item.raw_sku }}</td>
+                  <td class="py-1 text-blue-700">{{ item.product_name || '—' }}</td>
+                  <td class="py-1 text-right font-medium text-blue-800">{{ item.ordered_qty }}</td>
+                  <td class="py-1 text-right" :class="item.received_qty >= item.ordered_qty ? 'text-green-600 font-bold' : 'text-gray-400'">{{ item.received_qty }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <!-- Boxes -->
         <div class="space-y-4 mb-4">
           <div v-for="(box, bi) in boxes" :key="bi" class="bg-white rounded-xl shadow-sm overflow-hidden">

@@ -3,6 +3,23 @@
 
     <!-- ── Shipment List ──────────────────────────────────────────────────── -->
     <div v-if="!activeShipment">
+
+      <!-- Inner tab bar: Shipments / Purchase Orders -->
+      <div class="flex items-center gap-1 mb-5 border-b border-gray-200">
+        <button
+          @click="inboundTab = 'shipments'"
+          class="px-4 py-2 text-sm font-medium transition-colors"
+          :class="inboundTab === 'shipments' ? 'text-purple-600 border-b-2 border-purple-600 -mb-px' : 'text-gray-500 hover:text-gray-700'"
+        >{{ t('inbound.tabShipments') }}</button>
+        <button
+          @click="inboundTab = 'po'"
+          class="px-4 py-2 text-sm font-medium transition-colors"
+          :class="inboundTab === 'po' ? 'text-purple-600 border-b-2 border-purple-600 -mb-px' : 'text-gray-500 hover:text-gray-700'"
+        >{{ t('inbound.tabPurchaseOrders') }}</button>
+      </div>
+
+      <!-- ── Shipments Tab ── -->
+      <div v-if="inboundTab === 'shipments'">
       <!-- Toolbar -->
       <div class="flex items-center justify-between mb-5 flex-wrap gap-3">
         <div class="flex items-center gap-3">
@@ -10,6 +27,11 @@
           <span class="text-xs text-gray-400">({{ shipments.length }})</span>
         </div>
         <div class="flex items-center gap-2">
+          <!-- Scan to Receive button -->
+          <button
+            @click="showScanner = true"
+            class="text-sm border border-purple-300 text-purple-600 hover:bg-purple-50 px-3 py-2 rounded-lg flex items-center gap-1.5"
+          >📷 {{ t('inbound.scanToReceive') }}</button>
           <a
             :href="excelTemplateUrl"
             class="text-xs text-gray-500 hover:text-gray-700 border border-gray-300 rounded px-3 py-1.5 flex items-center gap-1"
@@ -78,7 +100,100 @@
           </tbody>
         </table>
       </div>
-    </div>
+      </div><!-- end shipments tab -->
+
+      <!-- ── Purchase Orders Tab ── -->
+      <div v-if="inboundTab === 'po'">
+        <!-- PO Toolbar -->
+        <div class="flex items-center justify-between mb-5 flex-wrap gap-3">
+          <div class="flex items-center gap-3">
+            <h2 class="text-base font-bold text-gray-800">{{ t('inbound.tabPurchaseOrders') }}</h2>
+            <span class="text-xs text-gray-400">({{ purchaseOrders.length }})</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <!-- Import PO Excel -->
+            <label class="cursor-pointer text-xs border border-gray-300 rounded px-3 py-1.5 hover:bg-gray-50 flex items-center gap-1">
+              {{ importingPo ? t('inbound.importing') : '⬆ ' + t('inbound.importPoExcel') }}
+              <input type="file" accept=".xlsx,.xls" class="hidden" @change="handlePoImport" :disabled="importingPo" />
+            </label>
+          </div>
+        </div>
+
+        <!-- PO import result -->
+        <div v-if="poImportResult" class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+          ✓ {{ t('inbound.poImported') }}: {{ poImportResult.po_number }} —
+          {{ poImportResult.summary?.matched }} {{ t('inbound.matched') }},
+          {{ poImportResult.summary?.unmatched }} {{ t('inbound.unmatched') }}
+          <button @click="poImportResult = null" class="ml-2 text-green-500 hover:text-green-700">✕</button>
+        </div>
+
+        <!-- PO loading -->
+        <div v-if="poLoading" class="text-center py-20 text-gray-400">{{ t('inbound.loading') }}</div>
+
+        <!-- PO empty -->
+        <div v-else-if="purchaseOrders.length === 0" class="text-center py-20 text-gray-400">
+          <div class="text-4xl mb-3">📋</div>
+          <div>{{ t('inbound.noPurchaseOrders') }}</div>
+          <p class="text-xs mt-2 text-gray-400">{{ t('inbound.importPoHint') }}</p>
+        </div>
+
+        <!-- PO table -->
+        <div v-else class="bg-white rounded-xl shadow-sm overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-xs text-gray-500 uppercase">
+              <tr>
+                <th class="px-4 py-3 text-left">{{ t('inbound.poNumber') }}</th>
+                <th class="px-4 py-3 text-left">{{ t('inbound.factory') }}</th>
+                <th class="px-4 py-3 text-center">{{ t('inbound.poItems') }}</th>
+                <th class="px-4 py-3 text-center">{{ t('inbound.poOrdered') }}</th>
+                <th class="px-4 py-3 text-center">{{ t('inbound.poReceived') }}</th>
+                <th class="px-4 py-3 text-center">{{ t('inbound.status') }}</th>
+                <th class="px-4 py-3 text-left">{{ t('inbound.createdAt') }}</th>
+                <th class="px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              <tr
+                v-for="po in purchaseOrders"
+                :key="po.id"
+                class="hover:bg-gray-50"
+              >
+                <td class="px-4 py-3 font-mono text-xs font-bold text-gray-700">{{ po.po_number }}</td>
+                <td class="px-4 py-3 text-gray-600">{{ po.factory || '—' }}</td>
+                <td class="px-4 py-3 text-center text-gray-600">{{ po.item_count }}</td>
+                <td class="px-4 py-3 text-center text-gray-600">{{ po.total_ordered }}</td>
+                <td class="px-4 py-3 text-center text-gray-600">{{ po.total_received }}</td>
+                <td class="px-4 py-3 text-center">
+                  <span class="text-xs px-2 py-0.5 rounded-full font-medium" :class="poStatusClass(po.status)">
+                    {{ t('inbound.poStatus_' + po.status) }}
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-xs text-gray-400">{{ fmtDate(po.created_at) }}</td>
+                <td class="px-4 py-3 text-right flex items-center justify-end gap-2">
+                  <!-- Create shipment from PO -->
+                  <button
+                    v-if="!po.shipment_id"
+                    @click="createShipmentFromPo(po)"
+                    class="text-xs text-purple-500 hover:text-purple-700 border border-purple-200 rounded px-2 py-1"
+                  >{{ t('inbound.createShipment') }}</button>
+                  <button
+                    v-else
+                    @click="openShipment(po.shipment_id); inboundTab = 'shipments'"
+                    class="text-xs text-blue-500 hover:text-blue-700 border border-blue-200 rounded px-2 py-1"
+                  >{{ t('inbound.viewShipment') }}</button>
+                  <button
+                    v-if="po.status !== 'fulfilled'"
+                    @click="confirmDeletePo(po)"
+                    class="text-xs text-red-400 hover:text-red-600"
+                  >{{ t('inbound.delete') }}</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div><!-- end po tab -->
+
+    </div><!-- end !activeShipment outer -->
 
     <!-- ── Shipment Detail ────────────────────────────────────────────────── -->
     <div v-else>
@@ -328,16 +443,22 @@
       </div>
     </div>
 
+    <!-- ── QR Scanner Modal ─────────────────────────────────────────────────── -->
+    <QrScanner v-if="showScanner" @close="showScanner = false" @scanned="onScanned" />
+
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import axios from 'axios'
 import QRCode from 'qrcode'
+import QrScanner from '../components/QrScanner.vue'
 
 const { t } = useI18n()
+const router = useRouter()
 const api = axios.create({ baseURL: '/api', withCredentials: true })
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -373,6 +494,16 @@ const manualMatchItem = ref(null)
 const manualMatchQuery = ref('')
 const manualSearchResults = ref([])
 let manualDebounce = null
+
+// ── Inner tab + scanner ───────────────────────────────────────────────────────
+const inboundTab = ref('shipments')
+const showScanner = ref(false)
+
+// ── Purchase Orders ───────────────────────────────────────────────────────────
+const purchaseOrders = ref([])
+const poLoading = ref(false)
+const importingPo = ref(false)
+const poImportResult = ref(null)
 
 // ── Computed ──────────────────────────────────────────────────────────────────
 const unmatchedCount = computed(() => {
@@ -639,6 +770,76 @@ async function applyManualMatch(variant) {
   }
 }
 
+// ── Scanner ───────────────────────────────────────────────────────────────────
+function onScanned(token) {
+  showScanner.value = false
+  router.push({ name: 'ScanReceive', params: { token } })
+}
+
+// ── Purchase Orders ───────────────────────────────────────────────────────────
+async function loadPurchaseOrders() {
+  poLoading.value = true
+  try {
+    const res = await api.get('/inbound/purchase-orders')
+    purchaseOrders.value = res.data.data
+  } catch (e) {
+    console.error('load POs:', e)
+  } finally {
+    poLoading.value = false
+  }
+}
+
+async function handlePoImport(e) {
+  const file = e.target.files[0]
+  if (!file) return
+  importingPo.value = true
+  poImportResult.value = null
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    const res = await api.post('/inbound/purchase-orders/import-excel', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+    poImportResult.value = { po_number: res.data.data.po_number, summary: res.data.summary }
+    await loadPurchaseOrders()
+  } catch (e) {
+    alert(e.response?.data?.error || e.message)
+  } finally {
+    importingPo.value = false
+    e.target.value = ''
+  }
+}
+
+async function createShipmentFromPo(po) {
+  try {
+    const res = await api.post(`/inbound/purchase-orders/${po.id}/create-shipment`)
+    const shipmentId = res.data.data.id
+    // Update local PO record
+    const idx = purchaseOrders.value.findIndex(p => p.id === po.id)
+    if (idx !== -1) purchaseOrders.value[idx].shipment_id = shipmentId
+    // Switch to shipments tab and open the new shipment
+    inboundTab.value = 'shipments'
+    await openShipment(shipmentId)
+  } catch (e) {
+    alert(e.response?.data?.error || e.message)
+  }
+}
+
+async function confirmDeletePo(po) {
+  if (!confirm(`${t('inbound.confirmDelete')} ${po.po_number}?`)) return
+  try {
+    await api.delete(`/inbound/purchase-orders/${po.id}`)
+    await loadPurchaseOrders()
+  } catch (e) {
+    alert(e.response?.data?.error || e.message)
+  }
+}
+
+// Watch tab to lazy-load POs
+watch(inboundTab, (tab) => {
+  if (tab === 'po' && purchaseOrders.value.length === 0) loadPurchaseOrders()
+})
+
 // ── Style helpers ─────────────────────────────────────────────────────────────
 function statusClass(status) {
   return {
@@ -669,5 +870,14 @@ function matchClass(status) {
 function fmtDate(dt) {
   if (!dt) return '—'
   return new Date(dt).toLocaleDateString()
+}
+
+function poStatusClass(status) {
+  return {
+    open: 'bg-blue-100 text-blue-700',
+    partial: 'bg-amber-100 text-amber-700',
+    fulfilled: 'bg-green-100 text-green-700',
+    cancelled: 'bg-red-100 text-red-600',
+  }[status] || 'bg-gray-100 text-gray-500'
 }
 </script>

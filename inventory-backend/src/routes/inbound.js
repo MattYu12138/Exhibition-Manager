@@ -824,4 +824,318 @@ router.get('/excel-template', requirePermission('read'), (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// PURCHASE ORDER ROUTES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+function nextPoId(db) {
+  const row = db.prepare("SELECT MAX(CAST(SUBSTR(id,3) AS INTEGER)) AS mx FROM purchase_orders WHERE id LIKE 'PO%'").get();
+  const next = (row?.mx || 0) + 1;
+  if (next > 99999999) throw new Error('PO ID overflow');
+  return 'PO' + String(next).padStart(8, '0');
+}
+
+function nextPoItemId(db) {
+  const row = db.prepare("SELECT MAX(CAST(SUBSTR(id,4) AS INTEGER)) AS mx FROM purchase_order_items WHERE id LIKE 'POI%'").get();
+  const next = (row?.mx || 0) + 1;
+  if (next > 9999999999) throw new Error('POI ID overflow');
+  return 'POI' + String(next).padStart(10, '0');
+}
+
+function getPoDetail(db, poId) {
+  const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(poId);
+  if (!po) return null;
+  po.items = db.prepare('SELECT * FROM purchase_order_items WHERE po_id = ? ORDER BY sort_order, id').all(poId);
+  return po;
+}
+
+/**
+ * GET /api/inbound/purchase-orders
+ * List all POs
+ */
+router.get('/purchase-orders', requirePermission('read'), (req, res) => {
+  try {
+    const db = getDb();
+    const pos = db.prepare(`
+      SELECT po.*,
+        (SELECT COUNT(*) FROM purchase_order_items WHERE po_id = po.id) AS item_count,
+        (SELECT COALESCE(SUM(ordered_qty),0) FROM purchase_order_items WHERE po_id = po.id) AS total_ordered,
+        (SELECT COALESCE(SUM(received_qty),0) FROM purchase_order_items WHERE po_id = po.id) AS total_received
+      FROM purchase_orders po
+      ORDER BY po.created_at DESC
+    `).all();
+    res.json({ success: true, data: pos });
+  } catch (err) {
+    console.error('[inbound] list POs:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/inbound/purchase-orders/:id
+ * Full PO detail with items
+ */
+router.get('/purchase-orders/:id', requirePermission('read'), (req, res) => {
+  try {
+    const db = getDb();
+    const po = getPoDetail(db, req.params.id);
+    if (!po) return res.status(404).json({ success: false, error: 'PO not found' });
+    res.json({ success: true, data: po });
+  } catch (err) {
+    console.error('[inbound] get PO:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/inbound/purchase-orders
+ * Create a PO manually
+ * Body: { po_number, factory, note, items: [{ raw_sku, raw_gtin, raw_product_name, raw_variant_name, ordered_qty, unit_price }] }
+ */
+router.post('/purchase-orders', requirePermission('write'), (req, res) => {
+  try {
+    const db = getDb();
+    const { po_number, factory, note, items = [] } = req.body;
+    if (!po_number) return res.status(400).json({ success: false, error: 'po_number is required' });
+    const existing = db.prepare('SELECT id FROM purchase_orders WHERE po_number = ?').get(po_number);
+    if (existing) return res.status(409).json({ success: false, error: `PO number "${po_number}" already exists` });
+
+    const id = nextPoId(db);
+    db.prepare(`
+      INSERT INTO purchase_orders (id, po_number, factory, note, created_by)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(id, po_number, factory || null, note || null, req.session?.user?.id || null);
+
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i];
+      if (!it.ordered_qty || it.ordered_qty <= 0) continue;
+      const match = matchSku(db, it.raw_sku || null, it.raw_gtin || null);
+      const itemId = nextPoItemId(db);
+      db.prepare(`
+        INSERT INTO purchase_order_items
+          (id, po_id, raw_sku, raw_gtin, raw_product_name, raw_variant_name,
+           shopify_variant_id, variant_title, product_title, match_status,
+           ordered_qty, unit_price, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        itemId, id,
+        it.raw_sku || null, it.raw_gtin || null, it.raw_product_name || null, it.raw_variant_name || null,
+        match.shopify_variant_id, match.variant_title, match.product_title, match.match_status,
+        it.ordered_qty, it.unit_price || null, i
+      );
+    }
+
+    res.status(201).json({ success: true, data: getPoDetail(db, id) });
+  } catch (err) {
+    console.error('[inbound] create PO:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/inbound/purchase-orders/import-excel
+ * Parse a PO Excel file (your existing PO format) and create a PO
+ * Body: multipart/form-data with file + optional { po_number, factory }
+ */
+router.post('/purchase-orders/import-excel', requirePermission('write'), upload.single('file'), (req, res) => {
+  try {
+    const db = getDb();
+    if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
+
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', header: 1 });
+
+    if (rows.length < 2) return res.status(400).json({ success: false, error: 'Excel file is empty or has no data rows' });
+
+    // —— Parse PO number from cell A1 or B1 area (your format: "PO#LIC26003" in header area)
+    let poNumber = req.body.po_number || '';
+    let factory = req.body.factory || '';
+
+    // Scan first 5 rows for PO# pattern
+    if (!poNumber) {
+      for (let r = 0; r < Math.min(5, rows.length); r++) {
+        for (const cell of rows[r]) {
+          const s = String(cell || '').trim();
+          if (/PO#?[A-Z0-9]+/i.test(s)) {
+            poNumber = s.replace(/.*?(PO#?[A-Z0-9]+).*/i, '$1').toUpperCase();
+            break;
+          }
+        }
+        if (poNumber) break;
+      }
+    }
+    if (!poNumber) poNumber = 'PO-' + Date.now();
+
+    // Check duplicate
+    const existing = db.prepare('SELECT id FROM purchase_orders WHERE po_number = ?').get(poNumber);
+    if (existing) return res.status(409).json({ success: false, error: `PO "${poNumber}" already imported` });
+
+    // —— Find the header row (contains "Style No" or "SKU" or "Qty")
+    let headerRowIdx = -1;
+    let colMap = {};
+    for (let r = 0; r < Math.min(10, rows.length); r++) {
+      const row = rows[r].map(c => String(c || '').toLowerCase().trim());
+      const hasStyle = row.some(c => c.includes('style') || c.includes('sku') || c.includes('item'));
+      const hasQty = row.some(c => c.includes('qty') || c.includes('quantity') || c.includes('数量'));
+      if (hasStyle && hasQty) {
+        headerRowIdx = r;
+        row.forEach((h, i) => {
+          if (h.includes('style') || h.includes('sku') || h.includes('item') || h.includes('货号')) colMap.sku = i;
+          else if (h.includes('description') || h.includes('name') || h.includes('描述')) colMap.name = i;
+          else if (h.includes('size') || h.includes('尺码')) colMap.size = i;
+          else if (h.includes('qty') || h.includes('quantity') || h.includes('数量')) colMap.qty = i;
+          else if (h.includes('price') || h.includes('单价')) colMap.price = i;
+          else if (h.includes('barcode') || h.includes('gtin') || h.includes('条码')) colMap.gtin = i;
+        });
+        break;
+      }
+    }
+
+    // Fallback: treat first row as header
+    if (headerRowIdx === -1) {
+      headerRowIdx = 0;
+      colMap = { sku: 0, name: 1, size: 2, qty: 3, price: 4, gtin: 6 };
+    }
+
+    const id = nextPoId(db);
+    db.prepare(`
+      INSERT INTO purchase_orders (id, po_number, factory, created_by)
+      VALUES (?, ?, ?, ?)
+    `).run(id, poNumber, factory || null, req.session?.user?.id || null);
+
+    let matched = 0, unmatched = 0;
+    let sortIdx = 0;
+    let lastSku = '';
+
+    for (let r = headerRowIdx + 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row || row.every(c => !String(c || '').trim())) continue; // skip empty rows
+
+      // Style No may span multiple rows (merged cells — XLSX fills them as empty)
+      const rawStyleCell = String(row[colMap.sku] || '').trim();
+      const styleNo = rawStyleCell || lastSku;
+      if (rawStyleCell) lastSku = rawStyleCell;
+
+      const rawSize = colMap.size !== undefined ? String(row[colMap.size] || '').trim() : '';
+      const rawName = colMap.name !== undefined ? String(row[colMap.name] || '').trim() : '';
+      const rawGtin = colMap.gtin !== undefined ? String(row[colMap.gtin] || '').trim() : '';
+      const rawPrice = colMap.price !== undefined ? parseFloat(String(row[colMap.price] || '0').replace(/[^0-9.]/g, '')) : null;
+      const qty = parseInt(String(row[colMap.qty] || '0').replace(/[^0-9]/g, ''), 10);
+
+      if (!styleNo || !qty || qty <= 0) continue;
+
+      // Build full SKU: styleNo-size (e.g. GS26020-0000)
+      const sizeCode = rawSize.replace(/[^0-9a-zA-Z]/g, '').split(' ')[0]; // take first token, strip parens
+      const fullSku = sizeCode ? `${styleNo}-${sizeCode}` : styleNo;
+
+      const match = matchSku(db, fullSku, rawGtin || null);
+      const itemId = nextPoItemId(db);
+      db.prepare(`
+        INSERT INTO purchase_order_items
+          (id, po_id, raw_sku, raw_gtin, raw_product_name, raw_variant_name,
+           shopify_variant_id, variant_title, product_title, match_status,
+           ordered_qty, unit_price, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        itemId, id,
+        fullSku, rawGtin || null, rawName || null, rawSize || null,
+        match.shopify_variant_id, match.variant_title, match.product_title, match.match_status,
+        qty, rawPrice || null, sortIdx++
+      );
+
+      if (match.match_status === 'matched') matched++;
+      else unmatched++;
+    }
+
+    const po = getPoDetail(db, id);
+    res.status(201).json({ success: true, data: po, summary: { matched, unmatched } });
+  } catch (err) {
+    console.error('[inbound] import PO excel:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * DELETE /api/inbound/purchase-orders/:id
+ * Delete a PO (only if open/cancelled)
+ */
+router.delete('/purchase-orders/:id', requirePermission('write'), (req, res) => {
+  try {
+    const db = getDb();
+    const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(req.params.id);
+    if (!po) return res.status(404).json({ success: false, error: 'PO not found' });
+    if (po.status === 'fulfilled') return res.status(400).json({ success: false, error: 'Cannot delete a fulfilled PO' });
+    db.prepare('DELETE FROM purchase_orders WHERE id = ?').run(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[inbound] delete PO:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/inbound/purchase-orders/:id/create-shipment
+ * Create an inbound_shipment linked to this PO
+ * The shipment will have the PO items as reference for factory form pre-fill
+ */
+router.post('/purchase-orders/:id/create-shipment', requirePermission('write'), (req, res) => {
+  try {
+    const db = getDb();
+    const po = getPoDetail(db, req.params.id);
+    if (!po) return res.status(404).json({ success: false, error: 'PO not found' });
+    if (po.shipment_id) {
+      // Already has a shipment — return it
+      const existing = db.prepare('SELECT * FROM inbound_shipments WHERE id = ?').get(po.shipment_id);
+      if (existing) return res.json({ success: true, data: existing, already_existed: true });
+    }
+
+    const shipmentId = nextShipmentId(db);
+    db.prepare(`
+      INSERT INTO inbound_shipments (id, ref_no, factory, note, source, po_id, created_by)
+      VALUES (?, ?, ?, ?, 'manual', ?, ?)
+    `).run(
+      shipmentId, shipmentId,
+      po.factory || null,
+      `Linked to ${po.po_number}`,
+      po.id,
+      req.session?.user?.id || null
+    );
+
+    // Link back
+    db.prepare('UPDATE purchase_orders SET shipment_id = ?, updated_at = datetime(\'now\') WHERE id = ?').run(shipmentId, po.id);
+
+    const shipment = db.prepare('SELECT * FROM inbound_shipments WHERE id = ?').get(shipmentId);
+    res.status(201).json({ success: true, data: shipment });
+  } catch (err) {
+    console.error('[inbound] create shipment from PO:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/inbound/factory-form/:token/po-items
+ * Public — return the PO items for this shipment as pre-fill reference
+ * Called by FactoryForm.vue to show ordered quantities
+ */
+router.get('/factory-form/:token/po-items', (req, res) => {
+  try {
+    const db = getDb();
+    const shipment = db.prepare('SELECT id, po_id FROM inbound_shipments WHERE form_token = ?').get(req.params.token);
+    if (!shipment || !shipment.po_id) return res.json({ success: true, data: [] });
+    const items = db.prepare(`
+      SELECT poi.raw_sku, poi.raw_product_name, poi.raw_variant_name, poi.ordered_qty,
+             poi.shopify_variant_id, poi.variant_title, poi.product_title, poi.match_status
+      FROM purchase_order_items poi
+      WHERE poi.po_id = ?
+      ORDER BY poi.sort_order
+    `).all(shipment.po_id);
+    const po = db.prepare('SELECT po_number, factory FROM purchase_orders WHERE id = ?').get(shipment.po_id);
+    res.json({ success: true, data: items, po });
+  } catch (err) {
+    console.error('[inbound] factory-form po-items:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
