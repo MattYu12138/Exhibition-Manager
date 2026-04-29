@@ -6,6 +6,8 @@
  *   inbound_shipments : SHP + 8-digit  e.g. SHP00000001
  *   inbound_boxes     : BX  + 10-digit e.g. BX0000000001
  *   inbound_box_items : BXI + 10-digit e.g. BXI0000000001
+ *   purchase_orders   : PO  + 8-digit  e.g. PO00000001
+ *   purchase_order_items: POI + 10-digit e.g. POI0000000001
  */
 const express = require('express');
 const crypto = require('crypto');
@@ -15,7 +17,7 @@ const { requirePermission } = require('../middleware/auth');
 const multer = require('multer');
 const XLSX = require('xlsx');
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 // ── ID helpers ────────────────────────────────────────────────────────────────
 
@@ -40,6 +42,20 @@ function nextBoxItemId(db) {
   return 'BXI' + String(next).padStart(10, '0');
 }
 
+function nextPoId(db) {
+  const row = db.prepare("SELECT MAX(CAST(SUBSTR(id,3) AS INTEGER)) AS mx FROM purchase_orders WHERE id LIKE 'PO%'").get();
+  const next = (row?.mx || 0) + 1;
+  if (next > 99999999) throw new Error('PO ID overflow');
+  return 'PO' + String(next).padStart(8, '0');
+}
+
+function nextPoItemId(db) {
+  const row = db.prepare("SELECT MAX(CAST(SUBSTR(id,4) AS INTEGER)) AS mx FROM purchase_order_items WHERE id LIKE 'POI%'").get();
+  const next = (row?.mx || 0) + 1;
+  if (next > 9999999999) throw new Error('POI ID overflow');
+  return 'POI' + String(next).padStart(10, '0');
+}
+
 function generateQrToken() {
   return crypto.randomBytes(16).toString('hex');
 }
@@ -47,11 +63,14 @@ function generateQrToken() {
 // ── SKU matcher ───────────────────────────────────────────────────────────────
 
 /**
- * Given a raw SKU string, try to find the matching product_variant.
+ * Given a raw SKU string (e.g. "GS26020-0000") and optional GTIN,
+ * find the matching product_variant.
  * Returns { shopify_variant_id, variant_title, product_title, match_status }
  */
 function matchSku(db, rawSku, rawGtin) {
-  if (!rawSku && !rawGtin) return { shopify_variant_id: null, variant_title: null, product_title: null, match_status: 'unmatched' };
+  if (!rawSku && !rawGtin) {
+    return { shopify_variant_id: null, variant_title: null, product_title: null, match_status: 'unmatched' };
+  }
 
   let row = null;
 
@@ -66,15 +85,16 @@ function matchSku(db, rawSku, rawGtin) {
     `).get(rawSku);
   }
 
-  // 2. Exact GTIN match
+  // 2. Exact GTIN match (strip leading whitespace/tabs)
   if (!row && rawGtin) {
+    const cleanGtin = String(rawGtin).trim().replace(/^\t/, '');
     row = db.prepare(`
       SELECT pv.shopify_variant_id, pv.variant_title, p.title AS product_title
       FROM product_variants pv
       JOIN products p ON p.id = pv.product_id
       WHERE LOWER(TRIM(pv.gtin)) = LOWER(TRIM(?))
       LIMIT 1
-    `).get(rawGtin);
+    `).get(cleanGtin);
   }
 
   if (row) {
@@ -88,6 +108,19 @@ function matchSku(db, rawSku, rawGtin) {
   return { shopify_variant_id: null, variant_title: null, product_title: null, match_status: 'unmatched' };
 }
 
+// ── Size code extractor ───────────────────────────────────────────────────────
+
+/**
+ * Extract the size code from a size string like "0000 (0-3 weeks)" -> "0000"
+ * or "XXS (0-3 months)" -> "XXS" or "OS (0-9 months)" -> "OS"
+ */
+function extractSizeCode(rawSize) {
+  if (!rawSize) return '';
+  // Take the first whitespace-delimited token, strip non-alphanumeric chars
+  const token = String(rawSize).trim().split(/\s+/)[0];
+  return token.replace(/[^0-9a-zA-Z]/g, '');
+}
+
 // ── Recalculate shipment denormalised totals ──────────────────────────────────
 
 function recalcShipmentTotals(db, shipmentId) {
@@ -98,47 +131,93 @@ function recalcShipmentTotals(db, shipmentId) {
   const qtyRow = db.prepare(`
     SELECT COALESCE(SUM(bxi.quantity), 0) AS total_qty
     FROM inbound_box_items bxi
-    JOIN inbound_boxes bx ON bx.id = bxi.box_id
-    WHERE bx.shipment_id = ?
+    JOIN inbound_boxes b ON b.id = bxi.box_id
+    WHERE b.shipment_id = ?
   `).get(shipmentId);
 
-  let status = 'pending';
-  if (receivedBoxes > 0 && receivedBoxes < totalBoxes) status = 'partial';
-  else if (totalBoxes > 0 && receivedBoxes === totalBoxes) status = 'received';
+  const newStatus = receivedBoxes === 0 ? 'pending'
+    : receivedBoxes < totalBoxes ? 'partial'
+    : 'received';
 
   db.prepare(`
     UPDATE inbound_shipments
     SET total_boxes = ?, total_qty = ?, received_boxes = ?, status = ?, updated_at = datetime('now')
     WHERE id = ?
-  `).run(totalBoxes, qtyRow.total_qty, receivedBoxes, status, shipmentId);
+  `).run(totalBoxes, qtyRow.total_qty, receivedBoxes, newStatus, shipmentId);
 }
 
-// ── Helper: full shipment detail ─────────────────────────────────────────────
+// ── Remaining qty calculator ──────────────────────────────────────────────────
+
+/**
+ * For a given shipment, calculate how many units of each SKU have already been
+ * allocated across all boxes. Returns a map: shopify_variant_id -> allocated_qty
+ */
+function getAllocatedQtyMap(db, shipmentId) {
+  const rows = db.prepare(`
+    SELECT bxi.shopify_variant_id, COALESCE(SUM(bxi.quantity), 0) AS allocated
+    FROM inbound_box_items bxi
+    JOIN inbound_boxes b ON b.id = bxi.box_id
+    WHERE b.shipment_id = ? AND bxi.shopify_variant_id IS NOT NULL
+    GROUP BY bxi.shopify_variant_id
+  `).all(shipmentId);
+  const map = {};
+  for (const r of rows) {
+    map[r.shopify_variant_id] = r.allocated;
+  }
+  return map;
+}
+
+// ── PO detail helper ──────────────────────────────────────────────────────────
+
+function getPoDetail(db, poId) {
+  const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(poId);
+  if (!po) return null;
+  po.items = db.prepare('SELECT * FROM purchase_order_items WHERE po_id = ? ORDER BY sort_order, id').all(poId);
+  return po;
+}
+
+// ── Shipment detail helper ────────────────────────────────────────────────────
 
 function getShipmentDetail(db, shipmentId) {
   const shipment = db.prepare('SELECT * FROM inbound_shipments WHERE id = ?').get(shipmentId);
   if (!shipment) return null;
+
+  // Attach all linked POs
+  shipment.pos = db.prepare(`
+    SELECT id, po_number, factory, status, source_file_name,
+      (SELECT COALESCE(SUM(ordered_qty),0) FROM purchase_order_items WHERE po_id = purchase_orders.id) AS total_ordered,
+      (SELECT COALESCE(SUM(received_qty),0) FROM purchase_order_items WHERE po_id = purchase_orders.id) AS total_received,
+      (SELECT COUNT(*) FROM purchase_order_items WHERE po_id = purchase_orders.id) AS item_count
+    FROM purchase_orders WHERE shipment_id = ?
+    ORDER BY created_at ASC
+  `).all(shipmentId);
+
+  // Attach boxes with items
   const boxes = db.prepare('SELECT * FROM inbound_boxes WHERE shipment_id = ? ORDER BY box_no').all(shipmentId);
   for (const box of boxes) {
-    box.items = db.prepare('SELECT * FROM inbound_box_items WHERE box_id = ? ORDER BY sort_order, id').all(box.id);
+    box.items = db.prepare('SELECT * FROM inbound_box_items WHERE box_id = ? ORDER BY sort_order').all(box.id);
   }
   shipment.boxes = boxes;
+
   return shipment;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SHIPMENT ENDPOINTS
+// SHIPMENT ROUTES
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
  * GET /api/inbound/shipments
- * List all shipments (summary, no boxes/items)
+ * List all shipments with summary
  */
 router.get('/shipments', requirePermission('read'), (req, res) => {
   try {
     const db = getDb();
     const shipments = db.prepare(`
-      SELECT * FROM inbound_shipments ORDER BY created_at DESC
+      SELECT s.*,
+        (SELECT GROUP_CONCAT(po_number, ', ') FROM purchase_orders WHERE shipment_id = s.id) AS po_numbers
+      FROM inbound_shipments s
+      ORDER BY s.created_at DESC
     `).all();
     res.json({ success: true, data: shipments });
   } catch (err) {
@@ -148,35 +227,19 @@ router.get('/shipments', requirePermission('read'), (req, res) => {
 });
 
 /**
- * GET /api/inbound/shipments/:id
- * Full shipment detail with boxes and items
- */
-router.get('/shipments/:id', requirePermission('read'), (req, res) => {
-  try {
-    const db = getDb();
-    const detail = getShipmentDetail(db, req.params.id);
-    if (!detail) return res.status(404).json({ success: false, error: 'Shipment not found' });
-    res.json({ success: true, data: detail });
-  } catch (err) {
-    console.error('[inbound] get shipment:', err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/**
  * POST /api/inbound/shipments
- * Create a new shipment (manual or excel source)
- * Body: { factory, note, source }
+ * Create a new shipment
+ * Body: { factory, note }
  */
 router.post('/shipments', requirePermission('write'), (req, res) => {
   try {
     const db = getDb();
-    const { factory, note, source = 'manual' } = req.body;
+    const { factory, note } = req.body;
     const id = nextShipmentId(db);
     db.prepare(`
       INSERT INTO inbound_shipments (id, ref_no, factory, note, source, created_by)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(id, id, factory || null, note || null, source, req.session?.user?.id || null);
+      VALUES (?, ?, ?, ?, 'manual', ?)
+    `).run(id, id, factory || null, note || null, req.session?.user?.id || null);
     const shipment = db.prepare('SELECT * FROM inbound_shipments WHERE id = ?').get(id);
     res.status(201).json({ success: true, data: shipment });
   } catch (err) {
@@ -186,22 +249,35 @@ router.post('/shipments', requirePermission('write'), (req, res) => {
 });
 
 /**
+ * GET /api/inbound/shipments/:id
+ * Full shipment detail with boxes, items, and linked POs
+ */
+router.get('/shipments/:id', requirePermission('read'), (req, res) => {
+  try {
+    const db = getDb();
+    const shipment = getShipmentDetail(db, req.params.id);
+    if (!shipment) return res.status(404).json({ success: false, error: 'Shipment not found' });
+    res.json({ success: true, data: shipment });
+  } catch (err) {
+    console.error('[inbound] get shipment:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * PATCH /api/inbound/shipments/:id
- * Update shipment metadata (factory, note)
+ * Update shipment metadata
  */
 router.patch('/shipments/:id', requirePermission('write'), (req, res) => {
   try {
     const db = getDb();
     const { factory, note } = req.body;
-    const shipment = db.prepare('SELECT * FROM inbound_shipments WHERE id = ?').get(req.params.id);
+    const shipment = db.prepare('SELECT id FROM inbound_shipments WHERE id = ?').get(req.params.id);
     if (!shipment) return res.status(404).json({ success: false, error: 'Shipment not found' });
-    if (['received', 'cancelled'].includes(shipment.status)) {
-      return res.status(400).json({ success: false, error: 'Cannot edit a completed or cancelled shipment' });
-    }
     db.prepare(`
-      UPDATE inbound_shipments SET factory = COALESCE(?, factory), note = COALESCE(?, note), updated_at = datetime('now') WHERE id = ?
-    `).run(factory ?? null, note ?? null, req.params.id);
-    res.json({ success: true, data: db.prepare('SELECT * FROM inbound_shipments WHERE id = ?').get(req.params.id) });
+      UPDATE inbound_shipments SET factory = ?, note = ?, updated_at = datetime('now') WHERE id = ?
+    `).run(factory || null, note || null, req.params.id);
+    res.json({ success: true });
   } catch (err) {
     console.error('[inbound] patch shipment:', err.message);
     res.status(500).json({ success: false, error: err.message });
@@ -220,6 +296,8 @@ router.delete('/shipments/:id', requirePermission('write'), (req, res) => {
     if (shipment.status === 'received') {
       return res.status(400).json({ success: false, error: 'Cannot delete a received shipment' });
     }
+    // Unlink POs before deleting
+    db.prepare("UPDATE purchase_orders SET shipment_id = NULL, updated_at = datetime('now') WHERE shipment_id = ?").run(req.params.id);
     db.prepare('DELETE FROM inbound_shipments WHERE id = ?').run(req.params.id);
     res.json({ success: true });
   } catch (err) {
@@ -228,35 +306,80 @@ router.delete('/shipments/:id', requirePermission('write'), (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// FACTORY FORM TOKEN
-// ═══════════════════════════════════════════════════════════════════════════════
-
 /**
  * POST /api/inbound/shipments/:id/form-token
- * Generate (or regenerate) a factory form token for this shipment.
- * Returns the full form URL.
+ * Generate (or refresh) a factory form token for this shipment
  */
 router.post('/shipments/:id/form-token', requirePermission('write'), (req, res) => {
   try {
     const db = getDb();
-    const shipment = db.prepare('SELECT * FROM inbound_shipments WHERE id = ?').get(req.params.id);
+    const shipment = db.prepare('SELECT id FROM inbound_shipments WHERE id = ?').get(req.params.id);
     if (!shipment) return res.status(404).json({ success: false, error: 'Shipment not found' });
-    const token = crypto.randomBytes(24).toString('hex');
-    const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
+    const token = generateQrToken();
     db.prepare(`
-      UPDATE inbound_shipments SET form_token = ?, form_token_expires_at = ?, source = 'form', updated_at = datetime('now') WHERE id = ?
-    `).run(token, expires, req.params.id);
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5175';
-    res.json({ success: true, token, url: `${baseUrl}/factory/submit?token=${token}`, expires });
+      UPDATE inbound_shipments SET form_token = ?, form_token_expires_at = datetime('now', '+30 days'), updated_at = datetime('now') WHERE id = ?
+    `).run(token, req.params.id);
+    res.json({ success: true, data: { form_token: token } });
   } catch (err) {
     console.error('[inbound] form-token:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
+/**
+ * GET /api/inbound/shipments/:id/remaining-qty
+ * Returns remaining-to-pack quantities for each PO item in this shipment.
+ * Used by both internal UI and factory form to show how many units still need packing.
+ * Response: { data: [{ shopify_variant_id, raw_sku, product_title, variant_title, ordered_qty, allocated_qty, remaining_qty }] }
+ */
+router.get('/shipments/:id/remaining-qty', requirePermission('read'), (req, res) => {
+  try {
+    const db = getDb();
+    const shipment = db.prepare('SELECT id FROM inbound_shipments WHERE id = ?').get(req.params.id);
+    if (!shipment) return res.status(404).json({ success: false, error: 'Shipment not found' });
+
+    // Get all PO items for all POs linked to this shipment
+    const poItems = db.prepare(`
+      SELECT poi.shopify_variant_id, poi.raw_sku, poi.raw_product_name, poi.raw_variant_name,
+             poi.product_title, poi.variant_title, poi.match_status,
+             COALESCE(SUM(poi.ordered_qty), 0) AS ordered_qty,
+             po.po_number
+      FROM purchase_order_items poi
+      JOIN purchase_orders po ON po.id = poi.po_id
+      WHERE po.shipment_id = ?
+      GROUP BY poi.shopify_variant_id, poi.raw_sku
+      ORDER BY po.created_at ASC, poi.sort_order ASC
+    `).all(req.params.id);
+
+    // Get allocated quantities from boxes
+    const allocMap = getAllocatedQtyMap(db, req.params.id);
+
+    const result = poItems.map(item => {
+      const allocated = item.shopify_variant_id ? (allocMap[item.shopify_variant_id] || 0) : 0;
+      return {
+        shopify_variant_id: item.shopify_variant_id,
+        raw_sku: item.raw_sku,
+        raw_product_name: item.raw_product_name,
+        raw_variant_name: item.raw_variant_name,
+        product_title: item.product_title,
+        variant_title: item.variant_title,
+        match_status: item.match_status,
+        po_number: item.po_number,
+        ordered_qty: item.ordered_qty,
+        allocated_qty: allocated,
+        remaining_qty: Math.max(0, item.ordered_qty - allocated),
+      };
+    });
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('[inbound] remaining-qty:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════════
-// BOX ENDPOINTS
+// BOX ROUTES
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
@@ -267,27 +390,20 @@ router.post('/shipments/:id/form-token', requirePermission('write'), (req, res) 
 router.post('/shipments/:id/boxes', requirePermission('write'), (req, res) => {
   try {
     const db = getDb();
-    const shipment = db.prepare('SELECT * FROM inbound_shipments WHERE id = ?').get(req.params.id);
+    const shipment = db.prepare('SELECT id FROM inbound_shipments WHERE id = ?').get(req.params.id);
     if (!shipment) return res.status(404).json({ success: false, error: 'Shipment not found' });
-    if (['received', 'cancelled'].includes(shipment.status)) {
-      return res.status(400).json({ success: false, error: 'Cannot add boxes to a completed shipment' });
-    }
 
     const { note } = req.body;
     // Auto-assign box_no if not provided
-    const existing = db.prepare('SELECT COUNT(*) AS cnt FROM inbound_boxes WHERE shipment_id = ?').get(req.params.id);
-    const box_no = req.body.box_no || String(existing.cnt + 1);
-
-    // Check duplicate box_no
-    const dup = db.prepare('SELECT id FROM inbound_boxes WHERE shipment_id = ? AND box_no = ?').get(req.params.id, box_no);
-    if (dup) return res.status(400).json({ success: false, error: `Box number "${box_no}" already exists in this shipment` });
+    const lastBox = db.prepare("SELECT box_no FROM inbound_boxes WHERE shipment_id = ? ORDER BY CAST(box_no AS INTEGER) DESC LIMIT 1").get(req.params.id);
+    const boxNo = req.body.box_no || String((parseInt(lastBox?.box_no || '0') + 1));
 
     const id = nextBoxId(db);
-    const qr_token = generateQrToken();
+    const qrToken = generateQrToken();
     db.prepare(`
       INSERT INTO inbound_boxes (id, shipment_id, box_no, qr_token, note)
       VALUES (?, ?, ?, ?, ?)
-    `).run(id, req.params.id, box_no, qr_token, note || null);
+    `).run(id, req.params.id, boxNo, qrToken, note || null);
 
     recalcShipmentTotals(db, req.params.id);
     const box = db.prepare('SELECT * FROM inbound_boxes WHERE id = ?').get(id);
@@ -319,13 +435,16 @@ router.delete('/boxes/:boxId', requirePermission('write'), (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// BOX ITEM ENDPOINTS
+// BOX ITEM ROUTES
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
  * POST /api/inbound/boxes/:boxId/items
- * Add an item line to a box
- * Body: { raw_sku, raw_gtin, raw_product_name, raw_variant_name, quantity }
+ * Add an item to a box
+ * Body: { base_sku, size_code, quantity }
+ *   base_sku: e.g. "GS26020"
+ *   size_code: e.g. "0000" (will be combined as "GS26020-0000")
+ *   quantity: integer > 0
  */
 router.post('/boxes/:boxId/items', requirePermission('write'), (req, res) => {
   try {
@@ -334,38 +453,43 @@ router.post('/boxes/:boxId/items', requirePermission('write'), (req, res) => {
     if (!box) return res.status(404).json({ success: false, error: 'Box not found' });
     if (box.status === 'received') return res.status(400).json({ success: false, error: 'Box already received' });
 
-    const { raw_sku, raw_gtin, raw_product_name, raw_variant_name, quantity } = req.body;
-    if (!quantity || quantity <= 0) return res.status(400).json({ success: false, error: 'quantity must be > 0' });
+    const { base_sku, size_code, quantity } = req.body;
+    if (!base_sku || !quantity || quantity <= 0) {
+      return res.status(400).json({ success: false, error: 'base_sku and quantity are required' });
+    }
 
-    const match = matchSku(db, raw_sku, raw_gtin);
-    const sortRow = db.prepare('SELECT COUNT(*) AS cnt FROM inbound_box_items WHERE box_id = ?').get(req.params.boxId);
+    // Build full SKU
+    const rawSku = size_code ? `${base_sku.trim()}-${size_code.trim()}` : base_sku.trim();
+    const match = matchSku(db, rawSku, null);
+
+    const lastItem = db.prepare('SELECT MAX(sort_order) AS mx FROM inbound_box_items WHERE box_id = ?').get(req.params.boxId);
+    const sortOrder = (lastItem?.mx || 0) + 1;
+
     const id = nextBoxItemId(db);
-
     db.prepare(`
       INSERT INTO inbound_box_items
-        (id, box_id, raw_sku, raw_gtin, raw_product_name, raw_variant_name,
-         shopify_variant_id, variant_title, product_title, match_status, quantity, sort_order)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, box_id, raw_sku, raw_variant_name, shopify_variant_id, variant_title, product_title, match_status, quantity, sort_order)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, req.params.boxId,
-      raw_sku || null, raw_gtin || null, raw_product_name || null, raw_variant_name || null,
+      rawSku, size_code || null,
       match.shopify_variant_id, match.variant_title, match.product_title, match.match_status,
-      quantity, sortRow.cnt
+      quantity, sortOrder
     );
 
     recalcShipmentTotals(db, box.shipment_id);
     const item = db.prepare('SELECT * FROM inbound_box_items WHERE id = ?').get(id);
     res.status(201).json({ success: true, data: item });
   } catch (err) {
-    console.error('[inbound] add item:', err.message);
+    console.error('[inbound] add box item:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
 /**
  * PATCH /api/inbound/items/:itemId
- * Update an item (quantity, manual match override)
- * Body: { quantity, shopify_variant_id, match_status }
+ * Manually match an unmatched item to a shopify_variant_id
+ * Body: { shopify_variant_id }
  */
 router.patch('/items/:itemId', requirePermission('write'), (req, res) => {
   try {
@@ -373,46 +497,22 @@ router.patch('/items/:itemId', requirePermission('write'), (req, res) => {
     const item = db.prepare('SELECT * FROM inbound_box_items WHERE id = ?').get(req.params.itemId);
     if (!item) return res.status(404).json({ success: false, error: 'Item not found' });
 
-    const box = db.prepare('SELECT * FROM inbound_boxes WHERE id = ?').get(item.box_id);
-    if (box.status === 'received') return res.status(400).json({ success: false, error: 'Box already received' });
+    const { shopify_variant_id } = req.body;
+    if (!shopify_variant_id) return res.status(400).json({ success: false, error: 'shopify_variant_id required' });
 
-    const { quantity, shopify_variant_id, match_status } = req.body;
-
-    // If manually assigning a variant, look up display names
-    let variant_title = item.variant_title;
-    let product_title = item.product_title;
-    let resolvedMatchStatus = match_status || item.match_status;
-
-    if (shopify_variant_id && shopify_variant_id !== item.shopify_variant_id) {
-      const row = db.prepare(`
-        SELECT pv.variant_title, p.title AS product_title
-        FROM product_variants pv JOIN products p ON p.id = pv.product_id
-        WHERE pv.shopify_variant_id = ?
-      `).get(shopify_variant_id);
-      if (row) {
-        variant_title = row.variant_title;
-        product_title = row.product_title;
-        resolvedMatchStatus = 'manual';
-      }
-    }
+    const variant = db.prepare(`
+      SELECT pv.shopify_variant_id, pv.variant_title, p.title AS product_title
+      FROM product_variants pv JOIN products p ON p.id = pv.product_id
+      WHERE pv.shopify_variant_id = ?
+    `).get(shopify_variant_id);
+    if (!variant) return res.status(404).json({ success: false, error: 'Variant not found' });
 
     db.prepare(`
       UPDATE inbound_box_items
-      SET quantity = COALESCE(?, quantity),
-          shopify_variant_id = COALESCE(?, shopify_variant_id),
-          variant_title = ?,
-          product_title = ?,
-          match_status = ?
+      SET shopify_variant_id = ?, variant_title = ?, product_title = ?, match_status = 'manual'
       WHERE id = ?
-    `).run(
-      quantity || null,
-      shopify_variant_id || null,
-      variant_title, product_title,
-      resolvedMatchStatus,
-      req.params.itemId
-    );
+    `).run(variant.shopify_variant_id, variant.variant_title, variant.product_title, req.params.itemId);
 
-    recalcShipmentTotals(db, box.shipment_id);
     res.json({ success: true, data: db.prepare('SELECT * FROM inbound_box_items WHERE id = ?').get(req.params.itemId) });
   } catch (err) {
     console.error('[inbound] patch item:', err.message);
@@ -422,16 +522,16 @@ router.patch('/items/:itemId', requirePermission('write'), (req, res) => {
 
 /**
  * DELETE /api/inbound/items/:itemId
+ * Remove an item from a box
  */
 router.delete('/items/:itemId', requirePermission('write'), (req, res) => {
   try {
     const db = getDb();
     const item = db.prepare('SELECT * FROM inbound_box_items WHERE id = ?').get(req.params.itemId);
     if (!item) return res.status(404).json({ success: false, error: 'Item not found' });
-    const box = db.prepare('SELECT * FROM inbound_boxes WHERE id = ?').get(item.box_id);
-    if (box.status === 'received') return res.status(400).json({ success: false, error: 'Box already received' });
+    const box = db.prepare('SELECT shipment_id FROM inbound_boxes WHERE id = ?').get(item.box_id);
     db.prepare('DELETE FROM inbound_box_items WHERE id = ?').run(req.params.itemId);
-    recalcShipmentTotals(db, box.shipment_id);
+    if (box) recalcShipmentTotals(db, box.shipment_id);
     res.json({ success: true });
   } catch (err) {
     console.error('[inbound] delete item:', err.message);
@@ -440,30 +540,147 @@ router.delete('/items/:itemId', requirePermission('write'), (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// SKU SEARCH (for manual entry autocomplete)
+// SKU SEARCH
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * GET /api/inbound/sku-search?q=GS260
- * Search product_variants by SKU prefix for autocomplete
+ * GET /api/inbound/sku-search?q=GS26020&size=0000
+ * Search product_variants by base SKU prefix and optional size code.
+ * Returns matched variants for the split SKU+size input UI.
  */
 router.get('/sku-search', requirePermission('read'), (req, res) => {
   try {
     const db = getDb();
-    const q = (req.query.q || '').trim();
-    if (q.length < 2) return res.json({ success: true, data: [] });
-    const rows = db.prepare(`
-      SELECT pv.shopify_variant_id, pv.sku, pv.gtin, pv.variant_title, pv.inventory_quantity,
-             p.title AS product_title, p.main_image
-      FROM product_variants pv
-      JOIN products p ON p.id = pv.product_id
-      WHERE LOWER(pv.sku) LIKE LOWER(?) OR LOWER(pv.gtin) LIKE LOWER(?)
-      ORDER BY pv.sku
-      LIMIT 30
-    `).all(`${q}%`, `${q}%`);
+    const q = String(req.query.q || '').trim();
+    const size = String(req.query.size || '').trim();
+
+    if (!q || q.length < 2) return res.json({ success: true, data: [] });
+
+    // Build search SKU: if size provided, search for exact "base-size" match
+    // Otherwise search by prefix
+    let rows;
+    if (size) {
+      const fullSku = `${q}-${size}`;
+      rows = db.prepare(`
+        SELECT pv.shopify_variant_id, pv.sku, pv.variant_title, pv.gtin, pv.inventory_quantity,
+               p.title AS product_title
+        FROM product_variants pv
+        JOIN products p ON p.id = pv.product_id
+        WHERE LOWER(TRIM(pv.sku)) = LOWER(?)
+        LIMIT 10
+      `).all(fullSku.toLowerCase());
+    } else {
+      rows = db.prepare(`
+        SELECT pv.shopify_variant_id, pv.sku, pv.variant_title, pv.gtin, pv.inventory_quantity,
+               p.title AS product_title
+        FROM product_variants pv
+        JOIN products p ON p.id = pv.product_id
+        WHERE LOWER(pv.sku) LIKE LOWER(?) || '%'
+        ORDER BY pv.sku ASC
+        LIMIT 20
+      `).all(q);
+    }
+
     res.json({ success: true, data: rows });
   } catch (err) {
     console.error('[inbound] sku-search:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PACKING LIST EXCEL UPLOAD (for existing shipment)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /api/inbound/shipments/:id/upload-excel
+ * Parse a packing list Excel (box-based format) and create boxes+items for this shipment
+ * Expected columns: Box No, SKU (base), Size, Quantity
+ */
+router.post('/shipments/:id/upload-excel', requirePermission('write'), upload.single('file'), (req, res) => {
+  try {
+    const db = getDb();
+    const shipment = db.prepare('SELECT id FROM inbound_shipments WHERE id = ?').get(req.params.id);
+    if (!shipment) return res.status(404).json({ success: false, error: 'Shipment not found' });
+    if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
+
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', header: 1 });
+
+    if (rows.length < 2) return res.status(400).json({ success: false, error: 'Excel file is empty' });
+
+    // Find header row
+    let headerRowIdx = 0;
+    let colMap = { boxNo: 0, sku: 1, size: 2, qty: 3 };
+    for (let r = 0; r < Math.min(5, rows.length); r++) {
+      const row = rows[r].map(c => String(c || '').toLowerCase().trim());
+      if (row.some(c => c.includes('box')) && row.some(c => c.includes('sku') || c.includes('style'))) {
+        headerRowIdx = r;
+        row.forEach((h, i) => {
+          if (h.includes('box')) colMap.boxNo = i;
+          else if (h.includes('sku') || h.includes('style')) colMap.sku = i;
+          else if (h.includes('size')) colMap.size = i;
+          else if (h.includes('qty') || h.includes('quantity')) colMap.qty = i;
+        });
+        break;
+      }
+    }
+
+    const insertAll = db.transaction(() => {
+      let matched = 0, unmatched = 0, boxesCreated = 0;
+      const boxMap = {}; // boxNo -> box id
+
+      for (let r = headerRowIdx + 1; r < rows.length; r++) {
+        const row = rows[r];
+        if (!row || row.every(c => !String(c || '').trim())) continue;
+
+        const boxNo = String(row[colMap.boxNo] || '').trim();
+        const baseSku = String(row[colMap.sku] || '').trim();
+        const sizeCode = extractSizeCode(String(row[colMap.size] || ''));
+        const qty = parseInt(String(row[colMap.qty] || '0').replace(/[^0-9]/g, ''), 10);
+
+        if (!boxNo || !baseSku || !qty || qty <= 0) continue;
+
+        // Create box if not seen yet
+        if (!boxMap[boxNo]) {
+          const existingBox = db.prepare('SELECT id FROM inbound_boxes WHERE shipment_id = ? AND box_no = ?').get(req.params.id, boxNo);
+          if (existingBox) {
+            boxMap[boxNo] = existingBox.id;
+          } else {
+            const boxId = nextBoxId(db);
+            const qrToken = generateQrToken();
+            db.prepare('INSERT INTO inbound_boxes (id, shipment_id, box_no, qr_token) VALUES (?, ?, ?, ?)').run(boxId, req.params.id, boxNo, qrToken);
+            boxMap[boxNo] = boxId;
+            boxesCreated++;
+          }
+        }
+
+        const rawSku = sizeCode ? `${baseSku}-${sizeCode}` : baseSku;
+        const match = matchSku(db, rawSku, null);
+
+        const lastItem = db.prepare('SELECT MAX(sort_order) AS mx FROM inbound_box_items WHERE box_id = ?').get(boxMap[boxNo]);
+        const sortOrder = (lastItem?.mx || 0) + 1;
+        const itemId = nextBoxItemId(db);
+
+        db.prepare(`
+          INSERT INTO inbound_box_items
+            (id, box_id, raw_sku, raw_variant_name, shopify_variant_id, variant_title, product_title, match_status, quantity, sort_order)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(itemId, boxMap[boxNo], rawSku, sizeCode || null, match.shopify_variant_id, match.variant_title, match.product_title, match.match_status, qty, sortOrder);
+
+        if (match.match_status === 'matched') matched++;
+        else unmatched++;
+      }
+
+      recalcShipmentTotals(db, req.params.id);
+      return { matched, unmatched, boxesCreated };
+    });
+
+    const result = insertAll();
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error('[inbound] upload-excel:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -474,14 +691,13 @@ router.get('/sku-search', requirePermission('read'), (req, res) => {
 
 /**
  * GET /api/inbound/scan/:qrToken
- * Public endpoint — no auth required (accessed via QR code on phone)
- * Returns box detail for confirmation screen
+ * Public — get box info for scan-to-receive
  */
 router.get('/scan/:qrToken', (req, res) => {
   try {
     const db = getDb();
     const box = db.prepare('SELECT * FROM inbound_boxes WHERE qr_token = ?').get(req.params.qrToken);
-    if (!box) return res.status(404).json({ success: false, error: 'Invalid QR code' });
+    if (!box) return res.status(404).json({ success: false, error: 'QR code not found or expired' });
 
     const shipment = db.prepare('SELECT id, ref_no, factory, status FROM inbound_shipments WHERE id = ?').get(box.shipment_id);
     const items = db.prepare(`
@@ -489,16 +705,10 @@ router.get('/scan/:qrToken', (req, res) => {
       FROM inbound_box_items bxi
       LEFT JOIN product_variants pv ON pv.shopify_variant_id = bxi.shopify_variant_id
       WHERE bxi.box_id = ?
-      ORDER BY bxi.sort_order, bxi.id
+      ORDER BY bxi.sort_order
     `).all(box.id);
 
-    res.json({
-      success: true,
-      data: {
-        box: { ...box, items },
-        shipment,
-      }
-    });
+    res.json({ success: true, data: { box, shipment, items } });
   } catch (err) {
     console.error('[inbound] scan:', err.message);
     res.status(500).json({ success: false, error: err.message });
@@ -507,67 +717,54 @@ router.get('/scan/:qrToken', (req, res) => {
 
 /**
  * POST /api/inbound/scan/:qrToken/receive
- * Confirm receipt of a box — updates inventory_quantity for all matched items
- * Body: { note, items: [{ item_id, received_qty }] }  (items optional — defaults to planned qty)
- * Auth: session cookie (user must be logged in)
+ * Public — confirm receipt of a box, update inventory_quantity
  */
-router.post('/scan/:qrToken/receive', requirePermission('write'), (req, res) => {
+router.post('/scan/:qrToken/receive', (req, res) => {
   try {
     const db = getDb();
     const box = db.prepare('SELECT * FROM inbound_boxes WHERE qr_token = ?').get(req.params.qrToken);
-    if (!box) return res.status(404).json({ success: false, error: 'Invalid QR code' });
+    if (!box) return res.status(404).json({ success: false, error: 'QR code not found' });
     if (box.status === 'received') return res.status(400).json({ success: false, error: 'Box already received' });
 
-    const { note, items: itemOverrides = [] } = req.body;
-    const userId = req.session?.user?.id || null;
-
-    const dbItems = db.prepare('SELECT * FROM inbound_box_items WHERE box_id = ?').all(box.id);
-
     const receiveAll = db.transaction(() => {
+      const items = db.prepare('SELECT * FROM inbound_box_items WHERE box_id = ? AND match_status != ?').all(box.id, 'ignored');
       let totalQty = 0;
-      let variantCount = 0;
 
-      for (const dbItem of dbItems) {
-        if (dbItem.match_status === 'ignored' || !dbItem.shopify_variant_id) continue;
-
-        // Allow per-item quantity override from request body
-        const override = itemOverrides.find(o => o.item_id === dbItem.id);
-        const receivedQty = override ? Math.max(0, parseInt(override.received_qty, 10)) : dbItem.quantity;
-
-        if (receivedQty === 0) continue;
-
-        // Update inventory
+      for (const item of items) {
+        if (!item.shopify_variant_id || item.match_status === 'unmatched') continue;
         db.prepare(`
           UPDATE product_variants
           SET inventory_quantity = inventory_quantity + ?, updated_at = datetime('now')
           WHERE shopify_variant_id = ?
-        `).run(receivedQty, dbItem.shopify_variant_id);
-
-        // Record received_qty on item
-        db.prepare(`
-          UPDATE inbound_box_items SET received_qty = ? WHERE id = ?
-        `).run(receivedQty, dbItem.id);
-
-        totalQty += receivedQty;
-        variantCount += 1;
+        `).run(item.quantity, item.shopify_variant_id);
+        db.prepare('UPDATE inbound_box_items SET received_qty = quantity WHERE id = ?').run(item.id);
+        totalQty += item.quantity;
       }
 
-      // Mark box as received
       db.prepare(`
-        UPDATE inbound_boxes SET status = 'received', received_at = datetime('now'), received_by = ?, note = COALESCE(?, note)
-        WHERE id = ?
-      `).run(userId, note || null, box.id);
+        UPDATE inbound_boxes SET status = 'received', received_at = datetime('now'), received_by = ? WHERE id = ?
+      `).run(req.body.user_id || null, box.id);
 
-      // Write audit log
-      db.prepare(`
-        INSERT INTO inbound_log (box_id, shipment_id, operated_by, note, variant_count, total_qty)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(box.id, box.shipment_id, userId, note || null, variantCount, totalQty);
+      // Update PO received_qty
+      for (const item of items) {
+        if (!item.shopify_variant_id) continue;
+        db.prepare(`
+          UPDATE purchase_order_items
+          SET received_qty = received_qty + ?
+          WHERE shopify_variant_id = ? AND po_id IN (
+            SELECT id FROM purchase_orders WHERE shipment_id = ?
+          )
+        `).run(item.quantity, item.shopify_variant_id, box.shipment_id);
+      }
 
-      // Recalc shipment totals and status
       recalcShipmentTotals(db, box.shipment_id);
 
-      return { variantCount, totalQty };
+      db.prepare(`
+        INSERT INTO inbound_log (box_id, shipment_id, operated_by, variant_count, total_qty)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(box.id, box.shipment_id, req.body.user_id || null, items.filter(i => i.shopify_variant_id).length, totalQty);
+
+      return { totalQty, variantCount: items.filter(i => i.shopify_variant_id).length };
     });
 
     const result = receiveAll();
@@ -579,129 +776,41 @@ router.post('/scan/:qrToken/receive', requirePermission('write'), (req, res) => 
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// EXCEL UPLOAD
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/**
- * POST /api/inbound/shipments/:id/upload-excel
- * Parse uploaded Excel file and populate boxes + items for this shipment.
- * Expected columns: Box No | SKU | GTIN (optional) | Product Name (optional) | Variant (optional) | Quantity
- */
-router.post('/shipments/:id/upload-excel', requirePermission('write'), upload.single('file'), (req, res) => {
-  try {
-    const db = getDb();
-    const shipment = db.prepare('SELECT * FROM inbound_shipments WHERE id = ?').get(req.params.id);
-    if (!shipment) return res.status(404).json({ success: false, error: 'Shipment not found' });
-    if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
-
-    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-
-    if (rows.length === 0) return res.status(400).json({ success: false, error: 'Excel file is empty' });
-
-    // Normalise header names (case-insensitive, trim)
-    const normalise = (obj) => {
-      const out = {};
-      for (const [k, v] of Object.entries(obj)) {
-        out[k.toLowerCase().trim().replace(/\s+/g, '_')] = String(v).trim();
-      }
-      return out;
-    };
-
-    const importAll = db.transaction(() => {
-      const boxMap = {}; // box_no -> box id
-      let created = 0, matched = 0, unmatched = 0;
-
-      for (const rawRow of rows) {
-        const row = normalise(rawRow);
-        const boxNo = row['box_no'] || row['box'] || row['箱号'] || row['carton'] || '';
-        const rawSku = row['sku'] || row['货号'] || '';
-        const rawGtin = row['gtin'] || row['barcode'] || row['条码'] || '';
-        const rawProductName = row['product_name'] || row['product'] || row['商品名'] || '';
-        const rawVariantName = row['variant'] || row['variant_name'] || row['规格'] || '';
-        const qty = parseInt(row['quantity'] || row['qty'] || row['数量'] || '0', 10);
-
-        if (!boxNo || !qty || qty <= 0) continue;
-
-        // Get or create box
-        if (!boxMap[boxNo]) {
-          const existing = db.prepare('SELECT id FROM inbound_boxes WHERE shipment_id = ? AND box_no = ?').get(req.params.id, boxNo);
-          if (existing) {
-            boxMap[boxNo] = existing.id;
-          } else {
-            const boxId = nextBoxId(db);
-            const qr_token = generateQrToken();
-            db.prepare('INSERT INTO inbound_boxes (id, shipment_id, box_no, qr_token) VALUES (?, ?, ?, ?)').run(boxId, req.params.id, boxNo, qr_token);
-            boxMap[boxNo] = boxId;
-            created++;
-          }
-        }
-
-        const match = matchSku(db, rawSku || null, rawGtin || null);
-        const sortRow = db.prepare('SELECT COUNT(*) AS cnt FROM inbound_box_items WHERE box_id = ?').get(boxMap[boxNo]);
-        const itemId = nextBoxItemId(db);
-
-        db.prepare(`
-          INSERT INTO inbound_box_items
-            (id, box_id, raw_sku, raw_gtin, raw_product_name, raw_variant_name,
-             shopify_variant_id, variant_title, product_title, match_status, quantity, sort_order)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          itemId, boxMap[boxNo],
-          rawSku || null, rawGtin || null, rawProductName || null, rawVariantName || null,
-          match.shopify_variant_id, match.variant_title, match.product_title, match.match_status,
-          qty, sortRow.cnt
-        );
-
-        if (match.match_status === 'matched') matched++;
-        else unmatched++;
-      }
-
-      // Update source
-      db.prepare("UPDATE inbound_shipments SET source = 'excel', updated_at = datetime('now') WHERE id = ?").run(req.params.id);
-      recalcShipmentTotals(db, req.params.id);
-
-      return { boxes_created: created, items_matched: matched, items_unmatched: unmatched };
-    });
-
-    const result = importAll();
-    const detail = getShipmentDetail(db, req.params.id);
-    res.json({ success: true, data: detail, summary: result });
-  } catch (err) {
-    console.error('[inbound] upload-excel:', err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// FACTORY FORM (PUBLIC — no auth)
+// FACTORY FORM (PUBLIC — no auth required)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
  * GET /api/inbound/factory-form/:token
- * Public — validate token and return shipment info for factory to fill
+ * Public — return shipment info for factory form
  */
 router.get('/factory-form/:token', (req, res) => {
   try {
     const db = getDb();
     const shipment = db.prepare(`
-      SELECT id, ref_no, factory, note, status, form_token_expires_at
+      SELECT id, ref_no, factory, status, form_token_expires_at
       FROM inbound_shipments WHERE form_token = ?
     `).get(req.params.token);
-    if (!shipment) return res.status(404).json({ success: false, error: 'Invalid or expired link' });
-    if (shipment.form_token_expires_at && new Date(shipment.form_token_expires_at) < new Date()) {
-      return res.status(410).json({ success: false, error: 'This link has expired' });
+    if (!shipment) return res.status(404).json({ success: false, error: 'Invalid or expired form link' });
+
+    // Attach all linked POs with their items for pre-fill
+    const pos = db.prepare(`
+      SELECT po.id, po.po_number, po.factory, po.source_file_name
+      FROM purchase_orders po WHERE po.shipment_id = ?
+      ORDER BY po.created_at ASC
+    `).all(shipment.id);
+
+    for (const po of pos) {
+      po.items = db.prepare(`
+        SELECT raw_sku, raw_product_name, raw_variant_name, ordered_qty, received_qty,
+               shopify_variant_id, variant_title, product_title, match_status
+        FROM purchase_order_items WHERE po_id = ? ORDER BY sort_order
+      `).all(po.id);
     }
-    if (['received', 'cancelled'].includes(shipment.status)) {
-      return res.status(400).json({ success: false, error: 'This shipment is already closed' });
-    }
-    // Return existing boxes/items so factory can see what's already been entered
-    const boxes = db.prepare('SELECT * FROM inbound_boxes WHERE shipment_id = ? ORDER BY box_no').all(shipment.id);
-    for (const box of boxes) {
-      box.items = db.prepare('SELECT * FROM inbound_box_items WHERE box_id = ? ORDER BY sort_order').all(box.id);
-    }
-    res.json({ success: true, data: { ...shipment, boxes } });
+
+    // Get allocated quantities across all boxes for remaining calc
+    const allocMap = getAllocatedQtyMap(db, shipment.id);
+
+    res.json({ success: true, data: { shipment, pos, allocMap } });
   } catch (err) {
     console.error('[inbound] factory-form get:', err.message);
     res.status(500).json({ success: false, error: err.message });
@@ -711,26 +820,17 @@ router.get('/factory-form/:token', (req, res) => {
 /**
  * POST /api/inbound/factory-form/:token/submit
  * Public — factory submits packing list
- * Body: { boxes: [{ box_no, note, items: [{ raw_sku, raw_gtin, raw_product_name, raw_variant_name, quantity }] }] }
+ * Body: { boxes: [{ box_no, items: [{ base_sku, size_code, quantity }] }] }
  */
 router.post('/factory-form/:token/submit', (req, res) => {
   try {
     const db = getDb();
-    const shipment = db.prepare(`
-      SELECT * FROM inbound_shipments WHERE form_token = ?
-    `).get(req.params.token);
-    if (!shipment) return res.status(404).json({ success: false, error: 'Invalid or expired link' });
-    if (shipment.form_token_expires_at && new Date(shipment.form_token_expires_at) < new Date()) {
-      return res.status(410).json({ success: false, error: 'This link has expired' });
-    }
-    if (['received', 'cancelled'].includes(shipment.status)) {
-      return res.status(400).json({ success: false, error: 'This shipment is already closed' });
-    }
+    const shipment = db.prepare('SELECT * FROM inbound_shipments WHERE form_token = ?').get(req.params.token);
+    if (!shipment) return res.status(404).json({ success: false, error: 'Invalid or expired form link' });
+    if (shipment.status === 'received') return res.status(400).json({ success: false, error: 'Shipment already received' });
 
     const { boxes = [] } = req.body;
-    if (!Array.isArray(boxes) || boxes.length === 0) {
-      return res.status(400).json({ success: false, error: 'No box data provided' });
-    }
+    if (!boxes.length) return res.status(400).json({ success: false, error: 'No boxes provided' });
 
     const submitAll = db.transaction(() => {
       let matched = 0, unmatched = 0;
@@ -744,49 +844,50 @@ router.post('/factory-form/:token/submit', (req, res) => {
         let boxId;
         if (box) {
           boxId = box.id;
-          // Clear existing items from this box (factory is re-submitting)
+          // Clear existing items (factory is re-submitting)
           db.prepare('DELETE FROM inbound_box_items WHERE box_id = ?').run(boxId);
         } else {
           boxId = nextBoxId(db);
-          const qr_token = generateQrToken();
-          db.prepare('INSERT INTO inbound_boxes (id, shipment_id, box_no, qr_token, note) VALUES (?, ?, ?, ?, ?)').run(boxId, shipment.id, boxNo, qr_token, boxData.note || null);
+          const qrToken = generateQrToken();
+          db.prepare('INSERT INTO inbound_boxes (id, shipment_id, box_no, qr_token) VALUES (?, ?, ?, ?)').run(boxId, shipment.id, boxNo, qrToken);
         }
 
-        const items = Array.isArray(boxData.items) ? boxData.items : [];
+        const items = boxData.items || [];
         for (let i = 0; i < items.length; i++) {
           const it = items[i];
-          const qty = parseInt(it.quantity, 10);
-          if (!qty || qty <= 0) continue;
-          const match = matchSku(db, it.raw_sku || null, it.raw_gtin || null);
+          const baseSku = String(it.base_sku || it.sku || '').trim();
+          const sizeCode = String(it.size_code || it.size || '').trim();
+          const qty = parseInt(it.quantity || it.qty || 0, 10);
+          if (!baseSku || !qty || qty <= 0) continue;
+
+          const rawSku = sizeCode ? `${baseSku}-${sizeCode}` : baseSku;
+          const match = matchSku(db, rawSku, null);
           const itemId = nextBoxItemId(db);
+
           db.prepare(`
             INSERT INTO inbound_box_items
-              (id, box_id, raw_sku, raw_gtin, raw_product_name, raw_variant_name,
-               shopify_variant_id, variant_title, product_title, match_status, quantity, sort_order)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(
-            itemId, boxId,
-            it.raw_sku || null, it.raw_gtin || null, it.raw_product_name || null, it.raw_variant_name || null,
-            match.shopify_variant_id, match.variant_title, match.product_title, match.match_status,
-            qty, i
-          );
+              (id, box_id, raw_sku, raw_variant_name, shopify_variant_id, variant_title, product_title, match_status, quantity, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(itemId, boxId, rawSku, sizeCode || null, match.shopify_variant_id, match.variant_title, match.product_title, match.match_status, qty, i);
+
           if (match.match_status === 'matched') matched++;
           else unmatched++;
         }
       }
 
-      db.prepare("UPDATE inbound_shipments SET source = 'form', updated_at = datetime('now') WHERE id = ?").run(shipment.id);
       recalcShipmentTotals(db, shipment.id);
       return { matched, unmatched };
     });
 
     const result = submitAll();
+
     // Return boxes with qr_token and items so frontend can render QR codes
-    const boxRows = db.prepare('SELECT id, box_no, qr_token FROM inbound_boxes WHERE shipment_id = ? ORDER BY box_no').all(shipment.id);
+    const boxRows = db.prepare('SELECT id, box_no, qr_token FROM inbound_boxes WHERE shipment_id = ? ORDER BY CAST(box_no AS INTEGER) ASC').all(shipment.id);
     const boxes_out = boxRows.map(b => {
-      const items = db.prepare('SELECT raw_sku, quantity FROM inbound_box_items WHERE box_id = ? ORDER BY sort_order').all(b.id);
+      const items = db.prepare('SELECT raw_sku, raw_variant_name, quantity FROM inbound_box_items WHERE box_id = ? ORDER BY sort_order').all(b.id);
       return { id: b.id, box_no: b.box_no, qr_token: b.qr_token, items };
     });
+
     res.json({ success: true, data: { ...result, boxes: boxes_out } });
   } catch (err) {
     console.error('[inbound] factory-form submit:', err.message);
@@ -795,27 +896,30 @@ router.post('/factory-form/:token/submit', (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// EXCEL TEMPLATE DOWNLOAD
+// PACKING LIST EXCEL TEMPLATE DOWNLOAD
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
  * GET /api/inbound/excel-template
- * Download a blank Excel template for factory use
+ * Download a blank packing list Excel template for factory use
+ * Format: Box No | SKU (Style No.) | Size | Quantity
  */
 router.get('/excel-template', requirePermission('read'), (req, res) => {
   try {
     const wb = XLSX.utils.book_new();
     const wsData = [
-      ['Box No', 'SKU', 'GTIN', 'Product Name', 'Variant', 'Quantity'],
-      ['1', 'GS26020-0000', '', 'Example Product', 'Default', '10'],
-      ['1', 'GS26020-0001', '', 'Example Product', 'Size S', '5'],
-      ['2', 'GS26021-0000', '', 'Another Product', '', '8'],
+      ['Box No', 'Style No.', 'Size', 'Quantity'],
+      ['', '(e.g. GS26020)', '(e.g. 0000)', ''],
+      ['1', 'GS26020', '0000 (0-3 weeks)', '60'],
+      ['1', 'GS26020', '000 (0-3 months)', '60'],
+      ['2', 'GS26020', '0000 (0-3 weeks)', '40'],
+      ['2', 'GS26021', '0000 (0-3 weeks)', '50'],
     ];
     const ws = XLSX.utils.aoa_to_sheet(wsData);
-    ws['!cols'] = [{ wch: 10 }, { wch: 18 }, { wch: 15 }, { wch: 30 }, { wch: 15 }, { wch: 10 }];
+    ws['!cols'] = [{ wch: 10 }, { wch: 18 }, { wch: 22 }, { wch: 12 }];
     XLSX.utils.book_append_sheet(wb, ws, 'Packing List');
     const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
-    res.setHeader('Content-Disposition', 'attachment; filename="inbound_template.xlsx"');
+    res.setHeader('Content-Disposition', 'attachment; filename="packing_list_template.xlsx"');
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.send(buf);
   } catch (err) {
@@ -828,30 +932,9 @@ router.get('/excel-template', requirePermission('read'), (req, res) => {
 // PURCHASE ORDER ROUTES
 // ═══════════════════════════════════════════════════════════════════════════════
 
-function nextPoId(db) {
-  const row = db.prepare("SELECT MAX(CAST(SUBSTR(id,3) AS INTEGER)) AS mx FROM purchase_orders WHERE id LIKE 'PO%'").get();
-  const next = (row?.mx || 0) + 1;
-  if (next > 99999999) throw new Error('PO ID overflow');
-  return 'PO' + String(next).padStart(8, '0');
-}
-
-function nextPoItemId(db) {
-  const row = db.prepare("SELECT MAX(CAST(SUBSTR(id,4) AS INTEGER)) AS mx FROM purchase_order_items WHERE id LIKE 'POI%'").get();
-  const next = (row?.mx || 0) + 1;
-  if (next > 9999999999) throw new Error('POI ID overflow');
-  return 'POI' + String(next).padStart(10, '0');
-}
-
-function getPoDetail(db, poId) {
-  const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(poId);
-  if (!po) return null;
-  po.items = db.prepare('SELECT * FROM purchase_order_items WHERE po_id = ? ORDER BY sort_order, id').all(poId);
-  return po;
-}
-
 /**
  * GET /api/inbound/purchase-orders
- * List all POs
+ * List all POs with summary
  */
 router.get('/purchase-orders', requirePermission('read'), (req, res) => {
   try {
@@ -888,175 +971,6 @@ router.get('/purchase-orders/:id', requirePermission('read'), (req, res) => {
 });
 
 /**
- * POST /api/inbound/purchase-orders
- * Create a PO manually
- * Body: { po_number, factory, note, items: [{ raw_sku, raw_gtin, raw_product_name, raw_variant_name, ordered_qty, unit_price }] }
- */
-router.post('/purchase-orders', requirePermission('write'), (req, res) => {
-  try {
-    const db = getDb();
-    const { po_number, factory, note, items = [] } = req.body;
-    if (!po_number) return res.status(400).json({ success: false, error: 'po_number is required' });
-    const existing = db.prepare('SELECT id FROM purchase_orders WHERE po_number = ?').get(po_number);
-    if (existing) return res.status(409).json({ success: false, error: `PO number "${po_number}" already exists` });
-
-    const id = nextPoId(db);
-    db.prepare(`
-      INSERT INTO purchase_orders (id, po_number, factory, note, created_by)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(id, po_number, factory || null, note || null, req.session?.user?.id || null);
-
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      if (!it.ordered_qty || it.ordered_qty <= 0) continue;
-      const match = matchSku(db, it.raw_sku || null, it.raw_gtin || null);
-      const itemId = nextPoItemId(db);
-      db.prepare(`
-        INSERT INTO purchase_order_items
-          (id, po_id, raw_sku, raw_gtin, raw_product_name, raw_variant_name,
-           shopify_variant_id, variant_title, product_title, match_status,
-           ordered_qty, unit_price, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        itemId, id,
-        it.raw_sku || null, it.raw_gtin || null, it.raw_product_name || null, it.raw_variant_name || null,
-        match.shopify_variant_id, match.variant_title, match.product_title, match.match_status,
-        it.ordered_qty, it.unit_price || null, i
-      );
-    }
-
-    res.status(201).json({ success: true, data: getPoDetail(db, id) });
-  } catch (err) {
-    console.error('[inbound] create PO:', err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/**
- * POST /api/inbound/purchase-orders/import-excel
- * Parse a PO Excel file (your existing PO format) and create a PO
- * Body: multipart/form-data with file + optional { po_number, factory }
- */
-router.post('/purchase-orders/import-excel', requirePermission('write'), upload.single('file'), (req, res) => {
-  try {
-    const db = getDb();
-    if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
-
-    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', header: 1 });
-
-    if (rows.length < 2) return res.status(400).json({ success: false, error: 'Excel file is empty or has no data rows' });
-
-    // —— Parse PO number from cell A1 or B1 area (your format: "PO#LIC26003" in header area)
-    let poNumber = req.body.po_number || '';
-    let factory = req.body.factory || '';
-
-    // Scan first 5 rows for PO# pattern
-    if (!poNumber) {
-      for (let r = 0; r < Math.min(5, rows.length); r++) {
-        for (const cell of rows[r]) {
-          const s = String(cell || '').trim();
-          if (/PO#?[A-Z0-9]+/i.test(s)) {
-            poNumber = s.replace(/.*?(PO#?[A-Z0-9]+).*/i, '$1').toUpperCase();
-            break;
-          }
-        }
-        if (poNumber) break;
-      }
-    }
-    if (!poNumber) poNumber = 'PO-' + Date.now();
-
-    // Check duplicate
-    const existing = db.prepare('SELECT id FROM purchase_orders WHERE po_number = ?').get(poNumber);
-    if (existing) return res.status(409).json({ success: false, error: `PO "${poNumber}" already imported` });
-
-    // —— Find the header row (contains "Style No" or "SKU" or "Qty")
-    let headerRowIdx = -1;
-    let colMap = {};
-    for (let r = 0; r < Math.min(10, rows.length); r++) {
-      const row = rows[r].map(c => String(c || '').toLowerCase().trim());
-      const hasStyle = row.some(c => c.includes('style') || c.includes('sku') || c.includes('item'));
-      const hasQty = row.some(c => c.includes('qty') || c.includes('quantity') || c.includes('数量'));
-      if (hasStyle && hasQty) {
-        headerRowIdx = r;
-        row.forEach((h, i) => {
-          if (h.includes('style') || h.includes('sku') || h.includes('item') || h.includes('货号')) colMap.sku = i;
-          else if (h.includes('description') || h.includes('name') || h.includes('描述')) colMap.name = i;
-          else if (h.includes('size') || h.includes('尺码')) colMap.size = i;
-          else if (h.includes('qty') || h.includes('quantity') || h.includes('数量')) colMap.qty = i;
-          else if (h.includes('price') || h.includes('单价')) colMap.price = i;
-          else if (h.includes('barcode') || h.includes('gtin') || h.includes('条码')) colMap.gtin = i;
-        });
-        break;
-      }
-    }
-
-    // Fallback: treat first row as header
-    if (headerRowIdx === -1) {
-      headerRowIdx = 0;
-      colMap = { sku: 0, name: 1, size: 2, qty: 3, price: 4, gtin: 6 };
-    }
-
-    const id = nextPoId(db);
-    db.prepare(`
-      INSERT INTO purchase_orders (id, po_number, factory, created_by)
-      VALUES (?, ?, ?, ?)
-    `).run(id, poNumber, factory || null, req.session?.user?.id || null);
-
-    let matched = 0, unmatched = 0;
-    let sortIdx = 0;
-    let lastSku = '';
-
-    for (let r = headerRowIdx + 1; r < rows.length; r++) {
-      const row = rows[r];
-      if (!row || row.every(c => !String(c || '').trim())) continue; // skip empty rows
-
-      // Style No may span multiple rows (merged cells — XLSX fills them as empty)
-      const rawStyleCell = String(row[colMap.sku] || '').trim();
-      const styleNo = rawStyleCell || lastSku;
-      if (rawStyleCell) lastSku = rawStyleCell;
-
-      const rawSize = colMap.size !== undefined ? String(row[colMap.size] || '').trim() : '';
-      const rawName = colMap.name !== undefined ? String(row[colMap.name] || '').trim() : '';
-      const rawGtin = colMap.gtin !== undefined ? String(row[colMap.gtin] || '').trim() : '';
-      const rawPrice = colMap.price !== undefined ? parseFloat(String(row[colMap.price] || '0').replace(/[^0-9.]/g, '')) : null;
-      const qty = parseInt(String(row[colMap.qty] || '0').replace(/[^0-9]/g, ''), 10);
-
-      if (!styleNo || !qty || qty <= 0) continue;
-
-      // Build full SKU: styleNo-size (e.g. GS26020-0000)
-      const sizeCode = rawSize.replace(/[^0-9a-zA-Z]/g, '').split(' ')[0]; // take first token, strip parens
-      const fullSku = sizeCode ? `${styleNo}-${sizeCode}` : styleNo;
-
-      const match = matchSku(db, fullSku, rawGtin || null);
-      const itemId = nextPoItemId(db);
-      db.prepare(`
-        INSERT INTO purchase_order_items
-          (id, po_id, raw_sku, raw_gtin, raw_product_name, raw_variant_name,
-           shopify_variant_id, variant_title, product_title, match_status,
-           ordered_qty, unit_price, sort_order)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        itemId, id,
-        fullSku, rawGtin || null, rawName || null, rawSize || null,
-        match.shopify_variant_id, match.variant_title, match.product_title, match.match_status,
-        qty, rawPrice || null, sortIdx++
-      );
-
-      if (match.match_status === 'matched') matched++;
-      else unmatched++;
-    }
-
-    const po = getPoDetail(db, id);
-    res.status(201).json({ success: true, data: po, summary: { matched, unmatched } });
-  } catch (err) {
-    console.error('[inbound] import PO excel:', err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/**
  * DELETE /api/inbound/purchase-orders/:id
  * Delete a PO (only if open/cancelled)
  */
@@ -1075,35 +989,224 @@ router.delete('/purchase-orders/:id', requirePermission('write'), (req, res) => 
 });
 
 /**
+ * POST /api/inbound/purchase-orders/import-excel
+ * Parse a PO Excel file and create a PO.
+ * Supports two formats:
+ *   1. System template: Style no. | (name) | Size | Quantity | Retail price | Description | Barcode | Memo
+ *   2. Custom format: auto-detected by header row scan
+ * Multi-file: call multiple times with same shipment_id to attach multiple POs to one shipment.
+ * Body: multipart/form-data with file + optional { po_number, factory, shipment_id }
+ */
+router.post('/purchase-orders/import-excel', requirePermission('write'), upload.single('file'), (req, res) => {
+  try {
+    const db = getDb();
+    if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
+
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '', header: 1 });
+
+    if (rows.length < 2) return res.status(400).json({ success: false, error: 'Excel file is empty or has no data rows' });
+
+    // —— Detect PO number from filename or body
+    let poNumber = req.body.po_number || '';
+    let factory = req.body.factory || '';
+    const sourceFileName = req.file.originalname || '';
+
+    // Try to extract PO# from filename (e.g. "PO#LIC26003(Filled).xlsx" -> "PO#LIC26003")
+    if (!poNumber) {
+      const fnMatch = sourceFileName.match(/PO#?([A-Z0-9]+)/i);
+      if (fnMatch) poNumber = 'PO#' + fnMatch[1].toUpperCase();
+    }
+
+    // Scan first 5 rows for PO# pattern in cells
+    if (!poNumber) {
+      for (let r = 0; r < Math.min(5, rows.length); r++) {
+        for (const cell of rows[r]) {
+          const s = String(cell || '').trim();
+          if (/PO#?[A-Z0-9]+/i.test(s)) {
+            poNumber = s.replace(/.*?(PO#?[A-Z0-9]+).*/i, '$1').toUpperCase();
+            break;
+          }
+        }
+        if (poNumber) break;
+      }
+    }
+    if (!poNumber) poNumber = 'PO-' + Date.now();
+
+    // Check duplicate
+    const existing = db.prepare('SELECT id FROM purchase_orders WHERE po_number = ?').get(poNumber);
+    if (existing) return res.status(409).json({ success: false, error: `PO "${poNumber}" already imported` });
+
+    // —— Detect header row
+    // System template format: Row 1 = English headers, Row 2 = Chinese headers, data from Row 3
+    // Check if row 1 has "Style no." and row 2 has "款号"
+    const row1 = rows[0].map(c => String(c || '').toLowerCase().trim());
+    const row2 = rows[1] ? rows[1].map(c => String(c || '').trim()) : [];
+
+    let headerRowIdx = -1;
+    let colMap = {};
+    const isSystemFormat = row1.some(c => c.includes('style')) && row2.some(c => c.includes('款号'));
+
+    if (isSystemFormat) {
+      // System template: Col A=Style No, B=Name(CN), C=Size, D=Qty, E=Price, F=Description(EN), G=Barcode
+      headerRowIdx = 1; // data starts at row index 2 (0-based)
+      colMap = { sku: 0, nameCn: 1, size: 2, qty: 3, price: 4, nameEn: 5, gtin: 6 };
+    } else {
+      // Auto-detect header row
+      for (let r = 0; r < Math.min(10, rows.length); r++) {
+        const row = rows[r].map(c => String(c || '').toLowerCase().trim());
+        const hasStyle = row.some(c => c.includes('style') || c.includes('sku') || c.includes('item') || c.includes('货号'));
+        const hasQty = row.some(c => c.includes('qty') || c.includes('quantity') || c.includes('数量'));
+        if (hasStyle && hasQty) {
+          headerRowIdx = r;
+          row.forEach((h, i) => {
+            if (h.includes('style') || h.includes('sku') || h.includes('item') || h.includes('货号')) colMap.sku = i;
+            else if (h.includes('description') || h.includes('name') || h.includes('描述')) colMap.nameEn = i;
+            else if (h.includes('size') || h.includes('尺码')) colMap.size = i;
+            else if (h.includes('qty') || h.includes('quantity') || h.includes('数量')) colMap.qty = i;
+            else if (h.includes('price') || h.includes('单价')) colMap.price = i;
+            else if (h.includes('barcode') || h.includes('gtin') || h.includes('条码')) colMap.gtin = i;
+          });
+          break;
+        }
+      }
+      if (headerRowIdx === -1) {
+        // Fallback: assume system template column order
+        headerRowIdx = 1;
+        colMap = { sku: 0, nameCn: 1, size: 2, qty: 3, price: 4, nameEn: 5, gtin: 6 };
+      }
+    }
+
+    const id = nextPoId(db);
+    db.prepare(`
+      INSERT INTO purchase_orders (id, po_number, factory, source_file_name, created_by)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(id, poNumber, factory || null, sourceFileName || null, req.session?.user?.id || null);
+
+    let matched = 0, unmatched = 0;
+    let sortIdx = 0;
+    let lastSku = '';
+    let lastNameCn = '';
+
+    for (let r = headerRowIdx + 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row || row.every(c => !String(c || '').trim())) continue;
+
+      // Style No may span multiple rows (merged cells appear as empty in xlsx)
+      const rawStyleCell = String(row[colMap.sku] || '').trim();
+      const styleNo = rawStyleCell || lastSku;
+      if (rawStyleCell) lastSku = rawStyleCell;
+
+      const rawNameCn = colMap.nameCn !== undefined ? String(row[colMap.nameCn] || '').trim() : '';
+      const rawNameEn = colMap.nameEn !== undefined ? String(row[colMap.nameEn] || '').trim() : '';
+      const rawSize = colMap.size !== undefined ? String(row[colMap.size] || '').trim() : '';
+      const rawGtin = colMap.gtin !== undefined ? String(row[colMap.gtin] || '').trim().replace(/^\t/, '') : '';
+      const rawPrice = colMap.price !== undefined ? parseFloat(String(row[colMap.price] || '0').replace(/[^0-9.]/g, '')) || null : null;
+      const qty = parseInt(String(row[colMap.qty] || '0').replace(/[^0-9]/g, ''), 10);
+
+      if (!styleNo || !qty || qty <= 0) continue;
+
+      // Use CN name if available, fall back to EN
+      const displayName = rawNameCn || lastNameCn || rawNameEn || '';
+      if (rawNameCn) lastNameCn = rawNameCn;
+
+      // Build full SKU: styleNo-sizeCode (e.g. GS26020-0000)
+      const sizeCode = extractSizeCode(rawSize);
+      const fullSku = sizeCode ? `${styleNo}-${sizeCode}` : styleNo;
+
+      const match = matchSku(db, fullSku, rawGtin || null);
+      const itemId = nextPoItemId(db);
+
+      db.prepare(`
+        INSERT INTO purchase_order_items
+          (id, po_id, raw_sku, raw_gtin, raw_product_name, raw_variant_name,
+           shopify_variant_id, variant_title, product_title, match_status,
+           ordered_qty, unit_price, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        itemId, id,
+        fullSku,
+        rawGtin || null,
+        displayName || null,
+        rawSize || null,
+        match.shopify_variant_id, match.variant_title, match.product_title, match.match_status,
+        qty, rawPrice, sortIdx++
+      );
+
+      if (match.match_status === 'matched') matched++;
+      else unmatched++;
+    }
+
+    // If shipment_id provided, link this PO to that shipment
+    const shipmentId = req.body.shipment_id || null;
+    if (shipmentId) {
+      const shipment = db.prepare('SELECT id FROM inbound_shipments WHERE id = ?').get(shipmentId);
+      if (shipment) {
+        db.prepare("UPDATE purchase_orders SET shipment_id = ?, updated_at = datetime('now') WHERE id = ?").run(shipmentId, id);
+      }
+    }
+
+    const po = getPoDetail(db, id);
+    res.status(201).json({ success: true, data: po, summary: { matched, unmatched } });
+  } catch (err) {
+    console.error('[inbound] import PO excel:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * POST /api/inbound/purchase-orders/:id/link-shipment
+ * Link (or re-link) a PO to an existing shipment
+ * Body: { shipment_id }
+ */
+router.post('/purchase-orders/:id/link-shipment', requirePermission('write'), (req, res) => {
+  try {
+    const db = getDb();
+    const po = db.prepare('SELECT * FROM purchase_orders WHERE id = ?').get(req.params.id);
+    if (!po) return res.status(404).json({ success: false, error: 'PO not found' });
+
+    const { shipment_id } = req.body;
+    if (!shipment_id) return res.status(400).json({ success: false, error: 'shipment_id required' });
+
+    const shipment = db.prepare('SELECT id FROM inbound_shipments WHERE id = ?').get(shipment_id);
+    if (!shipment) return res.status(404).json({ success: false, error: 'Shipment not found' });
+
+    db.prepare("UPDATE purchase_orders SET shipment_id = ?, updated_at = datetime('now') WHERE id = ?").run(shipment_id, req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[inbound] link-shipment:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * POST /api/inbound/purchase-orders/:id/create-shipment
- * Create an inbound_shipment linked to this PO
- * The shipment will have the PO items as reference for factory form pre-fill
+ * Create a new inbound_shipment linked to this PO (or return existing)
  */
 router.post('/purchase-orders/:id/create-shipment', requirePermission('write'), (req, res) => {
   try {
     const db = getDb();
     const po = getPoDetail(db, req.params.id);
     if (!po) return res.status(404).json({ success: false, error: 'PO not found' });
+
     if (po.shipment_id) {
-      // Already has a shipment — return it
       const existing = db.prepare('SELECT * FROM inbound_shipments WHERE id = ?').get(po.shipment_id);
       if (existing) return res.json({ success: true, data: existing, already_existed: true });
     }
 
     const shipmentId = nextShipmentId(db);
     db.prepare(`
-      INSERT INTO inbound_shipments (id, ref_no, factory, note, source, po_id, created_by)
-      VALUES (?, ?, ?, ?, 'manual', ?, ?)
+      INSERT INTO inbound_shipments (id, ref_no, factory, note, source, created_by)
+      VALUES (?, ?, ?, ?, 'manual', ?)
     `).run(
       shipmentId, shipmentId,
       po.factory || null,
       `Linked to ${po.po_number}`,
-      po.id,
       req.session?.user?.id || null
     );
 
-    // Link back
-    db.prepare('UPDATE purchase_orders SET shipment_id = ?, updated_at = datetime(\'now\') WHERE id = ?').run(shipmentId, po.id);
+    db.prepare("UPDATE purchase_orders SET shipment_id = ?, updated_at = datetime('now') WHERE id = ?").run(shipmentId, po.id);
 
     const shipment = db.prepare('SELECT * FROM inbound_shipments WHERE id = ?').get(shipmentId);
     res.status(201).json({ success: true, data: shipment });
@@ -1114,26 +1217,82 @@ router.post('/purchase-orders/:id/create-shipment', requirePermission('write'), 
 });
 
 /**
- * GET /api/inbound/factory-form/:token/po-items
- * Public — return the PO items for this shipment as pre-fill reference
- * Called by FactoryForm.vue to show ordered quantities
+ * GET /api/inbound/purchase-orders/po-template
+ * Download a PO Excel template matching the user's existing PO format
+ * Columns: Style no. | (款式) | Size | Quantity | Retail price | Description | Barcode | Memo
  */
-router.get('/factory-form/:token/po-items', (req, res) => {
+router.get('/purchase-orders/po-template', requirePermission('read'), (req, res) => {
+  try {
+    const wb = XLSX.utils.book_new();
+    const wsData = [
+      ['Style no.', null, 'Size', 'Quantity', 'Retail price', 'Description', 'Barcode', 'Memo'],
+      ['款号', '款式', '尺码', '数量', '价格', '品名描述', '条码', '备注'],
+      ['GS26020', 'Example Product 示例商品', '0000 (0-3 weeks)', 100, 32.99, 'Example - Colour', 12345678, null],
+      [null, null, '000 (0-3 months)', 100, 32.99, 'Example - Colour', 12345679, null],
+      [null, null, '00 (3-6 months)', 100, 32.99, 'Example - Colour', 12345680, null],
+      [null, null, '0 (6-12 months)', 50, 32.99, 'Example - Colour', 12345681, null],
+      [null, null, '1 (12-18 months)', 50, 32.99, 'Example - Colour', 12345682, null],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [
+      { wch: 14 }, { wch: 28 }, { wch: 22 }, { wch: 12 },
+      { wch: 14 }, { wch: 30 }, { wch: 14 }, { wch: 14 },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, 'Purchase Order');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', 'attachment; filename="PO_template.xlsx"');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buf);
+  } catch (err) {
+    console.error('[inbound] po-template:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/inbound/factory-form/:token/remaining-qty
+ * Public — return remaining-to-pack quantities for factory form
+ * Includes real-time allocated qty so factory can see what's left
+ */
+router.get('/factory-form/:token/remaining-qty', (req, res) => {
   try {
     const db = getDb();
-    const shipment = db.prepare('SELECT id, po_id FROM inbound_shipments WHERE form_token = ?').get(req.params.token);
-    if (!shipment || !shipment.po_id) return res.json({ success: true, data: [] });
-    const items = db.prepare(`
-      SELECT poi.raw_sku, poi.raw_product_name, poi.raw_variant_name, poi.ordered_qty,
-             poi.shopify_variant_id, poi.variant_title, poi.product_title, poi.match_status
+    const shipment = db.prepare('SELECT id FROM inbound_shipments WHERE form_token = ?').get(req.params.token);
+    if (!shipment) return res.status(404).json({ success: false, error: 'Invalid form link' });
+
+    const poItems = db.prepare(`
+      SELECT poi.shopify_variant_id, poi.raw_sku, poi.raw_product_name, poi.raw_variant_name,
+             poi.product_title, poi.variant_title, poi.match_status,
+             COALESCE(SUM(poi.ordered_qty), 0) AS ordered_qty,
+             po.po_number
       FROM purchase_order_items poi
-      WHERE poi.po_id = ?
-      ORDER BY poi.sort_order
-    `).all(shipment.po_id);
-    const po = db.prepare('SELECT po_number, factory FROM purchase_orders WHERE id = ?').get(shipment.po_id);
-    res.json({ success: true, data: items, po });
+      JOIN purchase_orders po ON po.id = poi.po_id
+      WHERE po.shipment_id = ?
+      GROUP BY poi.shopify_variant_id, poi.raw_sku
+      ORDER BY po.created_at ASC, poi.sort_order ASC
+    `).all(shipment.id);
+
+    const allocMap = getAllocatedQtyMap(db, shipment.id);
+
+    const result = poItems.map(item => {
+      const allocated = item.shopify_variant_id ? (allocMap[item.shopify_variant_id] || 0) : 0;
+      return {
+        shopify_variant_id: item.shopify_variant_id,
+        raw_sku: item.raw_sku,
+        raw_product_name: item.raw_product_name,
+        raw_variant_name: item.raw_variant_name,
+        product_title: item.product_title,
+        variant_title: item.variant_title,
+        po_number: item.po_number,
+        ordered_qty: item.ordered_qty,
+        allocated_qty: allocated,
+        remaining_qty: Math.max(0, item.ordered_qty - allocated),
+      };
+    });
+
+    res.json({ success: true, data: result });
   } catch (err) {
-    console.error('[inbound] factory-form po-items:', err.message);
+    console.error('[inbound] factory-form remaining-qty:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 });

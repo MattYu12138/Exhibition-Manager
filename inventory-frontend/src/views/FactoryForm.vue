@@ -11,15 +11,16 @@
         <div class="text-red-600 font-medium">{{ error }}</div>
       </div>
 
-      <!-- Success -->
-      <div v-else-if="submitted" class="mt-10 text-center">
-        <div class="text-5xl mb-4">✅</div>
-        <div class="text-green-700 font-bold text-xl mb-1">Packing list submitted!</div>
-        <div class="text-gray-400 text-sm mb-8">{{ submitSummary }}</div>
+      <!-- Success: show QR labels -->
+      <div v-else-if="submitted" class="mt-10">
+        <div class="text-center mb-6">
+          <div class="text-5xl mb-3">✅</div>
+          <div class="text-green-700 font-bold text-xl mb-1">Packing list submitted!</div>
+          <div class="text-gray-400 text-sm">{{ submitSummary }}</div>
+        </div>
 
-        <!-- Show QR codes for each box after submission -->
-        <div v-if="submittedBoxes.length > 0" class="text-left">
-          <h2 class="text-base font-semibold text-gray-700 mb-3">Print & attach these labels to each box:</h2>
+        <div v-if="submittedBoxes.length > 0">
+          <h2 class="text-sm font-semibold text-gray-700 mb-3">Print &amp; attach these labels to each box:</h2>
           <div class="space-y-4">
             <div
               v-for="box in submittedBoxes"
@@ -31,11 +32,7 @@
                 <div class="font-bold text-gray-800 text-sm">Box {{ box.box_no }}</div>
                 <div class="text-xs text-gray-400 font-mono mt-0.5">{{ shipment.ref_no }}</div>
                 <div class="mt-2 space-y-0.5">
-                  <div
-                    v-for="item in box.items"
-                    :key="item.id"
-                    class="text-xs text-gray-600"
-                  >
+                  <div v-for="item in box.items" :key="item.id" class="text-xs text-gray-600">
                     <span class="font-mono">{{ item.raw_sku }}</span>
                     <span class="text-gray-400 ml-1">× {{ item.quantity }}</span>
                   </div>
@@ -48,36 +45,48 @@
 
       <!-- Form -->
       <div v-else-if="shipment">
-        <div class="mb-6">
+        <!-- Header -->
+        <div class="mb-5">
           <h1 class="text-xl font-bold text-gray-800">Packing List</h1>
           <p class="text-sm text-gray-400 mt-1">Batch: <span class="font-mono">{{ shipment.ref_no }}</span></p>
           <p v-if="shipment.factory" class="text-sm text-gray-500 mt-0.5">Factory: {{ shipment.factory }}</p>
           <p v-if="shipment.note" class="text-sm text-gray-500 mt-0.5">{{ shipment.note }}</p>
         </div>
 
-        <!-- PO Reference Panel (shown if shipment has a linked PO) -->
-        <div v-if="shipment.po_number" class="mb-5 bg-blue-50 border border-blue-200 rounded-xl p-4">
-          <div class="flex items-center gap-2 mb-3">
-            <span class="text-sm font-semibold text-blue-800">📋 Purchase Order Reference</span>
-            <span class="font-mono text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded">{{ shipment.po_number }}</span>
+        <!-- PO Reference Panel — shows remaining qty, updates as boxes are filled -->
+        <div v-if="remainingQty.length > 0" class="mb-5 bg-blue-50 border border-blue-200 rounded-xl overflow-hidden">
+          <div class="flex items-center justify-between px-4 py-3 cursor-pointer" @click="showPoPanel = !showPoPanel">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-semibold text-blue-800">📋 Order Reference</span>
+              <span v-if="poNumbers" class="font-mono text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded">{{ poNumbers }}</span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-xs text-blue-500">
+                {{ totalRemaining }} units remaining
+              </span>
+              <span class="text-blue-300 text-xs">{{ showPoPanel ? '▲' : '▼' }}</span>
+            </div>
           </div>
-          <p class="text-xs text-blue-600 mb-3">The following items were ordered. Please pack all items and fill in the box numbers below.</p>
-          <div class="overflow-x-auto">
+          <div v-if="showPoPanel" class="overflow-x-auto border-t border-blue-100">
             <table class="w-full text-xs">
               <thead>
-                <tr class="text-blue-500 uppercase">
-                  <th class="text-left pb-1.5">SKU</th>
-                  <th class="text-left pb-1.5">Product</th>
-                  <th class="text-right pb-1.5">Ordered</th>
-                  <th class="text-right pb-1.5">Received</th>
+                <tr class="text-blue-500 uppercase bg-blue-100/50">
+                  <th class="px-4 py-2 text-left">SKU</th>
+                  <th class="px-4 py-2 text-left">Product</th>
+                  <th class="px-4 py-2 text-center">Ordered</th>
+                  <th class="px-4 py-2 text-center">Packed</th>
+                  <th class="px-4 py-2 text-center font-bold text-blue-700">Remaining</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-blue-100">
-                <tr v-for="item in shipment.po_items" :key="item.raw_sku" class="">
-                  <td class="py-1 font-mono text-blue-800">{{ item.raw_sku }}</td>
-                  <td class="py-1 text-blue-700">{{ item.product_name || '—' }}</td>
-                  <td class="py-1 text-right font-medium text-blue-800">{{ item.ordered_qty }}</td>
-                  <td class="py-1 text-right" :class="item.received_qty >= item.ordered_qty ? 'text-green-600 font-bold' : 'text-gray-400'">{{ item.received_qty }}</td>
+                <tr v-for="item in remainingQty" :key="item.raw_sku" :class="getLocalRemaining(item) === 0 ? 'opacity-50' : ''">
+                  <td class="px-4 py-1.5 font-mono text-blue-800">{{ item.raw_sku }}</td>
+                  <td class="px-4 py-1.5 text-blue-700">{{ item.product_title || item.raw_product_name || '—' }}</td>
+                  <td class="px-4 py-1.5 text-center text-blue-600">{{ item.ordered_qty }}</td>
+                  <td class="px-4 py-1.5 text-center text-gray-600">{{ getLocalAllocated(item.raw_sku) }}</td>
+                  <td class="px-4 py-1.5 text-center font-bold" :class="getLocalRemaining(item) > 0 ? 'text-blue-800' : 'text-green-600'">
+                    {{ getLocalRemaining(item) > 0 ? getLocalRemaining(item) : '✓' }}
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -96,47 +105,60 @@
                 :placeholder="`${bi + 1}`"
                 class="w-16 border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
               />
-              <!-- QR code preview if box already has a qr_token (pre-existing) -->
+              <span class="text-xs text-gray-400">{{ boxTotal(box) }} units</span>
               <div v-if="box.qr_token" class="ml-auto flex items-center gap-2">
                 <canvas :ref="el => setQrRef(el, box.qr_token)" class="w-10 h-10 rounded"></canvas>
               </div>
-              <button
-                v-else
-                @click="removeBox(bi)"
-                class="ml-auto text-xs text-red-400 hover:text-red-600"
-              >Remove</button>
+              <button v-else @click="removeBox(bi)" class="ml-auto text-xs text-red-400 hover:text-red-600">Remove</button>
             </div>
 
             <!-- Items -->
             <div class="px-4 py-3 space-y-2">
-              <div v-for="(item, ii) in box.items" :key="ii" class="flex items-center gap-2">
-                <!-- Base SKU input -->
-                <input
-                  v-model="item.base_sku"
-                  placeholder="SKU (e.g. GS26020)"
-                  class="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 min-w-0"
-                />
-                <!-- Size dropdown -->
-                <select
-                  v-model="item.size"
-                  class="w-24 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
-                >
-                  <option value="">Size</option>
-                  <option value="0000">0000</option>
-                  <option value="000">000</option>
-                  <option value="00">00</option>
-                  <option value="0">0</option>
-                  <option value="1">1</option>
-                </select>
-                <!-- Qty input -->
-                <input
-                  v-model.number="item.quantity"
-                  type="number"
-                  min="1"
-                  placeholder="Qty"
-                  class="w-16 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
-                />
-                <button @click="removeItem(bi, ii)" class="text-red-400 hover:text-red-600 text-sm shrink-0">✕</button>
+              <div v-for="(item, ii) in box.items" :key="ii" class="space-y-1">
+                <div class="flex items-center gap-2">
+                  <!-- Base SKU -->
+                  <input
+                    v-model="item.base_sku"
+                    placeholder="Style No. (e.g. GS26020)"
+                    class="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 min-w-0"
+                  />
+                  <!-- Size dropdown -->
+                  <select
+                    v-model="item.size"
+                    class="w-28 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+                  >
+                    <option value="">Size</option>
+                    <option value="0000">0000 (0-3w)</option>
+                    <option value="000">000 (0-3m)</option>
+                    <option value="00">00 (3-6m)</option>
+                    <option value="0">0 (6-12m)</option>
+                    <option value="1">1 (12-18m)</option>
+                    <option value="XXS">XXS</option>
+                    <option value="XS">XS</option>
+                    <option value="S">S</option>
+                    <option value="M">M</option>
+                    <option value="L">L</option>
+                    <option value="XL">XL</option>
+                    <option value="OS">OS</option>
+                  </select>
+                  <!-- Qty -->
+                  <input
+                    v-model.number="item.quantity"
+                    type="number"
+                    min="1"
+                    placeholder="Qty"
+                    class="w-16 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    :class="isOverAllocated(item) ? 'border-red-400 bg-red-50' : ''"
+                  />
+                  <button @click="removeItem(bi, ii)" class="text-red-400 hover:text-red-600 text-sm shrink-0">✕</button>
+                </div>
+                <!-- Remaining hint -->
+                <div v-if="item.base_sku && item.size" class="pl-1 flex items-center gap-2">
+                  <span v-if="getItemRemaining(item, bi, ii) !== null" class="text-xs" :class="isOverAllocated(item) ? 'text-red-500' : 'text-gray-400'">
+                    <span v-if="isOverAllocated(item)">⚠ Over by {{ item.quantity - getItemRemaining(item, bi, ii) - item.quantity + getItemRemaining(item, bi, ii) }} — </span>
+                    Remaining in order: <strong>{{ Math.max(0, getItemRemaining(item, bi, ii)) }}</strong>
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -169,7 +191,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 import QRCode from 'qrcode'
@@ -187,11 +209,76 @@ const submitError = ref(null)
 const submitSummary = ref('')
 const submittedBoxes = ref([])
 
-const token = route.params.token || route.query.token
+// PO reference panel
+const remainingQty = ref([])   // from server: ordered_qty per SKU (server-side allocated)
+const showPoPanel = ref(true)
 
-// Map of qr_token -> canvas element for rendering QR codes
+const token = route.params.token || route.query.token
 const qrCanvasMap = {}
 
+// ── Computed ──────────────────────────────────────────────────────────────────
+const poNumbers = computed(() => {
+  if (!remainingQty.value.length) return ''
+  const nums = [...new Set(remainingQty.value.map(r => r.po_number).filter(Boolean))]
+  return nums.join(', ')
+})
+
+const totalRemaining = computed(() => {
+  return remainingQty.value.reduce((s, r) => s + Math.max(0, getLocalRemaining(r)), 0)
+})
+
+// ── Local allocation helpers (real-time as factory fills boxes) ───────────────
+function getLocalAllocated(rawSku) {
+  let total = 0
+  for (const box of boxes.value) {
+    for (const item of box.items) {
+      const fullSku = item.base_sku && item.size ? `${item.base_sku.trim()}-${item.size}` : item.base_sku?.trim()
+      if (fullSku === rawSku && item.quantity > 0) total += item.quantity
+    }
+  }
+  return total
+}
+
+function getLocalRemaining(poItem) {
+  const allocated = getLocalAllocated(poItem.raw_sku)
+  // poItem.ordered_qty is total ordered; poItem.allocated_qty is what's already packed server-side (excluding current session)
+  const serverAllocated = poItem.allocated_qty || 0
+  return poItem.ordered_qty - serverAllocated - allocated
+}
+
+function getItemRemaining(item, bi, ii) {
+  if (!item.base_sku || !item.size) return null
+  const fullSku = `${item.base_sku.trim()}-${item.size}`
+  const poItem = remainingQty.value.find(r => r.raw_sku === fullSku)
+  if (!poItem) return null
+
+  // Sum all other items in all boxes with same SKU (excluding current item)
+  let otherAllocated = 0
+  for (let b = 0; b < boxes.value.length; b++) {
+    for (let i = 0; i < boxes.value[b].items.length; i++) {
+      if (b === bi && i === ii) continue
+      const it = boxes.value[b].items[i]
+      const fs = it.base_sku && it.size ? `${it.base_sku.trim()}-${it.size}` : it.base_sku?.trim()
+      if (fs === fullSku && it.quantity > 0) otherAllocated += it.quantity
+    }
+  }
+  const serverAllocated = poItem.allocated_qty || 0
+  return poItem.ordered_qty - serverAllocated - otherAllocated
+}
+
+function isOverAllocated(item) {
+  if (!item.base_sku || !item.size || !item.quantity) return false
+  const fullSku = `${item.base_sku.trim()}-${item.size}`
+  const poItem = remainingQty.value.find(r => r.raw_sku === fullSku)
+  if (!poItem) return false
+  return getLocalAllocated(fullSku) > (poItem.ordered_qty - (poItem.allocated_qty || 0))
+}
+
+function boxTotal(box) {
+  return (box.items || []).reduce((s, i) => s + (i.quantity || 0), 0)
+}
+
+// ── QR helpers ────────────────────────────────────────────────────────────────
 function setQrRef(el, qrToken) {
   if (el && qrToken) {
     qrCanvasMap[qrToken] = el
@@ -204,28 +291,26 @@ async function renderQr(qrToken, canvas) {
   const url = `${window.location.origin}/scan/${qrToken}`
   try {
     await QRCode.toCanvas(canvas, url, { width: 96, margin: 1 })
-  } catch (e) {
-    console.warn('QR render failed', e)
-  }
+  } catch (e) { console.warn('QR render failed', e) }
 }
 
+// ── Load form data ────────────────────────────────────────────────────────────
 onMounted(async () => {
   try {
     const res = await api.get(`/inbound/factory-form/${token}`)
     shipment.value = res.data.data
-    if (res.data.data.boxes && res.data.data.boxes.length > 0) {
+
+    if (res.data.data.boxes?.length > 0) {
       boxes.value = res.data.data.boxes.map(b => ({
         box_no: b.box_no,
         qr_token: b.qr_token || null,
         items: (b.items || []).map(i => {
-          // Parse existing raw_sku back into base_sku + size
           const parts = (i.raw_sku || '').split('-')
           const size = parts.length > 1 ? parts[parts.length - 1] : ''
           const base = parts.length > 1 ? parts.slice(0, -1).join('-') : (i.raw_sku || '')
           return { base_sku: base, size, quantity: i.quantity }
         })
       }))
-      // Render QR codes for pre-existing boxes
       await nextTick()
       for (const box of boxes.value) {
         if (box.qr_token && qrCanvasMap[box.qr_token]) {
@@ -235,6 +320,13 @@ onMounted(async () => {
     } else {
       boxes.value = [{ box_no: '1', qr_token: null, items: [{ base_sku: '', size: '', quantity: null }] }]
     }
+
+    // Load remaining qty from server
+    try {
+      const rq = await api.get(`/inbound/factory-form/${token}/remaining-qty`)
+      remainingQty.value = rq.data.data || []
+    } catch { remainingQty.value = [] }
+
   } catch (e) {
     error.value = e.response?.data?.error || 'Invalid or expired link'
   } finally {
@@ -242,6 +334,7 @@ onMounted(async () => {
   }
 })
 
+// ── Box/item management ───────────────────────────────────────────────────────
 function addBox() {
   boxes.value.push({
     box_no: String(boxes.value.length + 1),
@@ -262,6 +355,7 @@ function removeItem(bi, ii) {
   boxes.value[bi].items.splice(ii, 1)
 }
 
+// ── Submit ────────────────────────────────────────────────────────────────────
 async function submitForm() {
   submitting.value = true
   submitError.value = null
@@ -270,15 +364,15 @@ async function submitForm() {
       boxes: boxes.value.map((b, idx) => ({
         box_no: b.box_no || String(idx + 1),
         items: b.items
-          .filter(i => i.base_sku && i.size && i.quantity > 0)
+          .filter(i => i.base_sku && i.quantity > 0)
           .map(i => ({
-            raw_sku: `${i.base_sku.trim()}-${i.size}`,
+            raw_sku: i.size ? `${i.base_sku.trim()}-${i.size}` : i.base_sku.trim(),
             quantity: i.quantity,
           }))
       })).filter(b => b.items.length > 0)
     }
     if (payload.boxes.length === 0) {
-      submitError.value = 'Please add at least one item with SKU, size and quantity'
+      submitError.value = 'Please add at least one item with SKU and quantity'
       return
     }
     const res = await api.post(`/inbound/factory-form/${token}/submit`, payload)
@@ -287,7 +381,6 @@ async function submitForm() {
     submittedBoxes.value = d.boxes || []
     submitted.value = true
 
-    // Render QR codes for submitted boxes
     await nextTick()
     for (const box of submittedBoxes.value) {
       if (box.qr_token && qrCanvasMap[box.qr_token]) {

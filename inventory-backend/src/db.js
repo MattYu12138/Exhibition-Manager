@@ -190,6 +190,7 @@ function initSchema() {
       status          TEXT NOT NULL DEFAULT 'open',
         -- open | partial | fulfilled | cancelled
       shipment_id     TEXT,                     -- linked inbound_shipment (if created)
+      source_file_name TEXT,                    -- original uploaded Excel filename
       created_by      TEXT,
       created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -258,6 +259,8 @@ function runMigrations() {
     `ALTER TABLE purchase_orders ADD COLUMN updated_at DATETIME`,
     // inbound_shipments — add po_id reference
     `ALTER TABLE inbound_shipments ADD COLUMN po_id TEXT`,
+    // purchase_orders — add source_file_name
+    `ALTER TABLE purchase_orders ADD COLUMN source_file_name TEXT`,
   ];
 
   for (const sql of migrations) {
