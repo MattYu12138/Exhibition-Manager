@@ -955,6 +955,40 @@ router.get('/purchase-orders', requirePermission('read'), (req, res) => {
 });
 
 /**
+ * GET /api/inbound/purchase-orders/po-template
+ * Download a PO Excel template matching the user's existing PO format
+ * Columns: Style no. | (款式) | Size | Quantity | Retail price | Description | Barcode | Memo
+ * NOTE: This route MUST be defined before /purchase-orders/:id to avoid route conflict
+ */
+router.get('/purchase-orders/po-template', requirePermission('read'), (req, res) => {
+  try {
+    const wb = XLSX.utils.book_new();
+    const wsData = [
+      ['Style no.', null, 'Size', 'Quantity', 'Retail price', 'Description', 'Barcode', 'Memo'],
+      ['款号', '款式', '尺码', '数量', '价格', '品名描述', '条码', '备注'],
+      ['GS26020', 'Example Product 示例商品', '0000 (0-3 weeks)', 100, 32.99, 'Example - Colour', 12345678, null],
+      [null, null, '000 (0-3 months)', 100, 32.99, 'Example - Colour', 12345679, null],
+      [null, null, '00 (3-6 months)', 100, 32.99, 'Example - Colour', 12345680, null],
+      [null, null, '0 (6-12 months)', 50, 32.99, 'Example - Colour', 12345681, null],
+      [null, null, '1 (12-18 months)', 50, 32.99, 'Example - Colour', 12345682, null],
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [
+      { wch: 14 }, { wch: 28 }, { wch: 22 }, { wch: 12 },
+      { wch: 14 }, { wch: 30 }, { wch: 14 }, { wch: 14 },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws, 'Purchase Order');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', 'attachment; filename="PO_template.xlsx"');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buf);
+  } catch (err) {
+    console.error('[inbound] po-template:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * GET /api/inbound/purchase-orders/:id
  * Full PO detail with items
  */
