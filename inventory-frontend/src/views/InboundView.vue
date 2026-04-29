@@ -537,11 +537,12 @@ const unmatchedCount = computed(() => {
 // ── Available size options (filtered by remaining qty) ───────────────────────
 const availableSizeOptions = computed(() => {
   if (!newItem.value.base_sku || remainingQty.value.length === 0) return sizeOptions
+  // Only show sizes that actually exist in the PO for this base SKU and still have remaining qty > 0
   return sizeOptions.filter(sz => {
     const fullSku = `${newItem.value.base_sku}-${sz.code}`
     const row = remainingQty.value.find(r => r.raw_sku === fullSku)
-    // If no PO row for this size, include it (might be untracked); if row exists, only include if remaining > 0
-    return !row || row.remaining_qty > 0
+    if (!row) return false  // Not in PO — hide this size
+    return row.remaining_qty > 0
   })
 })
 

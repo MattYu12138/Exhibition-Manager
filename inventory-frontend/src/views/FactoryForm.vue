@@ -364,11 +364,12 @@ const productGroups = computed(() => {
 // ── Dynamic size options per base SKU ─────────────────────────────────────────
 function getAvailableSizes(baseSku) {
   if (!baseSku || !remainingQty.value.length) return sizeOptions
+  // Only show sizes that actually exist in the PO for this base SKU
+  // and still have remaining qty > 0
   return sizeOptions.filter(sz => {
     const fullSku = `${baseSku.trim()}-${sz.code}`
     const row = remainingQty.value.find(r => r.raw_sku === fullSku)
-    // If no PO row for this size, include it; if row exists, only include if remaining > 0
-    if (!row) return true
+    if (!row) return false  // Not in PO — hide this size
     const localAlloc = getLocalAllocated(fullSku)
     const totalAlloc = (row.allocated_qty || 0) + localAlloc
     return (row.ordered_qty - totalAlloc) > 0
