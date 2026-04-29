@@ -464,22 +464,34 @@ async function renderQr(qrToken, canvas) {
 }
 
 // ── Load form data ────────────────────────────────────────────────────────────
+function parseBoxesFromServer(serverBoxes) {
+  return (serverBoxes || []).map(b => ({
+    box_no: b.box_no,
+    qr_token: b.qr_token || null,
+    _submitted: true,
+    items: (b.items || []).map(i => {
+      const raw = i.raw_sku || ''
+      const lastDash = raw.lastIndexOf('-')
+      const size = lastDash > 0 ? raw.substring(lastDash + 1) : ''
+      const base = lastDash > 0 ? raw.substring(0, lastDash) : raw
+      return { base_sku: base, size, quantity: i.quantity }
+    })
+  }))
+}
+
 onMounted(async () => {
   try {
     const res = await api.get(`/inbound/factory-form/${token}`)
-    shipment.value = res.data.data
+    const d = res.data.data
+    shipment.value = d.shipment
 
-    if (res.data.data.boxes?.length > 0) {
-      boxes.value = res.data.data.boxes.map(b => ({
-        box_no: b.box_no,
-        qr_token: b.qr_token || null,
-        items: (b.items || []).map(i => {
-          const parts = (i.raw_sku || '').split('-')
-          const size = parts.length > 1 ? parts[parts.length - 1] : ''
-          const base = parts.length > 1 ? parts.slice(0, -1).join('-') : (i.raw_sku || '')
-          return { base_sku: base, size, quantity: i.quantity }
-        })
-      }))
+    const existingBoxes = d.existingBoxes || []
+    if (existingBoxes.length > 0) {
+      const nextBoxNo = existingBoxes.length + 1
+      boxes.value = [
+        ...parseBoxesFromServer(existingBoxes),
+        { box_no: String(nextBoxNo), qr_token: null, items: [{ base_sku: '', size: '', quantity: null }] }
+      ]
       await nextTick()
       for (const box of boxes.value) {
         if (box.qr_token && qrCanvasMap[box.qr_token]) {
@@ -647,22 +659,13 @@ async function continueAdding() {
   // Reload the current server state so we see all already-submitted boxes
   try {
     const res = await api.get(`/inbound/factory-form/${token}`)
-    shipment.value = res.data.data
-    const serverBoxes = res.data.data.boxes || []
-    const nextBoxNo = serverBoxes.length + 1
-    // Restore existing boxes from server (read-only view) + one new empty box
+    const d = res.data.data
+    shipment.value = d.shipment
+    const existingBoxes = d.existingBoxes || []
+    const nextBoxNo = existingBoxes.length + 1
+    // Show existing boxes (read-only) + one new empty box
     boxes.value = [
-      ...serverBoxes.map(b => ({
-        box_no: b.box_no,
-        qr_token: b.qr_token || null,
-        _submitted: true,  // mark as already submitted
-        items: (b.items || []).map(i => {
-          const parts = (i.raw_sku || '').split('-')
-          const size = parts.length > 1 ? parts[parts.length - 1] : ''
-          const base = parts.length > 1 ? parts.slice(0, -1).join('-') : (i.raw_sku || '')
-          return { base_sku: base, size, quantity: i.quantity }
-        })
-      })),
+      ...parseBoxesFromServer(existingBoxes),
       { box_no: String(nextBoxNo), qr_token: null, items: [{ base_sku: '', size: '', quantity: null }] }
     ]
     // Refresh remaining qty from server
@@ -671,7 +674,7 @@ async function continueAdding() {
       remainingQty.value = rq.data.data || []
     } catch { remainingQty.value = [] }
   } catch (e) {
-    // Fallback: just clear submitted state with a fresh empty box
+    // Fallback: just add a fresh empty box
     const nextBoxNo = (submittedBoxes.value.length || 0) + 1
     boxes.value = [{ box_no: String(nextBoxNo), qr_token: null, items: [{ base_sku: '', size: '', quantity: null }] }]
   }

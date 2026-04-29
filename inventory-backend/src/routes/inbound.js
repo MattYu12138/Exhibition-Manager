@@ -820,7 +820,14 @@ router.get('/factory-form/:token', (req, res) => {
     // Get allocated quantities across all boxes for remaining calc
     const allocMap = getAllocatedQtyMap(db, shipment.id);
 
-    res.json({ success: true, data: { shipment, pos, allocMap } });
+    // Return existing boxes so factory can see previously submitted data
+    const boxRows = db.prepare('SELECT id, box_no, qr_token, status FROM inbound_boxes WHERE shipment_id = ? ORDER BY CAST(box_no AS INTEGER) ASC').all(shipment.id);
+    const existingBoxes = boxRows.map(b => {
+      const items = db.prepare('SELECT raw_sku, raw_variant_name, quantity FROM inbound_box_items WHERE box_id = ? ORDER BY sort_order').all(b.id);
+      return { id: b.id, box_no: b.box_no, qr_token: b.qr_token, status: b.status, items };
+    });
+
+    res.json({ success: true, data: { shipment, pos, allocMap, existingBoxes } });
   } catch (err) {
     console.error('[inbound] factory-form get:', err.message);
     res.status(500).json({ success: false, error: err.message });
@@ -865,9 +872,23 @@ router.post('/factory-form/:token/submit', (req, res) => {
         const items = boxData.items || [];
         for (let i = 0; i < items.length; i++) {
           const it = items[i];
-          const baseSku = String(it.base_sku || it.sku || '').trim();
-          const sizeCode = String(it.size_code || it.size || '').trim();
+          // Support both { base_sku, size_code } and { raw_sku } formats
+          let baseSku = String(it.base_sku || it.sku || '').trim();
+          let sizeCode = String(it.size_code || it.size || '').trim();
           const qty = parseInt(it.quantity || it.qty || 0, 10);
+
+          // If frontend sent raw_sku (e.g. 'GS26020-OS'), parse it
+          if (!baseSku && it.raw_sku) {
+            const raw = String(it.raw_sku).trim();
+            const lastDash = raw.lastIndexOf('-');
+            if (lastDash > 0) {
+              baseSku = raw.substring(0, lastDash);
+              sizeCode = raw.substring(lastDash + 1);
+            } else {
+              baseSku = raw;
+            }
+          }
+
           if (!baseSku || !qty || qty <= 0) continue;
 
           const rawSku = sizeCode ? `${baseSku}-${sizeCode}` : baseSku;
