@@ -125,6 +125,23 @@
           </div>
         </div>
 
+        <!-- Overall packing progress bar (shown when POs are linked) -->
+        <div v-if="activeShipment.pos?.length > 0 && overallProgress" class="mb-4 bg-white rounded-xl shadow-sm p-4">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-sm font-semibold text-gray-700">{{ t('inbound.packingProgress') }}</span>
+            <span class="text-xs text-gray-500">
+              {{ overallProgress.totalAllocated.toLocaleString() }} / {{ overallProgress.totalOrdered.toLocaleString() }} {{ t('inbound.units') }} ({{ overallProgress.pct }}%)
+            </span>
+          </div>
+          <div class="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+            <div
+              class="h-3 rounded-full transition-all duration-500"
+              :class="overallProgress.pct >= 100 ? 'bg-green-500' : overallProgress.pct >= 50 ? 'bg-blue-500' : 'bg-amber-400'"
+              :style="{ width: Math.min(overallProgress.pct, 100) + '%' }"
+            ></div>
+          </div>
+        </div>
+
         <!-- Remaining qty panel (shown when POs are linked) -->
         <div v-if="activeShipment.pos?.length > 0 && remainingQty.length > 0" class="mb-4 bg-white rounded-xl shadow-sm overflow-hidden">
           <div class="flex items-center justify-between px-4 py-3 bg-amber-50 border-b border-amber-100 cursor-pointer" @click="showRemainingPanel = !showRemainingPanel">
@@ -247,7 +264,7 @@
                       class="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400 bg-white"
                     >
                       <option value="">{{ t('inbound.selectSize') }}</option>
-                      <option v-for="sz in sizeOptions" :key="sz.code" :value="sz.code">{{ sz.label }}</option>
+                      <option v-for="sz in availableSizeOptions" :key="sz.code" :value="sz.code">{{ sz.label }}</option>
                     </select>
                   </div>
 
@@ -505,6 +522,26 @@ const showRemainingPanel = ref(true)
 const unmatchedCount = computed(() => {
   if (!activeShipment.value?.boxes) return 0
   return activeShipment.value.boxes.reduce((n, b) => n + (b.items?.filter(i => i.match_status === 'unmatched').length || 0), 0)
+})
+
+// ── Available size options (filtered by remaining qty) ───────────────────────
+const availableSizeOptions = computed(() => {
+  if (!newItem.value.base_sku || remainingQty.value.length === 0) return sizeOptions
+  return sizeOptions.filter(sz => {
+    const fullSku = `${newItem.value.base_sku}-${sz.code}`
+    const row = remainingQty.value.find(r => r.raw_sku === fullSku)
+    // If no PO row for this size, include it (might be untracked); if row exists, only include if remaining > 0
+    return !row || row.remaining_qty > 0
+  })
+})
+
+// ── Overall packing progress ──────────────────────────────────────────────────
+const overallProgress = computed(() => {
+  if (remainingQty.value.length === 0) return null
+  const totalOrdered = remainingQty.value.reduce((s, r) => s + (r.ordered_qty || 0), 0)
+  const totalAllocated = remainingQty.value.reduce((s, r) => s + (r.allocated_qty || 0), 0)
+  if (totalOrdered === 0) return null
+  return { totalOrdered, totalAllocated, pct: Math.round((totalAllocated / totalOrdered) * 100) }
 })
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

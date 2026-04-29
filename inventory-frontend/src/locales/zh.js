@@ -223,5 +223,10 @@ export default {
     poStatus_partial: '部分完成',
     poStatus_fulfilled: '已完成',
     poStatus_cancelled: '已取消',
+    // Progress & remaining
+    packingProgress: '打包进度',
+    remainingToPackTitle: '待打包数量',
+    skusRemaining: '个SKU待打包',
+    unitsRemaining: '件待打包',
   }
 }

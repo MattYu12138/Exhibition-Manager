@@ -46,50 +46,27 @@
       <!-- Form -->
       <div v-else-if="shipment">
         <!-- Header -->
-        <div class="mb-5">
+        <div class="mb-4">
           <h1 class="text-xl font-bold text-gray-800">Packing List</h1>
           <p class="text-sm text-gray-400 mt-1">Batch: <span class="font-mono">{{ shipment.ref_no }}</span></p>
           <p v-if="shipment.factory" class="text-sm text-gray-500 mt-0.5">Factory: {{ shipment.factory }}</p>
           <p v-if="shipment.note" class="text-sm text-gray-500 mt-0.5">{{ shipment.note }}</p>
         </div>
 
-        <!-- PO Reference Panel — shows remaining qty, updates as boxes are filled -->
-        <div v-if="remainingQty.length > 0" class="mb-5 bg-blue-50 border border-blue-200 rounded-xl overflow-hidden">
-          <div class="flex items-center justify-between px-4 py-3 cursor-pointer" @click="showPoPanel = !showPoPanel">
-            <div class="flex items-center gap-2">
-              <span class="text-sm font-semibold text-blue-800">📋 Order Reference</span>
-              <span v-if="poNumbers" class="font-mono text-xs text-blue-600 bg-blue-100 px-2 py-0.5 rounded">{{ poNumbers }}</span>
-            </div>
-            <div class="flex items-center gap-3">
-              <span class="text-xs text-blue-500">
-                {{ totalRemaining }} units remaining
-              </span>
-              <span class="text-blue-300 text-xs">{{ showPoPanel ? '▲' : '▼' }}</span>
-            </div>
+        <!-- Overall packing progress bar -->
+        <div v-if="overallProgress" class="mb-5 bg-white rounded-xl shadow-sm p-4">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-sm font-semibold text-gray-700">Packing Progress</span>
+            <span class="text-xs text-gray-500">
+              {{ overallProgress.totalAllocated.toLocaleString() }} / {{ overallProgress.totalOrdered.toLocaleString() }} units ({{ overallProgress.pct }}%)
+            </span>
           </div>
-          <div v-if="showPoPanel" class="overflow-x-auto border-t border-blue-100">
-            <table class="w-full text-xs">
-              <thead>
-                <tr class="text-blue-500 uppercase bg-blue-100/50">
-                  <th class="px-4 py-2 text-left">SKU</th>
-                  <th class="px-4 py-2 text-left">Product</th>
-                  <th class="px-4 py-2 text-center">Ordered</th>
-                  <th class="px-4 py-2 text-center">Packed</th>
-                  <th class="px-4 py-2 text-center font-bold text-blue-700">Remaining</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-blue-100">
-                <tr v-for="item in remainingQty" :key="item.raw_sku" :class="getLocalRemaining(item) === 0 ? 'opacity-50' : ''">
-                  <td class="px-4 py-1.5 font-mono text-blue-800">{{ item.raw_sku }}</td>
-                  <td class="px-4 py-1.5 text-blue-700">{{ item.product_title || item.raw_product_name || '—' }}</td>
-                  <td class="px-4 py-1.5 text-center text-blue-600">{{ item.ordered_qty }}</td>
-                  <td class="px-4 py-1.5 text-center text-gray-600">{{ getLocalAllocated(item.raw_sku) }}</td>
-                  <td class="px-4 py-1.5 text-center font-bold" :class="getLocalRemaining(item) > 0 ? 'text-blue-800' : 'text-green-600'">
-                    {{ getLocalRemaining(item) > 0 ? getLocalRemaining(item) : '✓' }}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <div class="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+            <div
+              class="h-3 rounded-full transition-all duration-500"
+              :class="overallProgress.pct >= 100 ? 'bg-green-500' : overallProgress.pct >= 50 ? 'bg-blue-500' : 'bg-amber-400'"
+              :style="{ width: Math.min(overallProgress.pct, 100) + '%' }"
+            ></div>
           </div>
         </div>
 
@@ -122,24 +99,17 @@
                     placeholder="Style No. (e.g. GS26020)"
                     class="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 min-w-0"
                   />
-                  <!-- Size dropdown -->
+                  <!-- Size dropdown — filtered by remaining qty when PO is linked -->
                   <select
                     v-model="item.size"
                     class="w-28 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
                   >
                     <option value="">Size</option>
-                    <option value="0000">0000 (0-3w)</option>
-                    <option value="000">000 (0-3m)</option>
-                    <option value="00">00 (3-6m)</option>
-                    <option value="0">0 (6-12m)</option>
-                    <option value="1">1 (12-18m)</option>
-                    <option value="XXS">XXS</option>
-                    <option value="XS">XS</option>
-                    <option value="S">S</option>
-                    <option value="M">M</option>
-                    <option value="L">L</option>
-                    <option value="XL">XL</option>
-                    <option value="OS">OS</option>
+                    <option
+                      v-for="sz in getAvailableSizes(item.base_sku)"
+                      :key="sz.code"
+                      :value="sz.code"
+                    >{{ sz.label }}</option>
                   </select>
                   <!-- Qty -->
                   <input
@@ -155,7 +125,6 @@
                 <!-- Remaining hint -->
                 <div v-if="item.base_sku && item.size" class="pl-1 flex items-center gap-2">
                   <span v-if="getItemRemaining(item, bi, ii) !== null" class="text-xs" :class="isOverAllocated(item) ? 'text-red-500' : 'text-gray-400'">
-                    <span v-if="isOverAllocated(item)">⚠ Over by {{ item.quantity - getItemRemaining(item, bi, ii) - item.quantity + getItemRemaining(item, bi, ii) }} — </span>
                     Remaining in order: <strong>{{ Math.max(0, getItemRemaining(item, bi, ii)) }}</strong>
                   </span>
                 </div>
@@ -187,6 +156,96 @@
       </div>
 
     </div>
+
+    <!-- ── Floating PO Reference Drawer Button ─────────────────────────────────── -->
+    <button
+      v-if="shipment && !submitted && remainingQty.length > 0"
+      @click="showPoDrawer = true"
+      class="fixed bottom-6 right-4 z-40 flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-3 rounded-full shadow-lg transition-all"
+    >
+      <span class="text-base">📋</span>
+      <span class="hidden sm:inline">Order Ref</span>
+      <span v-if="totalRemaining > 0" class="bg-white text-blue-600 text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0">
+        {{ Math.min(totalRemaining, 99) }}
+      </span>
+      <span v-else class="bg-green-400 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center shrink-0">✓</span>
+    </button>
+
+    <!-- ── PO Reference Drawer ─────────────────────────────────────────────────── -->
+    <Transition name="drawer">
+      <div v-if="showPoDrawer" class="fixed inset-0 z-50 flex justify-end">
+        <!-- Backdrop -->
+        <div class="absolute inset-0 bg-black/40" @click="showPoDrawer = false"></div>
+        <!-- Drawer panel -->
+        <div class="relative w-full max-w-sm bg-white h-full overflow-y-auto shadow-2xl flex flex-col">
+          <!-- Drawer header -->
+          <div class="sticky top-0 bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between z-10">
+            <div>
+              <h2 class="text-sm font-bold text-gray-800">📋 Order Reference</h2>
+              <p v-if="poNumbers" class="text-xs text-gray-400 mt-0.5 font-mono">{{ poNumbers }}</p>
+            </div>
+            <button @click="showPoDrawer = false" class="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+          </div>
+
+          <!-- Overall progress in drawer -->
+          <div v-if="overallProgress" class="px-4 py-3 bg-gray-50 border-b border-gray-100">
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="text-xs font-medium text-gray-600">Overall Progress</span>
+              <span class="text-xs text-gray-500">{{ overallProgress.totalAllocated }} / {{ overallProgress.totalOrdered }} units ({{ overallProgress.pct }}%)</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+              <div
+                class="h-2 rounded-full transition-all duration-500"
+                :class="overallProgress.pct >= 100 ? 'bg-green-500' : overallProgress.pct >= 50 ? 'bg-blue-500' : 'bg-amber-400'"
+                :style="{ width: Math.min(overallProgress.pct, 100) + '%' }"
+              ></div>
+            </div>
+          </div>
+
+          <!-- Product cards grouped by style -->
+          <div class="flex-1 p-4 space-y-3">
+            <div
+              v-for="group in productGroups"
+              :key="group.styleNo"
+              class="bg-white border rounded-xl overflow-hidden shadow-sm"
+              :class="group.allDone ? 'border-green-200' : 'border-gray-200'"
+            >
+              <!-- Card header -->
+              <div class="px-3 py-2.5 flex items-start justify-between" :class="group.allDone ? 'bg-green-50' : 'bg-gray-50'">
+                <div>
+                  <div class="font-mono text-xs font-bold text-gray-700">{{ group.styleNo }}</div>
+                  <div v-if="group.productName" class="text-xs text-gray-500 mt-0.5 truncate max-w-[180px]">{{ group.productName }}</div>
+                </div>
+                <span v-if="group.allDone" class="text-xs text-green-600 font-medium bg-green-100 px-2 py-0.5 rounded-full shrink-0">✓ Done</span>
+                <span v-else class="text-xs text-amber-600 font-medium bg-amber-50 px-2 py-0.5 rounded-full shrink-0">{{ group.totalRemaining }} left</span>
+              </div>
+              <!-- Size rows -->
+              <div class="divide-y divide-gray-50">
+                <div
+                  v-for="row in group.sizes"
+                  :key="row.raw_sku"
+                  class="px-3 py-2 flex items-center gap-2 text-xs"
+                >
+                  <span class="w-12 font-mono text-gray-500 shrink-0">{{ row.sizeCode }}</span>
+                  <div class="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      class="h-1.5 rounded-full"
+                      :class="row.localRemaining <= 0 ? 'bg-green-400' : row.localAllocated > 0 ? 'bg-blue-400' : 'bg-gray-300'"
+                      :style="{ width: row.ordered_qty > 0 ? Math.min(100, Math.round((row.localAllocated / row.ordered_qty) * 100)) + '%' : '0%' }"
+                    ></div>
+                  </div>
+                  <span class="text-gray-400 shrink-0">{{ row.localAllocated }}/{{ row.ordered_qty }}</span>
+                  <span
+                    class="shrink-0 w-14 text-right font-medium"
+                    :class="row.localRemaining <= 0 ? 'text-green-600' : 'text-amber-600'"
+                  >{{ row.localRemaining <= 0 ? '✓ done' : row.localRemaining + ' left' }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -209,12 +268,28 @@ const submitError = ref(null)
 const submitSummary = ref('')
 const submittedBoxes = ref([])
 
-// PO reference panel
-const remainingQty = ref([])   // from server: ordered_qty per SKU (server-side allocated)
-const showPoPanel = ref(true)
+// PO reference drawer
+const remainingQty = ref([])   // from server: ordered_qty per SKU
+const showPoDrawer = ref(false)
 
 const token = route.params.token || route.query.token
 const qrCanvasMap = {}
+
+// ── Size options master list ──────────────────────────────────────────────────
+const sizeOptions = [
+  { code: '0000', label: '0000 (0-3w)' },
+  { code: '000',  label: '000 (0-3m)' },
+  { code: '00',   label: '00 (3-6m)' },
+  { code: '0',    label: '0 (6-12m)' },
+  { code: '1',    label: '1 (12-18m)' },
+  { code: 'XXS',  label: 'XXS' },
+  { code: 'XS',   label: 'XS' },
+  { code: 'S',    label: 'S' },
+  { code: 'M',    label: 'M' },
+  { code: 'L',    label: 'L' },
+  { code: 'XL',   label: 'XL' },
+  { code: 'OS',   label: 'OS' },
+]
 
 // ── Computed ──────────────────────────────────────────────────────────────────
 const poNumbers = computed(() => {
@@ -226,6 +301,79 @@ const poNumbers = computed(() => {
 const totalRemaining = computed(() => {
   return remainingQty.value.reduce((s, r) => s + Math.max(0, getLocalRemaining(r)), 0)
 })
+
+// Overall progress (combines server-side allocated + local session)
+const overallProgress = computed(() => {
+  if (!remainingQty.value.length) return null
+  const totalOrdered = remainingQty.value.reduce((s, r) => s + (r.ordered_qty || 0), 0)
+  if (totalOrdered === 0) return null
+  // totalAllocated = server allocated + current session local
+  const totalAllocated = remainingQty.value.reduce((s, r) => {
+    const localAlloc = getLocalAllocated(r.raw_sku)
+    return s + (r.allocated_qty || 0) + localAlloc
+  }, 0)
+  return {
+    totalOrdered,
+    totalAllocated: Math.min(totalAllocated, totalOrdered),
+    pct: Math.min(100, Math.round((totalAllocated / totalOrdered) * 100))
+  }
+})
+
+// Product groups for the drawer — group by style number (base SKU without size)
+const productGroups = computed(() => {
+  const groups = {}
+  for (const row of remainingQty.value) {
+    // Extract style no (everything before last dash)
+    const parts = row.raw_sku.split('-')
+    const styleNo = parts.length > 1 ? parts.slice(0, -1).join('-') : row.raw_sku
+    const sizeCode = parts.length > 1 ? parts[parts.length - 1] : ''
+
+    if (!groups[styleNo]) {
+      groups[styleNo] = {
+        styleNo,
+        productName: row.product_title || row.raw_product_name || '',
+        sizes: [],
+        totalRemaining: 0,
+        allDone: false,
+      }
+    }
+
+    const localAlloc = getLocalAllocated(row.raw_sku)
+    const serverAlloc = row.allocated_qty || 0
+    const totalAlloc = serverAlloc + localAlloc
+    const localRemaining = row.ordered_qty - totalAlloc
+
+    groups[styleNo].sizes.push({
+      raw_sku: row.raw_sku,
+      sizeCode,
+      ordered_qty: row.ordered_qty,
+      localAllocated: Math.min(totalAlloc, row.ordered_qty),
+      localRemaining,
+    })
+  }
+
+  // Compute group totals
+  for (const g of Object.values(groups)) {
+    g.totalRemaining = g.sizes.reduce((s, sz) => s + Math.max(0, sz.localRemaining), 0)
+    g.allDone = g.totalRemaining === 0
+  }
+
+  return Object.values(groups).sort((a, b) => a.styleNo.localeCompare(b.styleNo))
+})
+
+// ── Dynamic size options per base SKU ─────────────────────────────────────────
+function getAvailableSizes(baseSku) {
+  if (!baseSku || !remainingQty.value.length) return sizeOptions
+  return sizeOptions.filter(sz => {
+    const fullSku = `${baseSku.trim()}-${sz.code}`
+    const row = remainingQty.value.find(r => r.raw_sku === fullSku)
+    // If no PO row for this size, include it; if row exists, only include if remaining > 0
+    if (!row) return true
+    const localAlloc = getLocalAllocated(fullSku)
+    const totalAlloc = (row.allocated_qty || 0) + localAlloc
+    return (row.ordered_qty - totalAlloc) > 0
+  })
+}
 
 // ── Local allocation helpers (real-time as factory fills boxes) ───────────────
 function getLocalAllocated(rawSku) {
@@ -241,7 +389,6 @@ function getLocalAllocated(rawSku) {
 
 function getLocalRemaining(poItem) {
   const allocated = getLocalAllocated(poItem.raw_sku)
-  // poItem.ordered_qty is total ordered; poItem.allocated_qty is what's already packed server-side (excluding current session)
   const serverAllocated = poItem.allocated_qty || 0
   return poItem.ordered_qty - serverAllocated - allocated
 }
@@ -394,3 +541,27 @@ async function submitForm() {
   }
 }
 </script>
+
+<style scoped>
+/* Drawer slide-in from right */
+.drawer-enter-active,
+.drawer-leave-active {
+  transition: opacity 0.25s ease;
+}
+.drawer-enter-active .relative,
+.drawer-leave-active .relative {
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.drawer-enter-from {
+  opacity: 0;
+}
+.drawer-enter-from .relative {
+  transform: translateX(100%);
+}
+.drawer-leave-to {
+  opacity: 0;
+}
+.drawer-leave-to .relative {
+  transform: translateX(100%);
+}
+</style>

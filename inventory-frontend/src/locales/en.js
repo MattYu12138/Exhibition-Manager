@@ -228,5 +228,10 @@ export default {
     poStatus_partial: 'Partial',
     poStatus_fulfilled: 'Fulfilled',
     poStatus_cancelled: 'Cancelled',
+    // Progress & remaining
+    packingProgress: 'Packing Progress',
+    remainingToPackTitle: 'Remaining to Pack',
+    skusRemaining: 'SKU(s) remaining',
+    unitsRemaining: 'units remaining',
   }
 }
