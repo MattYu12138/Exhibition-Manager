@@ -1219,7 +1219,7 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, computed, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import axios from 'axios'
 import shopifyLogoUrl from '../assets/shopify-logo.png'
@@ -1228,8 +1228,9 @@ import InboundView from './InboundView.vue'
 
 const { t, locale } = useI18n()
 
-// Page tab: 'inventory' | 'inbound'
-const activeTab = ref('inventory')
+// Page tab: 'inventory' | 'inbound' — persisted in localStorage
+const activeTab = ref(localStorage.getItem('inv_activeTab') || 'inventory')
+watch(activeTab, (val) => localStorage.setItem('inv_activeTab', val))
 const api = axios.create({ baseURL: '/api', withCredentials: true })
 
 const platformUrl = import.meta.env.VITE_PLATFORM_URL || 'http://localhost:5174'

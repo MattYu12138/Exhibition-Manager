@@ -620,6 +620,7 @@ async function openShipment(s) {
     activeShipment.value = data.data
     formLink.value = ''
     addingItemBoxId.value = null
+    localStorage.setItem('inv_activeShipmentId', s.id)
     await loadRemainingQty()
   } catch (e) { console.error(e) }
 }
@@ -627,6 +628,7 @@ async function openShipment(s) {
 function closeShipment() {
   activeShipment.value = null
   remainingQty.value = []
+  localStorage.removeItem('inv_activeShipmentId')
   loadShipments()
 }
 
@@ -637,6 +639,7 @@ async function deleteShipment(s) {
     if (activeShipment.value?.id === s.id) {
       activeShipment.value = null
       remainingQty.value = []
+      localStorage.removeItem('inv_activeShipmentId')
     }
     await loadShipments()
   } catch (e) {
@@ -917,7 +920,18 @@ function onScanned(token) {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-onMounted(() => {
-  loadShipments()
+onMounted(async () => {
+  await loadShipments()
+  // Restore active shipment after refresh
+  const savedId = localStorage.getItem('inv_activeShipmentId')
+  if (savedId) {
+    const found = shipments.value.find(s => s.id === savedId)
+    if (found) {
+      await openShipment(found)
+    } else {
+      // Shipment no longer exists, clear saved state
+      localStorage.removeItem('inv_activeShipmentId')
+    }
+  }
 })
 </script>

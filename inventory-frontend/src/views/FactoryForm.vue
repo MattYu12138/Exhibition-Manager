@@ -41,6 +41,15 @@
             </div>
           </div>
         </div>
+
+        <!-- Continue adding more boxes -->
+        <div class="mt-6 pt-5 border-t border-gray-200 text-center">
+          <p class="text-sm text-gray-500 mb-3">Need to add more boxes to this shipment?</p>
+          <button
+            @click="continueAdding"
+            class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-xl text-sm"
+          >+ Add More Boxes</button>
+        </div>
       </div>
 
       <!-- Form -->
@@ -540,6 +549,45 @@ async function submitForm() {
   } finally {
     submitting.value = false
   }
+}
+
+// ── Continue adding more boxes after submit —————————————————————————————————————————
+async function continueAdding() {
+  // Reload the current server state so we see all already-submitted boxes
+  try {
+    const res = await api.get(`/inbound/factory-form/${token}`)
+    shipment.value = res.data.data
+    const serverBoxes = res.data.data.boxes || []
+    const nextBoxNo = serverBoxes.length + 1
+    // Restore existing boxes from server (read-only view) + one new empty box
+    boxes.value = [
+      ...serverBoxes.map(b => ({
+        box_no: b.box_no,
+        qr_token: b.qr_token || null,
+        _submitted: true,  // mark as already submitted
+        items: (b.items || []).map(i => {
+          const parts = (i.raw_sku || '').split('-')
+          const size = parts.length > 1 ? parts[parts.length - 1] : ''
+          const base = parts.length > 1 ? parts.slice(0, -1).join('-') : (i.raw_sku || '')
+          return { base_sku: base, size, quantity: i.quantity }
+        })
+      })),
+      { box_no: String(nextBoxNo), qr_token: null, items: [{ base_sku: '', size: '', quantity: null }] }
+    ]
+    // Refresh remaining qty from server
+    try {
+      const rq = await api.get(`/inbound/factory-form/${token}/remaining-qty`)
+      remainingQty.value = rq.data.data || []
+    } catch { remainingQty.value = [] }
+  } catch (e) {
+    // Fallback: just clear submitted state with a fresh empty box
+    const nextBoxNo = (submittedBoxes.value.length || 0) + 1
+    boxes.value = [{ box_no: String(nextBoxNo), qr_token: null, items: [{ base_sku: '', size: '', quantity: null }] }]
+  }
+  submitted.value = false
+  submittedBoxes.value = []
+  submitSummary.value = ''
+  submitError.value = null
 }
 </script>
 
