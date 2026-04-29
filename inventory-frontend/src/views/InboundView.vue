@@ -618,9 +618,16 @@ async function openShipment(s) {
   try {
     const { data } = await api.get(`/inbound/shipments/${s.id}`)
     activeShipment.value = data.data
-    formLink.value = ''
     addingItemBoxId.value = null
     localStorage.setItem('inv_activeShipmentId', s.id)
+    // Pre-load form link if a valid token already exists on the shipment
+    const existingToken = data.data.form_token
+    const expiresAt = data.data.form_token_expires_at
+    if (existingToken && expiresAt && new Date(expiresAt + ' UTC') > new Date()) {
+      formLink.value = `${window.location.origin}/factory/submit?token=${existingToken}`
+    } else {
+      formLink.value = ''
+    }
     await loadRemainingQty()
   } catch (e) { console.error(e) }
 }
@@ -765,6 +772,8 @@ async function deleteItem(item, box) {
 
 // ── Form link ─────────────────────────────────────────────────────────────────
 async function generateFormLink() {
+  // If we already have a valid link, just show it — no need to call the API again
+  if (formLink.value) return
   generatingLink.value = true
   try {
     const { data } = await api.post(`/inbound/shipments/${activeShipment.value.id}/form-token`)
