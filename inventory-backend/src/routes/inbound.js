@@ -313,8 +313,18 @@ router.delete('/shipments/:id', requirePermission('write'), (req, res) => {
 router.post('/shipments/:id/form-token', requirePermission('write'), (req, res) => {
   try {
     const db = getDb();
-    const shipment = db.prepare('SELECT id FROM inbound_shipments WHERE id = ?').get(req.params.id);
+    const shipment = db.prepare('SELECT id, form_token, form_token_expires_at FROM inbound_shipments WHERE id = ?').get(req.params.id);
     if (!shipment) return res.status(404).json({ success: false, error: 'Shipment not found' });
+
+    // Reuse existing token if it is still valid (not expired)
+    if (shipment.form_token && shipment.form_token_expires_at) {
+      const expiresAt = new Date(shipment.form_token_expires_at + ' UTC');
+      if (expiresAt > new Date()) {
+        return res.json({ success: true, data: { form_token: shipment.form_token } });
+      }
+    }
+
+    // Generate a new token only when none exists or it has expired
     const token = generateQrToken();
     db.prepare(`
       UPDATE inbound_shipments SET form_token = ?, form_token_expires_at = datetime('now', '+30 days'), updated_at = datetime('now') WHERE id = ?
