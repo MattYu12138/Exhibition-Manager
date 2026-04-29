@@ -165,8 +165,7 @@ function handleQrResult(data) {
   }
 
   emit('scanned', token);
-  // Navigate to scan-receive page
-  router.push({ name: 'ScanReceive', params: { token } });
+  // Navigation is handled by the parent via @scanned event
 }
 
 function submitManual() {

@@ -1038,7 +1038,7 @@ async function applyManualMatch(variant) {
 // ── QR scanner callback ───────────────────────────────────────────────────────
 function onScanned(token) {
   showScanner.value = false
-  router.push({ name: 'ScanReceive', params: { token } })
+  router.push({ name: 'ScanReceive', params: { qrToken: token } })
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
