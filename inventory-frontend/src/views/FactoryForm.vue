@@ -542,15 +542,17 @@ async function submitForm() {
   submitError.value = null
   try {
     const payload = {
-      boxes: boxes.value.map((b, idx) => ({
-        box_no: b.box_no || String(idx + 1),
-        items: b.items
-          .filter(i => i.base_sku && i.quantity > 0)
-          .map(i => ({
-            raw_sku: i.size ? `${i.base_sku.trim()}-${i.size}` : i.base_sku.trim(),
-            quantity: i.quantity,
-          }))
-      })).filter(b => b.items.length > 0)
+      boxes: boxes.value
+        .filter(b => !b._submitted)  // skip already-submitted boxes
+        .map((b, idx) => ({
+          box_no: b.box_no || String(idx + 1),
+          items: b.items
+            .filter(i => i.base_sku && i.quantity > 0)
+            .map(i => ({
+              raw_sku: i.size ? `${i.base_sku.trim()}-${i.size}` : i.base_sku.trim(),
+              quantity: i.quantity,
+            }))
+        })).filter(b => b.items.length > 0)
     }
     if (payload.boxes.length === 0) {
       submitError.value = 'Please add at least one item with SKU and quantity'
