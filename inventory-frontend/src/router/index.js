@@ -1,7 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import axios from 'axios'
-
 const routes = [
   {
     path: '/login',
@@ -15,12 +14,12 @@ const routes = [
     component: () => import('../views/InventoryDashboard.vue'),
     meta: { requiresAuth: true },
   },
-  // Public QR scan page — no auth required
+  // QR scan page — requires login; unauthenticated users are redirected to login then back
   {
     path: '/scan/:qrToken',
     name: 'ScanReceive',
     component: () => import('../views/ScanReceive.vue'),
-    meta: { public: true },
+    meta: { requiresAuth: true },
   },
   // Public factory packing list form — no auth required
   {
@@ -30,17 +29,13 @@ const routes = [
     meta: { public: true },
   },
 ]
-
 const router = createRouter({
   history: createWebHistory(),
   routes
 })
-
 router.beforeEach(async (to) => {
   if (to.meta.public) return true
-
   const authStore = useAuthStore()
-
   // ── SSO 自动登录 ──────────────────────────────────────────────
   const ssoToken = to.query.sso_token
   if (ssoToken && !authStore.isLoggedIn) {
@@ -57,16 +52,13 @@ router.beforeEach(async (to) => {
     }
   }
   // ─────────────────────────────────────────────────────────────
-
   if (!authStore.isLoggedIn) {
     await authStore.fetchMe()
   }
-
   if (!authStore.isLoggedIn) {
-    return { name: 'Login' }
+    // Pass the full target path as redirect so login can return user here
+    return { name: 'Login', query: { redirect: to.fullPath } }
   }
-
   return true
 })
-
 export default router

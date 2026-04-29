@@ -65,11 +65,23 @@
       <!-- Form -->
       <div v-else-if="shipment">
         <!-- Header -->
-        <div class="mb-4">
-          <h1 class="text-xl font-bold text-gray-800">Packing List</h1>
-          <p class="text-sm text-gray-400 mt-1">Batch: <span class="font-mono">{{ shipment.ref_no }}</span></p>
-          <p v-if="shipment.factory" class="text-sm text-gray-500 mt-0.5">Factory: {{ shipment.factory }}</p>
-          <p v-if="shipment.note" class="text-sm text-gray-500 mt-0.5">{{ shipment.note }}</p>
+        <div class="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h1 class="text-xl font-bold text-gray-800">Packing List</h1>
+            <p class="text-sm text-gray-400 mt-1">Batch: <span class="font-mono">{{ shipment.ref_no }}</span></p>
+            <p v-if="shipment.factory" class="text-sm text-gray-500 mt-0.5">Factory: {{ shipment.factory }}</p>
+            <p v-if="shipment.note" class="text-sm text-gray-500 mt-0.5">{{ shipment.note }}</p>
+          </div>
+          <!-- Print PDF button — shown when there are already-submitted boxes -->
+          <button
+            v-if="submittedBoxes.length > 0"
+            @click="printLabelsPdf"
+            :disabled="generatingPdf"
+            class="shrink-0 bg-gray-800 hover:bg-gray-900 disabled:opacity-50 text-white font-semibold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5"
+          >
+            <span>🖨️</span>
+            {{ generatingPdf ? 'Generating...' : 'Print Labels' }}
+          </button>
         </div>
 
         <!-- Overall packing progress bar -->
@@ -116,7 +128,9 @@
                   <input
                     v-model="item.base_sku"
                     placeholder="Style No. (e.g. GS26020)"
-                    class="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 min-w-0"
+                    class="flex-1 border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-400 min-w-0 uppercase"
+                    @input="item.base_sku = $event.target.value.toUpperCase()"
+                    style="text-transform: uppercase"
                   />
                   <!-- Size dropdown — filtered by remaining qty when PO is linked -->
                   <select

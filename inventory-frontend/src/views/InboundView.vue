@@ -152,43 +152,7 @@
           </div>
         </div>
 
-        <!-- Remaining qty panel (shown when POs are linked) -->
-        <div v-if="activeShipment.pos?.length > 0 && remainingQty.length > 0" class="mb-4 bg-white rounded-xl shadow-sm overflow-hidden">
-          <div class="flex items-center justify-between px-4 py-3 bg-amber-50 border-b border-amber-100 cursor-pointer" @click="showRemainingPanel = !showRemainingPanel">
-            <span class="text-sm font-semibold text-amber-800">📦 {{ t('inbound.remainingToPackTitle') }}</span>
-            <div class="flex items-center gap-3">
-              <span class="text-xs text-amber-600">
-                {{ remainingQty.filter(r => r.remaining_qty > 0).length }} {{ t('inbound.skusRemaining') }}
-                · {{ remainingQty.reduce((s, r) => s + r.remaining_qty, 0) }} {{ t('inbound.unitsRemaining') }}
-              </span>
-              <span class="text-amber-400 text-xs">{{ showRemainingPanel ? '▲' : '▼' }}</span>
-            </div>
-          </div>
-          <div v-if="showRemainingPanel" class="overflow-x-auto">
-            <table class="w-full text-xs">
-              <thead class="text-gray-400 uppercase bg-gray-50">
-                <tr>
-                  <th class="px-4 py-2 text-left">{{ t('inbound.sku') }}</th>
-                  <th class="px-4 py-2 text-left">{{ t('inbound.product') }}</th>
-                  <th class="px-4 py-2 text-center">{{ t('inbound.poOrdered') }}</th>
-                  <th class="px-4 py-2 text-center">{{ t('inbound.allocated') }}</th>
-                  <th class="px-4 py-2 text-center font-bold text-amber-700">{{ t('inbound.remaining') }}</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-gray-50">
-                <tr v-for="r in remainingQty" :key="r.raw_sku" :class="r.remaining_qty === 0 ? 'opacity-40' : ''">
-                  <td class="px-4 py-2 font-mono text-gray-700">{{ r.raw_sku }}</td>
-                  <td class="px-4 py-2 text-gray-500">{{ r.product_title || r.raw_product_name }}<span v-if="r.variant_title" class="text-gray-400"> / {{ r.variant_title }}</span></td>
-                  <td class="px-4 py-2 text-center text-gray-600">{{ r.ordered_qty }}</td>
-                  <td class="px-4 py-2 text-center text-blue-600">{{ r.allocated_qty }}</td>
-                  <td class="px-4 py-2 text-center font-bold" :class="r.remaining_qty > 0 ? 'text-amber-700' : 'text-green-600'">
-                    {{ r.remaining_qty > 0 ? r.remaining_qty : '✓' }}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <!-- Remaining qty: floating button (shown when POs are linked) -->
 
         <!-- Boxes -->
         <div v-if="!activeShipment.boxes || activeShipment.boxes.length === 0" class="text-center py-12 text-gray-400">{{ t('inbound.noBoxes') }}</div>
@@ -254,6 +218,7 @@
                       @input="onBaseSkuInput"
                       :placeholder="t('inbound.styleNoPlaceholder')"
                       class="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-purple-400"
+                      style="text-transform: uppercase"
                     />
                     <div v-if="baseSkuSuggestions.length > 0" class="absolute z-20 left-0 right-0 bg-white border border-gray-200 rounded shadow-lg max-h-40 overflow-y-auto">
                       <div
@@ -512,8 +477,176 @@
     <!-- ── QR Scanner Modal ─────────────────────────────────────────────────────── -->
     <QrScanner v-if="showScanner" @close="showScanner = false" @scanned="onScanned" />
 
+    <!-- ── Remaining-to-pack floating button ──────────────────────────────────── -->
+    <teleport to="body">
+      <!-- Floating trigger button (bottom-right) -->
+      <button
+        v-if="activeShipment && activeShipment.pos?.length > 0 && remainingQty.length > 0"
+        @click="showRemainingPanel = true"
+        class="remaining-fab"
+        :title="t('inbound.remainingToPackTitle')"
+      >
+        <span class="fab-icon">📦</span>
+        <span class="fab-badge" v-if="remainingQty.reduce((s,r)=>s+r.remaining_qty,0) > 0">
+          {{ remainingQty.reduce((s,r)=>s+r.remaining_qty,0).toLocaleString() }}
+        </span>
+      </button>
+
+      <!-- Drawer overlay -->
+      <transition name="drawer-fade">
+        <div v-if="showRemainingPanel" class="drawer-overlay" @click.self="showRemainingPanel = false">
+          <div class="remaining-drawer">
+            <!-- Drawer header -->
+            <div class="drawer-header">
+              <div>
+                <div class="drawer-title">📦 {{ t('inbound.remainingToPackTitle') }}</div>
+                <div class="drawer-subtitle">
+                  {{ remainingQty.filter(r => r.remaining_qty > 0).length }} {{ t('inbound.skusRemaining') }}
+                  · {{ remainingQty.reduce((s, r) => s + r.remaining_qty, 0).toLocaleString() }} {{ t('inbound.unitsRemaining') }}
+                </div>
+              </div>
+              <button @click="showRemainingPanel = false" class="drawer-close">✕</button>
+            </div>
+            <!-- Drawer body -->
+            <div class="drawer-body">
+              <table class="w-full text-xs">
+                <thead>
+                  <tr class="text-gray-400 uppercase bg-gray-50">
+                    <th class="px-4 py-2 text-left">{{ t('inbound.sku') }}</th>
+                    <th class="px-4 py-2 text-left">{{ t('inbound.product') }}</th>
+                    <th class="px-4 py-2 text-center">{{ t('inbound.poOrdered') }}</th>
+                    <th class="px-4 py-2 text-center">{{ t('inbound.allocated') }}</th>
+                    <th class="px-4 py-2 text-center font-bold text-amber-700">{{ t('inbound.remaining') }}</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                  <tr v-for="r in remainingQty" :key="r.raw_sku" :class="r.remaining_qty === 0 ? 'opacity-40' : ''">
+                    <td class="px-4 py-2 font-mono text-gray-700">{{ r.raw_sku }}</td>
+                    <td class="px-4 py-2 text-gray-500">
+                      {{ r.product_title || r.raw_product_name }}
+                      <span v-if="r.variant_title" class="text-gray-400"> / {{ r.variant_title }}</span>
+                    </td>
+                    <td class="px-4 py-2 text-center text-gray-600">{{ r.ordered_qty }}</td>
+                    <td class="px-4 py-2 text-center text-blue-600">{{ r.allocated_qty }}</td>
+                    <td class="px-4 py-2 text-center font-bold" :class="r.remaining_qty > 0 ? 'text-amber-700' : 'text-green-600'">
+                      {{ r.remaining_qty > 0 ? r.remaining_qty : '✓' }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </transition>
+    </teleport>
+
   </div>
 </template>
+
+<style scoped>
+/* ── Remaining-to-pack floating button ──────────────────────────────────────── */
+.remaining-fab {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #92400e;
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 10px 18px 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  transition: background 0.2s, transform 0.15s;
+  white-space: nowrap;
+}
+.remaining-fab:hover {
+  background: #78350f;
+  transform: translateY(-2px);
+}
+.fab-icon { font-size: 18px; line-height: 1; }
+.fab-badge {
+  background: #fef3c7;
+  color: #92400e;
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* ── Drawer overlay ─────────────────────────────────────────────────────────── */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(0,0,0,0.35);
+  display: flex;
+  justify-content: flex-end;
+}
+.remaining-drawer {
+  width: min(620px, 95vw);
+  height: 100%;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -4px 0 24px rgba(0,0,0,0.12);
+  animation: slideInRight 0.22s ease;
+}
+@keyframes slideInRight {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+.drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 20px 20px 16px;
+  background: #fffbeb;
+  border-bottom: 1px solid #fde68a;
+  flex-shrink: 0;
+}
+.drawer-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #92400e;
+}
+.drawer-subtitle {
+  font-size: 12px;
+  color: #b45309;
+  margin-top: 4px;
+}
+.drawer-close {
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.drawer-close:hover { color: #374151; }
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+/* ── Transition ─────────────────────────────────────────────────────────────── */
+.drawer-fade-enter-active,
+.drawer-fade-leave-active {
+  transition: opacity 0.2s;
+}
+.drawer-fade-enter-from,
+.drawer-fade-leave-to {
+  opacity: 0;
+}
+</style>
 
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
@@ -585,7 +718,7 @@ const poImportResult = ref('')
 
 // ── Remaining qty ─────────────────────────────────────────────────────────────
 const remainingQty = ref([])
-const showRemainingPanel = ref(true)
+const showRemainingPanel = ref(false)
 
 // ── Link Shipment Modal ───────────────────────────────────────────────────────
 const showLinkShipmentModal = ref(false)
@@ -766,7 +899,9 @@ function cancelAddItem() {
   baseSkuSuggestions.value = []
 }
 
-function onBaseSkuInput() {
+function onBaseSkuInput(e) {
+  // Force uppercase
+  newItem.value.base_sku = e.target.value.toUpperCase()
   clearTimeout(skuDebounce)
   newItem.value.match_status = ''
   newItem.value.product_title = ''

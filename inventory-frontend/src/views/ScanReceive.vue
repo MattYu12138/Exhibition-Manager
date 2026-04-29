@@ -75,17 +75,22 @@
       <h2 class="text-2xl font-bold mb-2">Received!</h2>
       <p class="text-green-100 mb-1">{{ result?.totalQty }} units across {{ result?.variantCount }} SKUs</p>
       <p class="text-green-200 text-sm">Inventory updated</p>
+      <p class="text-green-200 text-sm mt-4">Returning in {{ countdown }}s...</p>
+      <button @click="goHome" class="mt-4 px-6 py-2 bg-white text-green-700 font-semibold rounded-full text-sm shadow">
+        Back to Home
+      </button>
     </div>
 
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import axios from 'axios'
 
 const route = useRoute()
+const router = useRouter()
 const api = axios.create({ baseURL: '/api', withCredentials: true })
 
 const loading = ref(true)
@@ -96,6 +101,8 @@ const receiving = ref(false)
 const receiveError = ref(null)
 const received = ref(false)
 const result = ref(null)
+const countdown = ref(3)
+let countdownTimer = null
 
 const qrToken = computed(() => route.params.qrToken)
 
@@ -116,6 +123,11 @@ onMounted(async () => {
   }
 })
 
+function goHome() {
+  if (countdownTimer) clearInterval(countdownTimer)
+  router.push('/')
+}
+
 async function confirmReceive() {
   receiving.value = true
   receiveError.value = null
@@ -123,12 +135,25 @@ async function confirmReceive() {
     const res = await api.post(`/inbound/scan/${qrToken.value}/receive`, {})
     result.value = res.data.data
     received.value = true
+    // Auto-redirect after 3 seconds
+    countdown.value = 3
+    countdownTimer = setInterval(() => {
+      countdown.value--
+      if (countdown.value <= 0) {
+        clearInterval(countdownTimer)
+        router.push('/')
+      }
+    }, 1000)
   } catch (e) {
     receiveError.value = e.response?.data?.error || e.message
   } finally {
     receiving.value = false
   }
 }
+
+onUnmounted(() => {
+  if (countdownTimer) clearInterval(countdownTimer)
+})
 
 function fmtDate(dt) {
   if (!dt) return ''

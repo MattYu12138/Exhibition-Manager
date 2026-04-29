@@ -53,11 +53,12 @@
 
 <script setup>
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import axios from 'axios'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 const api = axios.create({ baseURL: '/api', withCredentials: true })
 
@@ -81,7 +82,8 @@ async function handleLogin() {
     })
     if (res.data.success) {
       authStore.user = res.data.user
-      router.push('/')
+      const redirect = route.query.redirect
+      router.push(redirect && redirect !== '/login' ? redirect : '/')
     } else {
       errorMsg.value = res.data.message || '登录失败'
     }
