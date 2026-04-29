@@ -42,13 +42,23 @@
           </div>
         </div>
 
-        <!-- Continue adding more boxes -->
-        <div class="mt-6 pt-5 border-t border-gray-200 text-center">
-          <p class="text-sm text-gray-500 mb-3">Need to add more boxes to this shipment?</p>
-          <button
-            @click="continueAdding"
-            class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-xl text-sm"
-          >+ Add More Boxes</button>
+        <!-- Print PDF + Continue adding more boxes -->
+        <div class="mt-6 pt-5 border-t border-gray-200">
+          <div class="flex flex-col sm:flex-row gap-3 justify-center">
+            <button
+              @click="printLabelsPdf"
+              :disabled="generatingPdf"
+              class="bg-gray-800 hover:bg-gray-900 disabled:opacity-50 text-white font-semibold px-6 py-3 rounded-xl text-sm flex items-center justify-center gap-2"
+            >
+              <span>🖨️</span>
+              {{ generatingPdf ? 'Generating PDF...' : 'Print Labels (PDF)' }}
+            </button>
+            <button
+              @click="continueAdding"
+              class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-xl text-sm"
+            >+ Add More Boxes</button>
+          </div>
+          <p class="text-xs text-gray-400 text-center mt-2">PDF contains a printable grid of QR labels — one per box</p>
         </div>
       </div>
 
@@ -263,6 +273,7 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 import QRCode from 'qrcode'
+import { jsPDF } from 'jspdf'
 
 const route = useRoute()
 const api = axios.create({ baseURL: '/api', withCredentials: false })
@@ -276,6 +287,7 @@ const submitted = ref(false)
 const submitError = ref(null)
 const submitSummary = ref('')
 const submittedBoxes = ref([])
+const generatingPdf = ref(false)
 
 // PO reference drawer
 const remainingQty = ref([])   // from server: ordered_qty per SKU
@@ -548,6 +560,85 @@ async function submitForm() {
     submitError.value = e.response?.data?.error || e.message
   } finally {
     submitting.value = false
+  }
+}
+
+// ── Print QR labels as A4 PDF grid ──────────────────────────────────────────────
+async function printLabelsPdf() {
+  if (!submittedBoxes.value.length) return
+  generatingPdf.value = true
+  try {
+    // A4 page: 210 x 297 mm
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+    const pageW = 210
+    const pageH = 297
+    const margin = 10        // page margin mm
+    const cols = 3           // labels per row
+    const rows = 3           // labels per column
+    const labelsPerPage = cols * rows
+    const cellW = (pageW - margin * 2) / cols
+    const cellH = (pageH - margin * 2) / rows
+    const qrSize = Math.min(cellW, cellH) * 0.55  // QR code takes 55% of cell
+    const qrOffX = (cellW - qrSize) / 2           // center QR horizontally
+
+    for (let i = 0; i < submittedBoxes.value.length; i++) {
+      const box = submittedBoxes.value[i]
+      const page = Math.floor(i / labelsPerPage)
+      const pos  = i % labelsPerPage
+      const col  = pos % cols
+      const row  = Math.floor(pos / cols)
+
+      if (pos === 0 && i > 0) pdf.addPage()
+
+      const x = margin + col * cellW
+      const y = margin + row * cellH
+
+      // Cell border
+      pdf.setDrawColor(200)
+      pdf.setLineWidth(0.3)
+      pdf.rect(x, y, cellW, cellH)
+
+      // Generate QR as data URL
+      const qrUrl = `${window.location.origin}/scan/${box.qr_token}`
+      const qrDataUrl = await QRCode.toDataURL(qrUrl, { width: 256, margin: 1 })
+
+      // Draw QR image centered
+      pdf.addImage(qrDataUrl, 'PNG', x + qrOffX, y + 3, qrSize, qrSize)
+
+      // Box label
+      pdf.setFontSize(10)
+      pdf.setFont('helvetica', 'bold')
+      pdf.text(`Box ${box.box_no}`, x + cellW / 2, y + qrSize + 8, { align: 'center' })
+
+      // Shipment ref
+      pdf.setFontSize(7)
+      pdf.setFont('helvetica', 'normal')
+      pdf.setTextColor(120)
+      pdf.text(shipment.value?.ref_no || '', x + cellW / 2, y + qrSize + 13, { align: 'center' })
+      pdf.setTextColor(0)
+
+      // Item list (up to 4 lines)
+      if (box.items?.length) {
+        pdf.setFontSize(6)
+        const maxLines = 4
+        const lines = box.items.slice(0, maxLines)
+        lines.forEach((it, li) => {
+          const txt = `${it.raw_sku}  ×${it.quantity}`
+          pdf.text(txt, x + cellW / 2, y + qrSize + 17 + li * 4, { align: 'center' })
+        })
+        if (box.items.length > maxLines) {
+          pdf.text(`+${box.items.length - maxLines} more...`, x + cellW / 2, y + qrSize + 17 + maxLines * 4, { align: 'center' })
+        }
+      }
+    }
+
+    const filename = `${shipment.value?.ref_no || 'labels'}_QR_labels.pdf`
+    pdf.save(filename)
+  } catch (e) {
+    console.error('PDF generation failed', e)
+    alert('Failed to generate PDF: ' + e.message)
+  } finally {
+    generatingPdf.value = false
   }
 }
 
