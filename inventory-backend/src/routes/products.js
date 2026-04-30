@@ -257,46 +257,6 @@ router.get('/last-sync', requirePermission('read'), (req, res) => {
 });
 
 /**
- * GET /api/products/square-inventory?variationIds=id1,id2,...
- * Fetch real-time Square inventory counts for the given variation IDs.
- * Returns a map: { [variationId]: quantity (number | null) }
- */
-router.get('/square-inventory', requirePermission('read'), async (req, res) => {
-  try {
-    const rawIds = (req.query.variationIds || '').split(',').map(s => s.trim()).filter(Boolean);
-    if (rawIds.length === 0) return res.json({ success: true, counts: {} });
-
-    const locationId = squareService.locationId;
-    // Square batchGetCounts accepts up to 1000 IDs per call; chunk if needed
-    const CHUNK = 500;
-    const countMap = {};
-    for (let i = 0; i < rawIds.length; i += CHUNK) {
-      const chunk = rawIds.slice(i, i + CHUNK);
-      const result = await squareService.client.inventory.batchGetCounts({
-        catalogObjectIds: chunk,
-        locationIds: locationId ? [locationId] : undefined,
-      });
-      const counts = result?.response?.counts || result?.data || [];
-      for (const c of counts) {
-        if (c.state === 'IN_STOCK') {
-          const existing = countMap[c.catalogObjectId];
-          const qty = parseInt(c.quantity, 10) || 0;
-          countMap[c.catalogObjectId] = existing !== undefined ? existing + qty : qty;
-        }
-      }
-    }
-    // Fill missing IDs with null
-    for (const id of rawIds) {
-      if (countMap[id] === undefined) countMap[id] = null;
-    }
-    res.json({ success: true, counts: countMap });
-  } catch (err) {
-    console.error('square-inventory error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-/**
  * POST /api/products/batch-update
  * Batch update products and variants in Shopify (local DB updated on next sync)
  */

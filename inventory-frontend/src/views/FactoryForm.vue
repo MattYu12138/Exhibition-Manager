@@ -501,13 +501,11 @@ onMounted(async () => {
 
     const existingBoxes = d.existingBoxes || []
     if (existingBoxes.length > 0) {
-      const nextBoxNo = existingBoxes.length + 1
-      boxes.value = [
-        ...parseBoxesFromServer(existingBoxes),
-        { box_no: String(nextBoxNo), qr_token: null, items: [{ base_sku: '', size: '', quantity: null }] }
-      ]
+      // Already has submitted boxes — show the completion/summary view directly
+      submittedBoxes.value = parseBoxesFromServer(existingBoxes)
+      submitted.value = true
       await nextTick()
-      for (const box of boxes.value) {
+      for (const box of submittedBoxes.value) {
         if (box.qr_token && qrCanvasMap[box.qr_token]) {
           renderQr(box.qr_token, qrCanvasMap[box.qr_token])
         }

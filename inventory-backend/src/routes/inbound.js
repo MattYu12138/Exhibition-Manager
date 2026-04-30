@@ -844,7 +844,6 @@ router.post('/factory-form/:token/submit', (req, res) => {
     const db = getDb();
     const shipment = db.prepare('SELECT * FROM inbound_shipments WHERE form_token = ?').get(req.params.token);
     if (!shipment) return res.status(404).json({ success: false, error: 'Invalid or expired form link' });
-    if (shipment.status === 'received') return res.status(400).json({ success: false, error: 'Shipment already received' });
 
     const { boxes = [] } = req.body;
     if (!boxes.length) return res.status(400).json({ success: false, error: 'No boxes provided' });

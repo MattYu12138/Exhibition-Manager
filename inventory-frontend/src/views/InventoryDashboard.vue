@@ -406,12 +406,6 @@
                         库存
                       </span>
                     </th>
-                    <th class="text-center px-4 py-2">
-                      <span class="inline-flex items-center gap-1">
-                        <img :src="squareLogoUrl" alt="Square" class="h-3.5 w-auto" />
-                        库存
-                      </span>
-                    </th>
                     <th class="text-left px-4 py-2">{{ t('inventory.issues') }}</th>
                     <th class="text-left px-4 py-2">{{ t('inventory.actions') }}</th>
                   </tr>
@@ -456,17 +450,7 @@
                         {{ variant.inventory_quantity != null ? variant.inventory_quantity : '—' }}
                       </span>
                     </td>
-                    <!-- Square inventory quantity (real-time) -->
-                    <td class="px-4 py-2 text-center">
-                      <span v-if="squareInventoryLoading" class="text-gray-300 text-xs">⋯</span>
-                      <span
-                        v-else
-                        class="inline-block px-2 py-0.5 rounded text-xs font-semibold"
-                        :class="squareInventoryMap[variant.id] > 0 ? 'bg-blue-50 text-blue-700' : squareInventoryMap[variant.id] === 0 ? 'bg-gray-100 text-gray-500' : 'bg-gray-50 text-gray-400'"
-                      >
-                        {{ squareInventoryMap[variant.id] != null ? squareInventoryMap[variant.id] : '—' }}
-                      </span>
-                    </td>
+
                     <td class="px-4 py-2 space-y-0.5">
                       <span v-if="variant.hasDuplicateSKU"
                         class="inline-block bg-red-100 text-red-600 px-1.5 py-0.5 rounded mr-1 text-xs leading-tight">
@@ -1320,11 +1304,6 @@ const crossBothSearchQuery = reactive({})
 const crossBothSearchResults = reactive({})
 const bulkAddLoading = ref(false)
 
-// ── Square real-time inventory counts ─────────────────────────────────────────
-// Map: square variation ID → quantity (number | null)
-const squareInventoryMap = ref({})
-const squareInventoryLoading = ref(false)
-
 // ─── Computed summary (switches by activeSource) ──────────────────────────────
 const activeSummary = computed(() => {
   if (activeSource.value === 'square') {
@@ -1953,54 +1932,6 @@ const filteredProducts = computed(() => {
 })
 
 // ─── Fetch / Sync ─────────────────────────────────────────────────────────────
-async function fetchSquareInventory() {
-  // Collect all square variation IDs from the current product list
-  const db_variants = products.value.flatMap(p => p.variants || [])
-  // Match via SKU or barcode against square_products
-  // We need to call the backend which knows the square variation IDs
-  // Get all square variation IDs from the square-products endpoint (already cached)
-  try {
-    const squareRes = await api.get('/products/square-products')
-    const allSquareVariations = squareRes.data.products || []
-    // Build a map: sku → square variation ID, gtin → square variation ID
-    const skuToSquareId = {}
-    const gtinToSquareId = {}
-    for (const v of allSquareVariations) {
-      if (v.sku) skuToSquareId[v.sku.trim().toUpperCase()] = v.id
-      if (v.gtin) gtinToSquareId[v.gtin.trim()] = v.id
-    }
-    // Collect unique square variation IDs needed for current products
-    const neededIds = new Set()
-    for (const variant of db_variants) {
-      const byGtin = variant.barcode ? gtinToSquareId[variant.barcode.trim()] : null
-      const bySku = variant.sku ? skuToSquareId[variant.sku.trim().toUpperCase()] : null
-      const squareId = byGtin || bySku
-      if (squareId) neededIds.add(squareId)
-    }
-    if (neededIds.size === 0) return
-    squareInventoryLoading.value = true
-    const res = await api.get('/products/square-inventory', {
-      params: { variationIds: [...neededIds].join(',') }
-    })
-    squareInventoryMap.value = res.data.counts || {}
-    // Also store a helper map: shopify variant id → square qty
-    // by re-mapping through sku/gtin
-    const variantToSquareQty = {}
-    for (const variant of db_variants) {
-      const byGtin = variant.barcode ? gtinToSquareId[variant.barcode.trim()] : null
-      const bySku = variant.sku ? skuToSquareId[variant.sku.trim().toUpperCase()] : null
-      const squareId = byGtin || bySku
-      if (squareId && res.data.counts[squareId] !== undefined) {
-        variantToSquareQty[variant.id] = res.data.counts[squareId]
-      }
-    }
-    squareInventoryMap.value = variantToSquareQty
-  } catch (err) {
-    console.error('fetchSquareInventory error:', err.message)
-  } finally {
-    squareInventoryLoading.value = false
-  }
-}
 
 async function fetchProducts() {
   loading.value = true
@@ -2397,8 +2328,6 @@ async function commitChanges() {
 
 onMounted(async () => {
   await Promise.all([fetchProducts(), fetchLastSync(), fetchSquareLastSync()])
-  // Load Square inventory counts after products are loaded
-  await fetchSquareInventory()
 })
 </script>
 
