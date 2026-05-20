@@ -12,6 +12,11 @@ require('./db');
 const app = express();
 const PORT = process.env.PORT || 3003;
 
+// Trust nginx reverse proxy so that secure cookies work behind HTTPS
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 // ── 中间件 ────────────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -36,6 +41,7 @@ app.use(session({
     httpOnly: true,
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7天
     sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
   },
 }));
 
