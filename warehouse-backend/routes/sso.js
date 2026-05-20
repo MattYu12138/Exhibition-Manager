@@ -18,7 +18,7 @@ router.post('/login', async (req, res) => {
     const response = await fetch(`${PLATFORM_BACKEND_URL}/api/sso/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, system: 'warehouse', secret: SSO_SECRET }),
+      body: JSON.stringify({ token, system: 'warehouse-manager', secret: SSO_SECRET }),
     });
     const data = await response.json();
     if (!data.success) {
