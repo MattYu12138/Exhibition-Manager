@@ -105,6 +105,7 @@ async function handleLogout() {
 const SYSTEM_SSO_MAP = {
   'exhibition-manager': 'exhibition',
   'inventory-manager': 'inventory',
+  'warehouse-manager': 'warehouse',
 }
 
 async function openSystem(system) {

@@ -87,3 +87,32 @@ services:
       - '127.0.0.1:8082:80'
     depends_on:
       - inventory-backend
+
+  # ─────────────────────────────────────────────
+  # Warehouse Manager
+  # ─────────────────────────────────────────────
+  warehouse-backend:
+    build: ./warehouse-backend
+    restart: always
+    env_file:
+      - ./warehouse-backend/.env
+    environment:
+      - PLATFORM_BACKEND_URL=http://platform-backend:3000
+      - SSO_SECRET=lummi-sso-secret-2026
+    volumes:
+      - /data/lic:/data/lic
+    ports:
+      - '127.0.0.1:3003:3003'
+    depends_on:
+      - platform-backend
+
+  warehouse-frontend:
+    build:
+      context: ./warehouse-frontend
+      args:
+        VITE_PLATFORM_URL: https://licplatform.lummiincolour.com.au
+    restart: always
+    ports:
+      - '127.0.0.1:8083:80'
+    depends_on:
+      - warehouse-backend
