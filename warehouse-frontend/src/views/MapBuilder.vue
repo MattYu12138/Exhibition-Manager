@@ -53,15 +53,15 @@
             <span>类型</span>
             <el-tag size="small">{{ getModuleName(selectedCell.type) }}</el-tag>
           </div>
-          <div v-if="selectedCell.type === 'shelf'" class="info-row">
+          <div v-if="selectedCell.type.startsWith('shelf')" class="info-row">
             <span>货位编码</span>
             <el-input v-model="selectedCell.code" size="small" placeholder="如 A-01" @change="updateCell" />
           </div>
-          <div v-if="selectedCell.type === 'shelf'" class="info-row">
+          <div v-if="selectedCell.type.startsWith('shelf')" class="info-row">
             <span>行数</span>
             <el-input-number v-model="selectedCell.rows" :min="1" :max="10" size="small" style="width:80px" @change="updateCell" />
           </div>
-          <div v-if="selectedCell.type === 'shelf'" class="info-row">
+          <div v-if="selectedCell.type.startsWith('shelf')" class="info-row">
             <span>列数</span>
             <el-input-number v-model="selectedCell.cols" :min="1" :max="10" size="small" style="width:80px" @change="updateCell" />
           </div>
@@ -79,22 +79,20 @@
       <!-- 右侧画布 -->
       <div class="canvas-wrapper">
         <div
+          ref="canvasRef"
           class="canvas-grid"
-          :style="{ gridTemplateColumns: `repeat(${gridCols}, 60px)`, gridTemplateRows: `repeat(${gridRows}, 60px)` }"
-          @dragover.prevent
-          @drop="onCanvasDrop"
+          :style="{ gridTemplateColumns: `repeat(${gridCols}, 62px)`, gridTemplateRows: `repeat(${gridRows}, 62px)` }"
+          @dragover.prevent="onCanvasDragOver"
+          @drop.prevent="onCanvasDrop"
+          @dragleave="dragOverCell = null"
         >
           <!-- 空格子 -->
           <div
-            v-for="(_, idx) in gridCols * gridRows"
-            :key="`cell-${idx}`"
+            v-for="idx in gridCols * gridRows"
+            :key="`cell-${idx - 1}`"
             class="grid-cell"
-            :class="{ 'drag-over': dragOverIdx === idx }"
-            :data-idx="idx"
-            @dragover.prevent="dragOverIdx = idx"
-            @dragleave="dragOverIdx = null"
-            @drop.stop="onCellDrop($event, idx)"
-            @click="selectedCell = null"
+            :class="{ 'drag-over': dragOverCell === idx - 1 }"
+            :data-idx="idx - 1"
           />
 
           <!-- 放置的模块 -->
@@ -107,7 +105,7 @@
               gridColumn: `${cell.col + 1} / span ${cell.colSpan || 1}`,
               gridRow: `${cell.row + 1} / span ${cell.rowSpan || 1}`,
               background: getModuleColor(cell.type),
-              cursor: 'pointer',
+              cursor: 'grab',
             }"
             draggable="true"
             @dragstart="onCellDragStart($event, cell)"
@@ -154,15 +152,19 @@ import { layoutApi } from '@/api/index.js'
 
 const router = useRouter()
 
+const CELL_SIZE = 62 // px per grid cell (60px + 2px gap)
+
 const gridCols = ref(12)
 const gridRows = ref(10)
 const cells = ref([])
 const selectedCell = ref(null)
-const dragOverIdx = ref(null)
+const dragOverCell = ref(null)
 const showSaveDialog = ref(false)
 const saving = ref(false)
-const dragModule = ref(null)
-const dragCell = ref(null)
+const canvasRef = ref(null)
+
+// 拖拽状态
+const dragState = ref(null) // { type: 'new'|'move', mod?, cellId?, offsetCol, offsetRow }
 
 const saveForm = ref({ name: '', description: '', activate: true })
 
@@ -187,36 +189,83 @@ const estimatedLocations = computed(() =>
   cells.value.filter(c => c.type.startsWith('shelf')).reduce((sum, c) => sum + (c.rows || 2) * (c.cols || 4), 0)
 )
 
+// 从模块面板开始拖拽新模块
 function onModuleDragStart(e, mod) {
-  dragModule.value = mod
-  dragCell.value = null
+  dragState.value = { type: 'new', mod, offsetCol: 0, offsetRow: 0 }
+  // 设置拖拽幽灵图像为模块预览
+  const ghost = document.createElement('div')
+  ghost.style.cssText = `
+    width: ${(mod.colSpan || 1) * 62}px;
+    height: ${(mod.rowSpan || 1) * 62}px;
+    background: ${mod.color};
+    border-radius: 6px;
+    opacity: 0.8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    color: white;
+    position: fixed;
+    top: -200px;
+  `
+  ghost.textContent = mod.icon
+  document.body.appendChild(ghost)
+  e.dataTransfer.setDragImage(ghost, (mod.colSpan || 1) * 31, (mod.rowSpan || 1) * 31)
+  setTimeout(() => document.body.removeChild(ghost), 0)
 }
 
+// 从画布上已有模块开始拖拽（移动）
 function onCellDragStart(e, cell) {
-  dragCell.value = cell
-  dragModule.value = null
+  const rect = e.currentTarget.getBoundingClientRect()
+  // 计算鼠标在模块内的格子偏移（鼠标在模块的第几格）
+  const offsetCol = Math.floor((e.clientX - rect.left) / CELL_SIZE)
+  const offsetRow = Math.floor((e.clientY - rect.top) / CELL_SIZE)
+  dragState.value = {
+    type: 'move',
+    cellId: cell.id,
+    offsetCol: Math.max(0, Math.min(offsetCol, (cell.colSpan || 1) - 1)),
+    offsetRow: Math.max(0, Math.min(offsetRow, (cell.rowSpan || 1) - 1)),
+  }
   e.stopPropagation()
 }
 
-function getRowCol(idx) {
-  return { row: Math.floor(idx / gridCols.value), col: idx % gridCols.value }
+// 计算鼠标在画布上对应的格子坐标
+function getGridPos(e) {
+  if (!canvasRef.value) return null
+  const rect = canvasRef.value.getBoundingClientRect()
+  const x = e.clientX - rect.left - 4 // 4px padding
+  const y = e.clientY - rect.top - 4
+  const col = Math.floor(x / CELL_SIZE)
+  const row = Math.floor(y / CELL_SIZE)
+  if (col < 0 || col >= gridCols.value || row < 0 || row >= gridRows.value) return null
+  return { col, row }
 }
 
-function onCellDrop(e, idx) {
+function onCanvasDragOver(e) {
   e.preventDefault()
-  dragOverIdx.value = null
-  const { row, col } = getRowCol(idx)
+  const pos = getGridPos(e)
+  if (!pos || !dragState.value) { dragOverCell.value = null; return }
+  const { offsetCol, offsetRow } = dragState.value
+  const targetCol = pos.col - offsetCol
+  const targetRow = pos.row - offsetRow
+  dragOverCell.value = targetRow * gridCols.value + targetCol
+}
 
-  if (dragCell.value) {
-    // 移动已有模块
-    const cell = cells.value.find(c => c.id === dragCell.value.id)
-    if (cell) { cell.row = row; cell.col = col }
-    dragCell.value = null
-    return
-  }
+function onCanvasDrop(e) {
+  e.preventDefault()
+  dragOverCell.value = null
+  const pos = getGridPos(e)
+  if (!pos || !dragState.value) return
 
-  if (dragModule.value) {
-    const mod = dragModule.value
+  const { offsetCol, offsetRow } = dragState.value
+  const targetCol = Math.max(0, pos.col - offsetCol)
+  const targetRow = Math.max(0, pos.row - offsetRow)
+
+  if (dragState.value.type === 'new') {
+    const mod = dragState.value.mod
+    // 确保不超出画布边界
+    const col = Math.min(targetCol, gridCols.value - (mod.colSpan || 1))
+    const row = Math.min(targetRow, gridRows.value - (mod.rowSpan || 1))
     const id = `cell_${Date.now()}`
     cells.value.push({
       id,
@@ -230,12 +279,14 @@ function onCellDrop(e, idx) {
       rows: mod.type.startsWith('shelf') ? 2 : 1,
       cols: mod.type.startsWith('shelf') ? 4 : 1,
     })
-    dragModule.value = null
+  } else if (dragState.value.type === 'move') {
+    const cell = cells.value.find(c => c.id === dragState.value.cellId)
+    if (cell) {
+      cell.col = Math.min(targetCol, gridCols.value - (cell.colSpan || 1))
+      cell.row = Math.min(targetRow, gridRows.value - (cell.rowSpan || 1))
+    }
   }
-}
-
-function onCanvasDrop(e) {
-  dragOverIdx.value = null
+  dragState.value = null
 }
 
 function selectCell(cell) {
@@ -287,14 +338,11 @@ async function saveLayout() {
 <style scoped>
 .map-builder { animation: fadeIn 0.3s ease; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-
 .builder-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
 .page-title { font-size: 22px; font-weight: 700; color: #1a1a2e; margin: 0 0 4px; }
 .page-subtitle { color: #909399; font-size: 13px; }
 .header-actions { display: flex; gap: 10px; }
-
 .builder-body { display: flex; gap: 20px; height: calc(100vh - 160px); }
-
 .module-panel {
   width: 220px;
   flex-shrink: 0;
@@ -304,9 +352,7 @@ async function saveLayout() {
   box-shadow: 0 2px 12px rgba(0,0,0,0.08);
   overflow-y: auto;
 }
-
 .panel-title { font-size: 12px; font-weight: 600; color: #909399; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
-
 .module-list { display: flex; flex-direction: column; gap: 8px; }
 .module-item {
   display: flex;
@@ -325,15 +371,12 @@ async function saveLayout() {
 .module-icon { font-size: 16px; color: #fff; }
 .module-name { font-size: 13px; font-weight: 600; color: #303133; }
 .module-desc { font-size: 11px; color: #909399; }
-
 .canvas-settings { display: flex; flex-direction: column; gap: 8px; }
 .setting-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: #606266; }
-
 .selected-info { display: flex; flex-direction: column; gap: 8px; }
 .info-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; gap: 8px; }
 .info-row span:first-child { color: #909399; flex-shrink: 0; }
 .no-selection { font-size: 12px; color: #c0c4cc; text-align: center; padding: 12px 0; }
-
 .canvas-wrapper {
   flex: 1;
   background: #fff;
@@ -342,7 +385,6 @@ async function saveLayout() {
   box-shadow: 0 2px 12px rgba(0,0,0,0.08);
   overflow: auto;
 }
-
 .canvas-grid {
   display: grid;
   gap: 2px;
@@ -352,16 +394,14 @@ async function saveLayout() {
   padding: 4px;
   min-width: fit-content;
 }
-
 .grid-cell {
   width: 60px;
   height: 60px;
   border: 1px dashed #e0e0e0;
   border-radius: 4px;
-  transition: background 0.15s;
+  transition: background 0.1s;
 }
-.grid-cell.drag-over { background: #ecf5ff; border-color: #409EFF; }
-
+.grid-cell.drag-over { background: #ecf5ff; border-color: #409EFF; border-style: solid; }
 .placed-module {
   border-radius: 6px;
   display: flex;
@@ -374,10 +414,9 @@ async function saveLayout() {
   z-index: 10;
   position: relative;
 }
-.placed-module:hover { transform: scale(1.05); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+.placed-module:hover { transform: scale(1.03); box-shadow: 0 4px 16px rgba(0,0,0,0.18); }
 .placed-module.selected { border-color: #1a1a2e; box-shadow: 0 0 0 3px rgba(26,26,46,0.2); }
 .cell-icon { font-size: 18px; color: #fff; }
 .cell-label { font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600; text-align: center; max-width: 54px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
 .save-summary { margin-top: 12px; padding: 10px; background: #f5f7ff; border-radius: 8px; }
 </style>
