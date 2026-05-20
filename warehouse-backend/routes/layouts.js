@@ -178,17 +178,18 @@ router.delete('/:id', requireAdmin, (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 内部：根据 layout_json 同步货位
-// layout_json 格式：数组，每个元素为一个模块对象：
+// layout_json 格式（新版）：数组，每个元素为一个模块对象：
 // {
-//   id: "mod_xxx",          // 模块唯一 ID（前端生成）
-//   type: "shelf_h" | "shelf_v" | "corner" | "aisle" | "wall" | "door",
-//   x: 3, y: 2,             // 在画布上的位置（格子坐标）
-//   w: 4, h: 1,             // 占用的格子宽高
-//   zone: "A",              // 区域标识
-//   rows: 2,                // 货架排数（shelf 类型才有）
-//   cols: 5,                // 货架列数（shelf 类型才有）
-//   label: "A区货架1",      // 显示名称
+//   id: "cell_xxx",         // 模块唯一 ID（前端生成）
+//   type: "shelf_h" | "wall" | "entrance" | "aisle" | "workstation" | "pillar",
+//   col: 3, row: 2,         // 在画布上的位置（格子坐标，0-based）
+//   colSpan: 4, rowSpan: 1, // 占用的格子宽高
+//   code: "A",              // 货架编码前缀（shelf 类型才有）
+//   levels: 2,              // 层数（shelf 类型才有，默认 1）
+//   label: "...",           // 非货架元素的标签
 // }
+// 货位编码规则：{code}-{格子序号}-L{层号}
+// 例如：A 区货架占 4 格 2 层 → A-01-L1, A-01-L2, A-02-L1, A-02-L2 ...
 // ─────────────────────────────────────────────────────────────────────────────
 function syncLocations(layoutId, modules) {
   const moduleArray = Array.isArray(modules) ? modules : [];
@@ -197,23 +198,30 @@ function syncLocations(layoutId, modules) {
   const expectedLocations = new Map(); // code → location data
 
   for (const mod of moduleArray) {
-    if (!['shelf_h', 'shelf_v', 'shelf_corner'].includes(mod.type)) continue;
-    const zone = mod.zone || 'A';
-    const shelfRows = mod.rows || 1;
-    const shelfCols = mod.cols || 1;
+    if (!mod.type || !mod.type.startsWith('shelf')) continue;
+    const prefix = mod.code || 'A';
+    const colSpan = mod.colSpan || 1;
+    const rowSpan = mod.rowSpan || 1;
+    const levels = mod.levels || 1;
+    const totalSlots = colSpan * rowSpan;
 
-    for (let r = 1; r <= shelfRows; r++) {
-      for (let c = 1; c <= shelfCols; c++) {
-        const code = `${zone}-${String(r).padStart(2, '0')}-${String(c).padStart(2, '0')}`;
+    for (let slot = 1; slot <= totalSlots; slot++) {
+      for (let level = 1; level <= levels; level++) {
+        const code = levels > 1
+          ? `${prefix}-${String(slot).padStart(2, '0')}-L${level}`
+          : `${prefix}-${String(slot).padStart(2, '0')}`;
         if (!expectedLocations.has(code)) {
+          // 计算该 slot 在网格中的实际位置
+          const slotCol = mod.col + ((slot - 1) % colSpan);
+          const slotRow = mod.row + Math.floor((slot - 1) / colSpan);
           expectedLocations.set(code, {
-            zone,
-            row_no: r,
-            col_no: c,
+            zone: prefix,
+            row_no: level,
+            col_no: slot,
             module_id: mod.id,
-            grid_x: mod.x,
-            grid_y: mod.y,
-            label: mod.label ? `${mod.label} ${r}-${c}` : code,
+            grid_x: slotCol,
+            grid_y: slotRow,
+            label: code,
           });
         }
       }
