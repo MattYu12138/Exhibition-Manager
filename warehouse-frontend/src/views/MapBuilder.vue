@@ -155,12 +155,17 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Check, Delete } from '@element-plus/icons-vue'
 import { layoutApi } from '@/api/index.js'
 
 const router = useRouter()
+const route = useRoute()
+
+// 当前编辑的布局 ID（有则为编辑模式，无则为新建模式）
+const currentLayoutId = ref(null)
+const loading = ref(false)
 
 // 每个格子的实际像素大小（含 gap）
 // canvas-grid gap: 2px，grid-cell: 60px → 每格占 62px
@@ -203,10 +208,33 @@ const estimatedLocations = computed(() =>
   cells.value.filter(c => c.type.startsWith('shelf')).reduce((sum, c) => sum + (c.rows || 2) * (c.cols || 4), 0)
 )
 
-// 自动聚焦以捕获键盘事件
-onMounted(() => {
+// 自动聚焦 + 加载现有布局
+onMounted(async () => {
   const el = document.querySelector('.map-builder')
   if (el) el.focus()
+  // 如果路由带有 id 参数，加载现有布局
+  const id = route.query.id
+  if (id) {
+    loading.value = true
+    try {
+      const res = await layoutApi.get(id)
+      const layout = res.data
+      currentLayoutId.value = layout.id
+      gridCols.value = layout.grid_cols || 12
+      gridRows.value = layout.grid_rows || 10
+      // layout_json 可能是字符串或数组
+      const json = typeof layout.layout_json === 'string'
+        ? JSON.parse(layout.layout_json)
+        : (layout.layout_json || [])
+      cells.value = json
+      saveForm.value.name = layout.name
+      saveForm.value.description = layout.description || ''
+    } catch (err) {
+      ElMessage.error('加载布局失败：' + (err.message || '未知错误'))
+    } finally {
+      loading.value = false
+    }
+  }
 })
 
 // 从模块面板开始拖拽新模块
@@ -371,16 +399,31 @@ async function saveLayout() {
   }
   saving.value = true
   try {
-    const payload = {
+    let layoutId = currentLayoutId.value
+    // 如果是新建模式，先创建空布局
+    if (!layoutId) {
+      const createRes = await layoutApi.create({
+        name: saveForm.value.name,
+        description: saveForm.value.description,
+        grid_cols: gridCols.value,
+        grid_rows: gridRows.value,
+      })
+      layoutId = createRes.data.id
+    }
+    // 保存布局内容（layout_json + 同步货位）
+    const updateRes = await layoutApi.update(layoutId, {
       name: saveForm.value.name,
       description: saveForm.value.description,
       grid_cols: gridCols.value,
       grid_rows: gridRows.value,
-      cells: cells.value,
-      activate: saveForm.value.activate,
+      layout_json: cells.value,
+    })
+    // 如果勾选了启用，激活布局
+    if (saveForm.value.activate) {
+      await layoutApi.activate(layoutId)
     }
-    const res = await layoutApi.create(payload)
-    ElMessage.success(`布局已保存，生成了 ${res.data?.location_count || 0} 个货位`)
+    const locationCount = updateRes.data?.locations?.length || 0
+    ElMessage.success(`布局已保存，共 ${locationCount} 个货位`)
     showSaveDialog.value = false
     router.push('/map')
   } catch (err) {

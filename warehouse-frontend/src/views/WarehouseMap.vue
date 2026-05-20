@@ -9,7 +9,7 @@
         <el-select v-model="activeLayoutId" placeholder="选择布局" style="width:200px" @change="loadLayout">
           <el-option v-for="l in layouts" :key="l.id" :label="l.name" :value="l.id" />
         </el-select>
-        <el-button v-if="authStore.isAdmin" @click="$router.push('/map/builder')">
+        <el-button v-if="authStore.isAdmin" @click="$router.push(`/map/builder?id=${activeLayoutId}`)">
           <el-icon><Edit /></el-icon> 编辑布局
         </el-button>
       </div>
@@ -33,7 +33,7 @@
 
         <!-- 模块 -->
         <div
-          v-for="cell in layout.cells"
+          v-for="cell in layoutCells"
           :key="cell.id"
           class="map-module"
           :class="[`type-${cell.type}`, { highlighted: isHighlighted(cell), 'has-stock': hasStock(cell), clickable: cell.type.startsWith('shelf') }]"
@@ -135,6 +135,16 @@ const typeNameMap = {
 }
 function getIcon(type) { return iconMap[type] || '?' }
 function getTypeName(type) { return typeNameMap[type] || type }
+
+// 解析 layout_json（可能是字符串或数组）
+const layoutCells = computed(() => {
+  if (!layout.value) return []
+  const raw = layout.value.layout_json
+  if (!raw) return []
+  try {
+    return typeof raw === 'string' ? JSON.parse(raw) : raw
+  } catch { return [] }
+})
 
 function isHighlighted(cell) {
   return cell.type.startsWith('shelf') && highlightedLocationIds.value.size > 0 &&
