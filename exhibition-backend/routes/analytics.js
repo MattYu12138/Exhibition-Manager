@@ -130,6 +130,58 @@ router.get('/by-category', (req, res) => {
   }
 })
 
+// ─── 2b. 品类下钻：某品类下具体产品销售排行 ─────────────────────
+router.get('/category-drilldown', (req, res) => {
+  try {
+    const { product_type, exhibition_id } = req.query
+    if (!product_type) {
+      return res.status(400).json({ success: false, message: '缺少 product_type 参数' })
+    }
+
+    // 处理「未分类」的情况
+    const isUncategorized = product_type === '未分类'
+    let typeCondition = isUncategorized
+      ? "(p.product_type IS NULL OR p.product_type = '')"
+      : "COALESCE(NULLIF(p.product_type, ''), '未分类') = ?"
+    const params = isUncategorized ? [] : [product_type]
+
+    let exhibitionCondition = ''
+    if (exhibition_id) {
+      exhibitionCondition = ' AND e.id = ?'
+      params.push(exhibition_id)
+    } else {
+      exhibitionCondition = " AND e.status = 'completed'"
+    }
+
+    const rows = db.prepare(`
+      SELECT
+        p.title AS product_title,
+        COALESCE(NULLIF(pv.variant_title, ''), '') AS variant_title,
+        p.product_type,
+        SUM(s.sold_quantity) AS sold,
+        SUM(s.square_quantity_before) AS brought,
+        ROUND(
+          CAST(SUM(s.sold_quantity) AS FLOAT) /
+          NULLIF(SUM(s.square_quantity_before), 0) * 100, 1
+        ) AS sell_rate,
+        COUNT(DISTINCT s.exhibition_id) AS exhibition_count
+      FROM inventory_snapshots s
+      JOIN exhibitions e ON e.id = s.exhibition_id
+      LEFT JOIN product_variants pv ON pv.shopify_variant_id = s.shopify_variant_id
+      LEFT JOIN products p ON p.id = pv.product_id
+      WHERE ${typeCondition}${exhibitionCondition}
+        AND s.sold_quantity > 0
+      GROUP BY pv.shopify_variant_id
+      ORDER BY sold DESC
+      LIMIT 30
+    `).all(...params)
+
+    res.json({ success: true, data: rows, product_type })
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
+
 // ─── 3. Checklist 进度（所有展会）────────────────────────────
 router.get('/checklist-progress', (req, res) => {
   try {

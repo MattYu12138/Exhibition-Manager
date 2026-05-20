@@ -76,4 +76,6 @@ export const analyticsApi = {
   query: (sql) => api.post('/analytics/query', { sql }),
   aiStatus: () => api.get('/analytics/ai-status'),
   aiToSql: (prompt) => api.post('/analytics/ai-to-sql', { prompt }),
+  categoryDrilldown: (product_type, exhibition_id) =>
+    api.get('/analytics/category-drilldown', { params: { product_type, exhibition_id } }),
 }

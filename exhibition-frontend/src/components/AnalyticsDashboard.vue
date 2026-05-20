@@ -75,20 +75,92 @@
                 :key="ex"
                 class="filter-btn"
                 :class="{ active: selectedExhibition === ex }"
-                @click="selectedExhibition = ex"
+                @click="selectedExhibition = ex; drilldownCategory = null"
               >{{ ex }}</button>
             </div>
           </div>
-          <div class="chart-grid two-col">
-            <div class="chart-card">
-              <div class="chart-title">品类销售量排行</div>
-              <v-chart class="chart chart-tall" :option="categoryBarOption" autoresize />
+
+          <!-- 下钻面板：点击品类后展示具体产品 -->
+          <Transition name="drilldown-slide">
+            <div v-if="drilldownCategory" class="drilldown-panel">
+              <div class="drilldown-header">
+                <button class="drilldown-back" @click="drilldownCategory = null">
+                  <el-icon size="13"><ArrowLeft /></el-icon> 返回品类列表
+                </button>
+                <div class="drilldown-title">
+                  <span class="drilldown-category-tag">{{ drilldownCategory }}</span>
+                  <span class="drilldown-subtitle">具体产品销售排行</span>
+                  <span v-if="selectedExhibition" class="drilldown-scope">· {{ selectedExhibition }}</span>
+                </div>
+              </div>
+              <div v-if="drilldownLoading" class="drilldown-loading">
+                <el-icon class="spin" size="18"><Loading /></el-icon> 加载中…
+              </div>
+              <div v-else-if="drilldownData.length === 0" class="drilldown-empty">
+                该展会暂无该品类销售数据
+              </div>
+              <div v-else class="drilldown-chart-wrap">
+                <v-chart class="chart drilldown-chart" :option="drilldownChartOption" autoresize />
+                <!-- 详细表格 -->
+                <div class="drilldown-table-wrap">
+                  <table class="drilldown-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>产品</th>
+                        <th>规格</th>
+                        <th>销售量</th>
+                        <th>带去量</th>
+                        <th>销售率</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(row, i) in drilldownData" :key="i" :class="{ 'top-row': i < 3 }">
+                        <td class="rank-cell">
+                          <span v-if="i === 0" class="rank-medal gold">🥇</span>
+                          <span v-else-if="i === 1" class="rank-medal silver">🥈</span>
+                          <span v-else-if="i === 2" class="rank-medal bronze">🥉</span>
+                          <span v-else class="rank-num">{{ i + 1 }}</span>
+                        </td>
+                        <td class="product-title-cell">{{ row.product_title || '未知产品' }}</td>
+                        <td class="variant-cell">{{ row.variant_title || '—' }}</td>
+                        <td class="num-cell sold">{{ row.sold }}</td>
+                        <td class="num-cell">{{ row.brought }}</td>
+                        <td class="rate-cell">
+                          <div class="rate-bar-wrap">
+                            <div class="rate-bar" :style="{ width: Math.min(row.sell_rate || 0, 100) + '%', background: rateColor(row.sell_rate) }"></div>
+                            <span class="rate-text">{{ row.sell_rate != null ? row.sell_rate + '%' : '—' }}</span>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
-            <div class="chart-card">
-              <div class="chart-title">品类销售率排行</div>
-              <v-chart class="chart chart-tall" :option="categoryRateOption" autoresize />
+          </Transition>
+
+          <!-- 品类图表（未下钻时显示）-->
+          <Transition name="drilldown-slide">
+            <div v-if="!drilldownCategory" class="chart-grid two-col">
+              <div class="chart-card clickable-chart">
+                <div class="chart-title">
+                  品类销售量排行
+                  <span class="chart-hint">👆 点击某个品类可查看详细产品</span>
+                </div>
+                <v-chart
+                  class="chart chart-tall"
+                  :option="categoryBarOption"
+                  autoresize
+                  @click="onCategoryClick"
+                />
+              </div>
+              <div class="chart-card">
+                <div class="chart-title">品类销售率排行</div>
+                <v-chart class="chart chart-tall" :option="categoryRateOption" autoresize />
+              </div>
             </div>
-          </div>
+          </Transition>
         </div>
 
         <!-- ── Tab: Checklist 进度 ── -->
@@ -330,7 +402,7 @@ import {
 import VChart from 'vue-echarts'
 import {
   DataAnalysis, ArrowDown, Loading, MagicStick, DataBoard,
-  ArrowRight, VideoPlay, WarningFilled
+  ArrowRight, ArrowLeft, VideoPlay, WarningFilled
 } from '@element-plus/icons-vue'
 import { analyticsApi } from '@/api'
 
@@ -360,6 +432,11 @@ const queryLoading = ref(false)
 const queryError = ref('')
 const queryResult = ref(null)
 const sqlInput = ref(null)
+
+// 品类下钻
+const drilldownCategory = ref(null)
+const drilldownLoading = ref(false)
+const drilldownData = ref([])
 
 // AI 自然语言转 SQL
 const aiAvailable = ref(false)
@@ -702,6 +779,65 @@ function insertCol(table, col) {
   const pos = sqlInput.value?.selectionStart ?? customSql.value.length
   const text = customSql.value
   customSql.value = text.slice(0, pos) + col + text.slice(pos)
+}
+
+// ── 品类下钻图表 computed ──────────────────────────────────────────────
+const drilldownChartOption = computed(() => {
+  const data = drilldownData.value.slice(0, 15)
+  const labels = data.map(d => {
+    const title = d.product_title || '未知'
+    const variant = d.variant_title ? ` · ${d.variant_title}` : ''
+    return title + variant
+  })
+  return {
+    color: ['#5470c6'],
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params) => {
+        const p = params[0]
+        const row = data[data.length - 1 - p.dataIndex]
+        return `${p.name}<br/>销售量：<b>${row.sold}</b>件<br/>销售率：<b>${row.sell_rate != null ? row.sell_rate + '%' : '—'}</b>`
+      }
+    },
+    grid: { top: 16, right: 60, bottom: 16, left: 16, containLabel: true },
+    xAxis: { type: 'value', name: '件数', nameTextStyle: { fontSize: 11 } },
+    yAxis: {
+      type: 'category',
+      data: labels.slice().reverse(),
+      axisLabel: { fontSize: 10, width: 180, overflow: 'truncate' }
+    },
+    series: [{
+      type: 'bar',
+      data: data.map(d => d.sold).reverse(),
+      barMaxWidth: 22,
+      itemStyle: { borderRadius: [0, 6, 6, 0] },
+      label: { show: true, position: 'right', fontSize: 11 },
+    }]
+  }
+})
+
+function rateColor(rate) {
+  if (rate == null) return '#d9d9d9'
+  if (rate >= 70) return '#52c41a'
+  if (rate >= 40) return '#faad14'
+  return '#ff7875'
+}
+
+async function onCategoryClick(params) {
+  if (!params || !params.name) return
+  const category = params.name
+  drilldownCategory.value = category
+  drilldownLoading.value = true
+  drilldownData.value = []
+  try {
+    const ex = overviewData.value.find(e => e.name === selectedExhibition.value)
+    const res = await analyticsApi.categoryDrilldown(category, ex?.id)
+    drilldownData.value = res.data || []
+  } catch (e) {
+    console.error('[Drilldown]', e)
+  } finally {
+    drilldownLoading.value = false
+  }
 }
 
 async function generateSql() {
@@ -1123,5 +1259,121 @@ function statusLabel(s) {
 .ai-result-leave-active { transition: all 0.2s ease; }
 .ai-result-enter-from, .ai-result-leave-to {
   opacity: 0; transform: translateY(-6px);
+}
+
+/* ── 品类图表可点击提示 ────────────────────────────────── */
+.clickable-chart { cursor: pointer; }
+.clickable-chart:hover { box-shadow: 0 4px 20px rgba(84,112,198,0.18); border-color: #b0c0f0; }
+.chart-hint {
+  font-size: 11px; font-weight: 400;
+  color: #909399; margin-left: 8px;
+}
+
+/* ── 下钻面板 ──────────────────────────────────────────── */
+.drilldown-panel {
+  background: #fff;
+  border: 1px solid #ebeef5;
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+.drilldown-header {
+  display: flex; align-items: center; gap: 16px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.drilldown-back {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 12px;
+  border: 1px solid #dcdfe6; border-radius: 20px;
+  background: #fff; font-size: 12px; color: #606266;
+  cursor: pointer; transition: all 0.18s;
+  white-space: nowrap;
+}
+.drilldown-back:hover {
+  border-color: #5470c6; color: #5470c6;
+  background: #f0f3ff;
+}
+.drilldown-title {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.drilldown-category-tag {
+  background: linear-gradient(135deg, #5470c6, #91cc75);
+  color: #fff;
+  padding: 3px 12px; border-radius: 20px;
+  font-size: 13px; font-weight: 700;
+}
+.drilldown-subtitle {
+  font-size: 14px; font-weight: 600; color: #303133;
+}
+.drilldown-scope {
+  font-size: 12px; color: #909399;
+}
+.drilldown-loading {
+  display: flex; align-items: center; gap: 8px;
+  padding: 40px 0; justify-content: center;
+  color: #909399; font-size: 13px;
+}
+.drilldown-empty {
+  padding: 40px 0; text-align: center;
+  color: #c0c4cc; font-size: 13px;
+}
+.drilldown-chart-wrap { }
+.drilldown-chart { height: 280px; margin-bottom: 20px; }
+
+/* 下钻详细表格 */
+.drilldown-table-wrap { overflow-x: auto; }
+.drilldown-table {
+  width: 100%; border-collapse: collapse;
+  font-size: 13px;
+}
+.drilldown-table th {
+  background: #f5f7fa; padding: 9px 12px;
+  text-align: left; font-weight: 600; color: #606266;
+  border-bottom: 2px solid #ebeef5;
+  white-space: nowrap;
+}
+.drilldown-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid #f2f3f5;
+  vertical-align: middle;
+}
+.drilldown-table tr:last-child td { border-bottom: none; }
+.drilldown-table tr.top-row { background: #fafbff; }
+.drilldown-table tr:hover td { background: #f5f7ff; }
+.rank-cell { text-align: center; width: 40px; }
+.rank-medal { font-size: 16px; }
+.rank-num { color: #909399; font-size: 12px; }
+.product-title-cell { font-weight: 500; color: #303133; max-width: 200px; }
+.variant-cell { color: #606266; font-size: 12px; }
+.num-cell { text-align: right; font-weight: 600; color: #303133; }
+.num-cell.sold { color: #5470c6; font-size: 14px; }
+.rate-cell { min-width: 120px; }
+.rate-bar-wrap {
+  display: flex; align-items: center; gap: 8px;
+  position: relative;
+}
+.rate-bar {
+  height: 6px; border-radius: 3px;
+  min-width: 2px;
+  transition: width 0.5s ease;
+  flex-shrink: 0;
+  max-width: 80px;
+}
+.rate-text { font-size: 12px; font-weight: 600; color: #303133; white-space: nowrap; }
+
+/* 下钻动画 */
+.drilldown-slide-enter-active {
+  transition: all 0.35s cubic-bezier(0.34, 1.1, 0.64, 1);
+}
+.drilldown-slide-leave-active {
+  transition: all 0.2s ease;
+  position: absolute; width: 100%;
+}
+.drilldown-slide-enter-from {
+  opacity: 0; transform: translateX(24px);
+}
+.drilldown-slide-leave-to {
+  opacity: 0; transform: translateX(-24px);
 }
 </style>
