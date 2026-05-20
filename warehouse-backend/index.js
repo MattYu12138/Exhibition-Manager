@@ -26,15 +26,16 @@ const SESSION_DB_PATH = process.env.SESSION_DB_PATH || path.join(__dirname, '../
 fs.mkdirSync(path.dirname(SESSION_DB_PATH), { recursive: true });
 
 app.use(session({
+  // 独立 cookie 名，避免与 exhibition/inventory/platform 的 session 相互覆盖
+  name: 'warehouse.sid',
   store: new SQLiteStore({ db: 'sessions.db', dir: path.dirname(SESSION_DB_PATH) }),
   secret: process.env.SESSION_SECRET || 'lummi-warehouse-secret-2026',
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7天
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    sameSite: 'lax',
   },
 }));
 
