@@ -1,560 +1,956 @@
 <template>
-  <div class="map-builder" tabindex="0" @keydown.delete.prevent="deleteSelected" @keydown.backspace.prevent="deleteSelected">
-    <div class="builder-header">
-      <div>
-        <h1 class="page-title">🔧 仓库地图构建器</h1>
-        <p class="page-subtitle">选择工具后在画布上拖拉绘制；相邻同类元素自动合并；点击已有元素可编辑</p>
+  <div class="map-builder" @keydown="onKeyDown" tabindex="0" ref="builderRef">
+    <!-- Top toolbar -->
+    <div class="toolbar">
+      <div class="tool-group">
+        <button
+          v-for="tool in tools"
+          :key="tool.type"
+          class="tool-btn"
+          :class="{ active: activeTool === tool.type }"
+          @click="activeTool = tool.type"
+          :title="tool.label"
+        >
+          <span class="tool-icon">{{ tool.icon }}</span>
+          <span class="tool-label">{{ tool.label }}</span>
+        </button>
       </div>
-      <div class="header-actions">
-        <el-button @click="clearCanvas" :disabled="cells.length === 0">清空画布</el-button>
-        <el-button @click="openSaveDialog" type="primary" :disabled="cells.length === 0">
-          <el-icon><Check /></el-icon> 保存布局
-        </el-button>
+      <div class="tool-sep"></div>
+      <div class="tool-group">
+        <button class="tool-btn" @click="undo" :disabled="history.length === 0" title="撤销 (Ctrl+Z)">
+          <span class="tool-icon">↩</span>
+          <span class="tool-label">撤销</span>
+        </button>
+        <button class="tool-btn danger" @click="clearAll" title="清空画布">
+          <span class="tool-icon">🗑</span>
+          <span class="tool-label">清空</span>
+        </button>
+      </div>
+      <div class="spacer"></div>
+      <div class="tool-group">
+        <button class="tool-btn primary" @click="openSaveDialog">
+          <span class="tool-icon">💾</span>
+          <span class="tool-label">保存布局</span>
+        </button>
+        <button class="tool-btn" @click="goBack">
+          <span class="tool-icon">←</span>
+          <span class="tool-label">返回</span>
+        </button>
       </div>
     </div>
 
     <div class="builder-body">
-      <!-- 左侧工具面板 -->
-      <div class="module-panel">
-        <div class="panel-title">绘制工具</div>
-        <div class="tool-list">
-          <div
-            v-for="mod in modules"
-            :key="mod.type"
-            class="tool-item"
-            :class="{ active: activeTool === mod.type }"
-            @click="activeTool = mod.type; selectedCell = null"
-          >
-            <div class="tool-preview" :style="{ background: mod.color }">
-              <span class="tool-icon">{{ mod.icon }}</span>
-            </div>
-            <div class="tool-info">
-              <div class="tool-name">{{ mod.name }}</div>
-              <div class="tool-desc">{{ mod.desc }}</div>
-            </div>
+      <!-- Left panel -->
+      <div class="side-panel" v-if="selectedRegion">
+        <div class="panel-title">属性</div>
+        <div class="panel-section">
+          <label>类型</label>
+          <div class="type-badge" :style="{ background: typeConfig[selectedRegion.type]?.color }">
+            {{ typeConfig[selectedRegion.type]?.icon }} {{ typeConfig[selectedRegion.type]?.label }}
           </div>
         </div>
-
-        <div class="panel-title" style="margin-top:20px">画布设置</div>
-        <div class="canvas-settings">
-          <div class="setting-row">
-            <span>列数</span>
-            <el-input-number v-model="gridCols" :min="5" :max="40" size="small" style="width:90px" />
+        <template v-if="selectedRegion.type === 'shelf'">
+          <div class="panel-section">
+            <label>区域编码前缀</label>
+            <input v-model="selectedRegion.code" class="panel-input" placeholder="如 A" maxlength="4" />
           </div>
-          <div class="setting-row">
-            <span>行数</span>
-            <el-input-number v-model="gridRows" :min="5" :max="40" size="small" style="width:90px" />
-          </div>
-        </div>
-
-        <div class="panel-title" style="margin-top:20px">选中元素</div>
-        <div v-if="selectedCell" class="selected-info">
-          <div class="info-row">
-            <span>类型</span>
-            <el-tag size="small">{{ getModuleName(selectedCell.type) }}</el-tag>
-          </div>
-          <template v-if="selectedCell.type.startsWith('shelf')">
-            <div class="info-row">
-              <span>编码前缀</span>
-              <el-input v-model="selectedCell.code" size="small" placeholder="如 A" @input="updateCell" style="width:80px" />
+          <div class="panel-section">
+            <label>层数</label>
+            <div class="number-input">
+              <button @click="selectedRegion.levels = Math.max(1, (selectedRegion.levels||1) - 1)">−</button>
+              <span>{{ selectedRegion.levels || 1 }}</span>
+              <button @click="selectedRegion.levels = Math.min(10, (selectedRegion.levels||1) + 1)">+</button>
             </div>
-            <div class="info-row">
-              <span>层数</span>
-              <el-input-number v-model="selectedCell.levels" :min="1" :max="10" size="small" style="width:80px" @change="updateCell" />
-            </div>
-            <div class="info-row">
-              <span>货位数</span>
-              <el-tag size="small" type="success">{{ (selectedCell.colSpan||1)*(selectedCell.rowSpan||1) }} 格 × {{ selectedCell.levels||1 }} 层</el-tag>
-            </div>
-          </template>
-          <div class="info-row" v-if="!selectedCell.type.startsWith('shelf')">
-            <span>标签</span>
-            <el-input v-model="selectedCell.label" size="small" placeholder="可选" @input="updateCell" />
           </div>
-          <el-button type="danger" size="small" style="width:100%;margin-top:8px" @click="deleteSelected">
-            <el-icon><Delete /></el-icon> 删除 (Del)
-          </el-button>
-        </div>
-        <div v-else class="no-selection">
-          {{ activeTool ? `当前工具：${getModuleName(activeTool)}` : '请选择工具' }}<br>
-          <span style="font-size:11px;color:#c0c4cc">在画布上拖拉绘制</span>
-        </div>
-
-        <!-- 统计 -->
-        <div class="stats-box" style="margin-top:20px">
-          <div class="stat-item">
-            <span class="stat-label">货架格子</span>
-            <el-tag size="small">{{ shelfCount }}</el-tag>
+          <div class="panel-section">
+            <label>货位统计</label>
+            <div class="info-text">
+              {{ getRegionCells(selectedRegion).length }} 格 × {{ selectedRegion.levels || 1 }} 层
+              = <strong>{{ getRegionCells(selectedRegion).length * (selectedRegion.levels || 1) }}</strong> 个货位
+            </div>
           </div>
-          <div class="stat-item">
-            <span class="stat-label">预计货位</span>
-            <el-tag size="small" type="success">{{ estimatedLocations }}</el-tag>
+        </template>
+        <div class="panel-section">
+          <button class="delete-btn" @click="deleteSelected">🗑 删除此区域</button>
+        </div>
+      </div>
+      <div class="side-panel empty" v-else>
+        <div class="panel-hint">
+          <div class="hint-icon">{{ typeConfig[activeTool]?.icon }}</div>
+          <div class="hint-title">{{ typeConfig[activeTool]?.label }}</div>
+          <div class="hint-desc">在画布上拖拉绘制</div>
+          <div class="hint-tips">
+            <div>• 点击已有区域可选中</div>
+            <div>• Delete 键删除选中</div>
+            <div>• Ctrl+Z 撤销</div>
           </div>
         </div>
       </div>
 
-      <!-- 右侧画布 -->
-      <div class="canvas-wrapper">
-        <div
-          ref="canvasRef"
-          class="canvas-grid"
-          :style="{
-            gridTemplateColumns: `repeat(${gridCols}, ${CELL_SIZE}px)`,
-            gridTemplateRows: `repeat(${gridRows}, ${CELL_SIZE}px)`,
-            cursor: activeTool ? 'crosshair' : 'default'
-          }"
-          @mousedown="onCanvasMouseDown"
-          @mousemove="onCanvasMouseMove"
-          @mouseup="onCanvasMouseUp"
-          @mouseleave="onCanvasMouseLeave"
-          @click.self="selectedCell = null"
+      <!-- SVG Canvas -->
+      <div class="canvas-wrap" ref="canvasWrap">
+        <svg
+          ref="svgEl"
+          class="map-svg"
+          :width="svgWidth"
+          :height="svgHeight"
+          @mousedown="onMouseDown"
+          @mousemove="onMouseMove"
+          @mouseup="onMouseUp"
+          @mouseleave="onMouseLeave"
         >
-          <!-- 空格子 -->
-          <div
-            v-for="idx in gridCols * gridRows"
-            :key="`cell-${idx - 1}`"
-            class="grid-cell"
-          />
+          <!-- Grid pattern -->
+          <defs>
+            <pattern id="grid-pat" :width="cellSize" :height="cellSize" patternUnits="userSpaceOnUse">
+              <rect :width="cellSize" :height="cellSize" fill="none" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="3,3"/>
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#grid-pat)" />
 
-          <!-- 拖拉预览层 -->
-          <div
-            v-if="drawPreview"
-            class="draw-preview"
-            :style="{
-              gridColumn: `${drawPreview.col + 1} / span ${drawPreview.colSpan}`,
-              gridRow: `${drawPreview.row + 1} / span ${drawPreview.rowSpan}`,
-              background: getModuleColor(activeTool) + '55',
-              borderColor: getModuleColor(activeTool),
-            }"
-          />
+          <!-- Regions -->
+          <g v-for="region in regions" :key="region.id">
+            <!-- Main shape outline path -->
+            <path
+              :d="buildOutlinePath(region)"
+              :fill="typeConfig[region.type]?.color"
+              :fill-opacity="selectedRegion?.id === region.id ? 0.95 : 0.82"
+              :stroke="selectedRegion?.id === region.id ? '#1d4ed8' : typeConfig[region.type]?.stroke"
+              :stroke-width="selectedRegion?.id === region.id ? 2.5 : 1.5"
+              class="region-shape"
+              :class="{ selected: selectedRegion?.id === region.id }"
+              @click.stop="selectRegion(region)"
+            />
 
-          <!-- 已放置的元素 -->
-          <div
-            v-for="cell in cells"
-            :key="cell.id"
-            class="placed-module"
-            :class="{ selected: selectedCell?.id === cell.id }"
-            :style="{
-              gridColumn: `${cell.col + 1} / span ${cell.colSpan || 1}`,
-              gridRow: `${cell.row + 1} / span ${cell.rowSpan || 1}`,
-              background: getModuleColor(cell.type),
-              cursor: activeTool ? 'crosshair' : 'pointer',
-            }"
-            @mousedown.stop="onCellMouseDown($event, cell)"
-            @click.stop="!activeTool && selectCell(cell)"
-          >
-            <span class="cell-icon">{{ getModuleIcon(cell.type) }}</span>
-            <span class="cell-label">{{ getCellLabel(cell) }}</span>
-            <span v-if="cell.type.startsWith('shelf') && cell.levels > 1" class="cell-levels">{{ cell.levels }}层</span>
-          </div>
-        </div>
+            <!-- Shelf: individual cell dividers and labels -->
+            <template v-if="region.type === 'shelf'">
+              <g v-for="(cell, idx) in getRegionCells(region)" :key="`${cell.col}-${cell.row}`"
+                 @click.stop="selectRegion(region)">
+                <!-- Cell border -->
+                <rect
+                  :x="cell.col * cellSize + 1.5"
+                  :y="cell.row * cellSize + 1.5"
+                  :width="cellSize - 3"
+                  :height="cellSize - 3"
+                  fill="none"
+                  stroke="rgba(255,255,255,0.35)"
+                  stroke-width="1"
+                  rx="4"
+                />
+                <!-- Slot code label -->
+                <text
+                  :x="cell.col * cellSize + cellSize / 2"
+                  :y="cell.row * cellSize + cellSize * 0.55"
+                  text-anchor="middle"
+                  dominant-baseline="middle"
+                  font-size="11"
+                  font-weight="700"
+                  fill="white"
+                  pointer-events="none"
+                >{{ getSlotCode(region, idx) }}</text>
+                <!-- Levels indicator -->
+                <text
+                  v-if="(region.levels||1) > 1"
+                  :x="cell.col * cellSize + cellSize - 4"
+                  :y="cell.row * cellSize + 10"
+                  text-anchor="end"
+                  font-size="9"
+                  fill="rgba(255,255,255,0.8)"
+                  pointer-events="none"
+                >×{{ region.levels }}</text>
+              </g>
+            </template>
+
+            <!-- Non-shelf center icon -->
+            <template v-if="region.type !== 'shelf'">
+              <text
+                :x="getRegionCenterX(region)"
+                :y="getRegionCenterY(region)"
+                text-anchor="middle"
+                dominant-baseline="middle"
+                :font-size="region.type === 'pillar' ? 14 : 20"
+                pointer-events="none"
+                @click.stop="selectRegion(region)"
+              >{{ typeConfig[region.type]?.icon }}</text>
+            </template>
+          </g>
+
+          <!-- Draw preview -->
+          <rect
+            v-if="isDrawing && drawPreview"
+            :x="drawPreview.x + 1"
+            :y="drawPreview.y + 1"
+            :width="drawPreview.w - 2"
+            :height="drawPreview.h - 2"
+            :fill="typeConfig[activeTool]?.color"
+            fill-opacity="0.3"
+            :stroke="typeConfig[activeTool]?.stroke"
+            stroke-width="2"
+            stroke-dasharray="8,4"
+            rx="6"
+            pointer-events="none"
+          />
+        </svg>
       </div>
     </div>
 
-    <!-- 保存对话框 -->
-    <el-dialog v-model="showSaveDialog" title="保存仓库布局" width="420px" :close-on-click-modal="false">
-      <el-form :model="saveForm" label-position="top">
-        <el-form-item label="布局名称" required>
-          <el-input
-            v-model="saveForm.name"
-            placeholder="如：主仓库 2026"
-            clearable
-            autofocus
-          />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="saveForm.description" type="textarea" :rows="2" placeholder="可选备注" />
-        </el-form-item>
-        <el-form-item>
-          <el-checkbox v-model="saveForm.activate">保存后立即启用此布局</el-checkbox>
-        </el-form-item>
-      </el-form>
-      <div class="save-summary">
-        <el-tag>货架格子：{{ shelfCount }} 个</el-tag>
-        <el-tag type="success" style="margin-left:8px">预计货位：{{ estimatedLocations }} 个</el-tag>
+    <!-- Save dialog -->
+    <div class="dialog-overlay" v-if="showSaveDialog" @click.self="showSaveDialog = false">
+      <div class="dialog">
+        <div class="dialog-header">
+          <h3>保存仓库布局</h3>
+          <button class="dialog-close" @click="showSaveDialog = false">×</button>
+        </div>
+        <div class="dialog-body">
+          <div class="form-group">
+            <label>* 布局名称</label>
+            <input
+              v-model="saveForm.name"
+              class="form-input"
+              placeholder="输入布局名称"
+              ref="nameInputRef"
+              @keydown.stop
+            />
+          </div>
+          <div class="form-group">
+            <label>描述</label>
+            <textarea
+              v-model="saveForm.description"
+              class="form-input"
+              rows="3"
+              placeholder="可选备注"
+              @keydown.stop
+            ></textarea>
+          </div>
+          <div class="form-check">
+            <input type="checkbox" id="setActive" v-model="saveForm.setActive" />
+            <label for="setActive">保存后立即启用此布局</label>
+          </div>
+          <div class="save-stats">
+            <span class="stat-badge shelf">货架格子：{{ totalShelfCells }} 个</span>
+            <span class="stat-badge location">预计货位：{{ totalLocations }} 个</span>
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button class="btn-cancel" @click="showSaveDialog = false">取消</button>
+          <button class="btn-primary" @click="saveLayout" :disabled="!saveForm.name.trim() || saving">
+            {{ saving ? '保存中...' : '保存并生成货位' }}
+          </button>
+        </div>
       </div>
-      <template #footer>
-        <el-button @click="showSaveDialog = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="saveLayout">保存并生成货位</el-button>
-      </template>
-    </el-dialog>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { Check, Delete } from '@element-plus/icons-vue'
-import { layoutApi } from '@/api/index.js'
+import api from '../api/index.js'
 
 const router = useRouter()
 const route = useRoute()
+const builderRef = ref(null)
+const svgEl = ref(null)
+const nameInputRef = ref(null)
 
-const currentLayoutId = ref(null)
-const CELL_SIZE = 62
+// Grid config
+const COLS = 30
+const ROWS = 24
+const cellSize = 60
 
-const gridCols = ref(16)
-const gridRows = ref(12)
-const cells = ref([])
-const selectedCell = ref(null)
-const showSaveDialog = ref(false)
-const saving = ref(false)
-const canvasRef = ref(null)
+const svgWidth = computed(() => COLS * cellSize)
+const svgHeight = computed(() => ROWS * cellSize)
 
-const activeTool = ref('shelf_h')
-const drawState = ref(null)
-const drawPreview = ref(null)
-const moveState = ref(null)
-
-// 保存表单 — 使用独立对象，不共享引用
-const saveForm = ref({ name: '', description: '', activate: true })
-
-const modules = [
-  { type: 'shelf_h', name: '货架', desc: '拖拉绘制货架区域', icon: '▬', color: '#409EFF' },
-  { type: 'wall', name: '墙壁', desc: '拖拉绘制墙体', icon: '█', color: '#909399' },
-  { type: 'entrance', name: '门/出入口', desc: '拖拉绘制出入口', icon: '🚪', color: '#F56C6C' },
-  { type: 'aisle', name: '通道', desc: '拖拉绘制通道区域', icon: '⟶', color: '#E0E0E0' },
-  { type: 'workstation', name: '工作台', desc: '拖拉绘制工作区', icon: '🖥', color: '#E6A23C' },
-  { type: 'pillar', name: '柱子', desc: '拖拉绘制柱子', icon: '◼', color: '#606266' },
+// Tool definitions
+const tools = [
+  { type: 'shelf',     label: '货架',    icon: '📦' },
+  { type: 'wall',      label: '墙壁',    icon: '🧱' },
+  { type: 'door',      label: '出入口',  icon: '🚪' },
+  { type: 'aisle',     label: '通道',    icon: '↔'  },
+  { type: 'workbench', label: '工作台',  icon: '🖥'  },
+  { type: 'pillar',    label: '柱子',    icon: '⬛'  },
 ]
 
-const moduleMap = Object.fromEntries(modules.map(m => [m.type, m]))
-
-function getModuleName(type) { return moduleMap[type]?.name || type }
-function getModuleIcon(type) { return moduleMap[type]?.icon || '?' }
-function getModuleColor(type) { return moduleMap[type]?.color || '#ccc' }
-
-function getCellLabel(cell) {
-  if (cell.type.startsWith('shelf')) return cell.code || ''
-  return cell.label || ''
+const typeConfig = {
+  shelf:     { label: '货架',   icon: '📦', color: '#3b82f6', stroke: '#1d4ed8' },
+  wall:      { label: '墙壁',   icon: '🧱', color: '#6b7280', stroke: '#374151' },
+  door:      { label: '出入口', icon: '🚪', color: '#f59e0b', stroke: '#d97706' },
+  aisle:     { label: '通道',   icon: '↔',  color: '#d1fae5', stroke: '#6ee7b7' },
+  workbench: { label: '工作台', icon: '🖥',  color: '#8b5cf6', stroke: '#6d28d9' },
+  pillar:    { label: '柱子',   icon: '⬛',  color: '#374151', stroke: '#111827' },
 }
 
-const shelfCount = computed(() =>
-  cells.value.filter(c => c.type.startsWith('shelf'))
-    .reduce((sum, c) => sum + (c.colSpan || 1) * (c.rowSpan || 1), 0)
+// State
+const activeTool = ref('shelf')
+const regions = ref([])   // [{ id, type, cells: Set<"col,row">, code, levels }]
+const selectedRegion = ref(null)
+const history = ref([])
+
+// Drawing
+const isDrawing = ref(false)
+const drawStart = ref(null)
+const drawPreview = ref(null)
+
+// Save
+const layoutId = ref(null)
+const showSaveDialog = ref(false)
+const saving = ref(false)
+const saveForm = ref({ name: '', description: '', setActive: true })
+
+// ---- Computed ----
+const totalShelfCells = computed(() =>
+  regions.value.filter(r => r.type === 'shelf').reduce((s, r) => s + r.cells.size, 0)
 )
-const estimatedLocations = computed(() =>
-  cells.value.filter(c => c.type.startsWith('shelf')).reduce((sum, c) => {
-    const slots = (c.colSpan || 1) * (c.rowSpan || 1)
-    const levels = c.levels || 1
-    return sum + slots * levels
-  }, 0)
+const totalLocations = computed(() =>
+  regions.value.filter(r => r.type === 'shelf').reduce((s, r) => s + r.cells.size * (r.levels || 1), 0)
 )
 
-// ── 加载现有布局 ──────────────────────────────────────────────────────────
-onMounted(async () => {
-  const el = document.querySelector('.map-builder')
-  if (el) el.focus()
-  const id = route.query.id
-  if (id) {
-    try {
-      const res = await layoutApi.get(id)
-      const layout = res.data
-      currentLayoutId.value = layout.id
-      gridCols.value = layout.grid_cols || 16
-      gridRows.value = layout.grid_rows || 12
-      const json = typeof layout.layout_json === 'string'
-        ? JSON.parse(layout.layout_json)
-        : (layout.layout_json || [])
-      cells.value = json
-      // 用独立字符串赋值，避免引用问题
-      saveForm.value = {
-        name: String(layout.name || ''),
-        description: String(layout.description || ''),
-        activate: true,
-      }
-    } catch (err) {
-      ElMessage.error('加载布局失败：' + (err.message || '未知错误'))
-    }
-  }
-})
-
-// ── 打开保存对话框 ─────────────────────────────────────────────────────────
-function openSaveDialog() {
-  // 确保每次打开时 name 是可编辑的新字符串
-  saveForm.value = {
-    name: String(saveForm.value.name || ''),
-    description: String(saveForm.value.description || ''),
-    activate: saveForm.value.activate,
-  }
-  showSaveDialog.value = true
+// ---- Cell helpers ----
+function getRegionCells(region) {
+  return [...region.cells].map(k => {
+    const [col, row] = k.split(',').map(Number)
+    return { col, row }
+  }).sort((a, b) => a.row !== b.row ? a.row - b.row : a.col - b.col)
 }
 
-// ── 坐标计算 ────────────────────────────────────────────────────────────────
-function getGridPos(e) {
-  if (!canvasRef.value) return null
-  const rect = canvasRef.value.getBoundingClientRect()
-  const x = e.clientX - rect.left - 4
-  const y = e.clientY - rect.top - 4
-  const col = Math.floor(x / CELL_SIZE)
-  const row = Math.floor(y / CELL_SIZE)
-  if (col < 0 || col >= gridCols.value || row < 0 || row >= gridRows.value) return null
-  return { col, row }
+function getSlotCode(region, idx) {
+  const prefix = (region.code || 'A').toUpperCase()
+  return `${prefix}-${String(idx + 1).padStart(2, '0')}`
 }
 
-// ── 自动合并：将新绘制的矩形与真正重叠的同类型元素合并 ──────────────────────────
-function tryMerge(newCell) {
-  const type = newCell.type
-  // 货架保持独立以便编码
-  if (type.startsWith('shelf')) return newCell
+function getRegionCenterX(region) {
+  const cells = getRegionCells(region)
+  if (!cells.length) return 0
+  const cols = cells.map(c => c.col)
+  return (Math.min(...cols) + Math.max(...cols) + 1) / 2 * cellSize
+}
 
-  const newLeft = newCell.col
-  const newRight = newCell.col + newCell.colSpan - 1
-  const newTop = newCell.row
-  const newBottom = newCell.row + newCell.rowSpan - 1
+function getRegionCenterY(region) {
+  const cells = getRegionCells(region)
+  if (!cells.length) return 0
+  const rows = cells.map(c => c.row)
+  return (Math.min(...rows) + Math.max(...rows) + 1) / 2 * cellSize
+}
 
-  // 只合并真正重叠（有公共格子）的同类型元素，不合并仅相邻的
-  const overlapping = cells.value.filter(c => {
-    if (c.type !== type) return false
-    const cLeft = c.col
-    const cRight = c.col + (c.colSpan || 1) - 1
-    const cTop = c.row
-    const cBottom = c.row + (c.rowSpan || 1) - 1
-    // 严格重叠：两个矩形有公共格子
-    const horizOverlap = newLeft <= cRight && newRight >= cLeft
-    const vertOverlap = newTop <= cBottom && newBottom >= cTop
-    return horizOverlap && vertOverlap
+// ---- SVG outline path (true polygon, supports L/U shapes) ----
+function buildOutlinePath(region) {
+  const cs = cellSize
+  const cellSet = region.cells
+  if (!cellSet.size) return ''
+
+  // Collect outer edges (directed: CCW for exterior)
+  const edges = []
+  for (const key of cellSet) {
+    const [c, r] = key.split(',').map(Number)
+    // top edge (going right if exterior)
+    if (!cellSet.has(`${c},${r-1}`)) edges.push([c*cs, r*cs, (c+1)*cs, r*cs])
+    // right edge (going down if exterior)
+    if (!cellSet.has(`${c+1},${r}`)) edges.push([(c+1)*cs, r*cs, (c+1)*cs, (r+1)*cs])
+    // bottom edge (going left if exterior)
+    if (!cellSet.has(`${c},${r+1}`)) edges.push([(c+1)*cs, (r+1)*cs, c*cs, (r+1)*cs])
+    // left edge (going up if exterior)
+    if (!cellSet.has(`${c-1},${r}`)) edges.push([c*cs, (r+1)*cs, c*cs, r*cs])
+  }
+
+  if (!edges.length) return ''
+
+  // Build adjacency: end-point -> [edge index]
+  const adj = new Map()
+  edges.forEach((e, i) => {
+    const k = `${e[2]},${e[3]}`
+    if (!adj.has(k)) adj.set(k, [])
+    adj.get(k).push(i)
   })
 
-  if (overlapping.length === 0) return newCell
+  const used = new Array(edges.length).fill(false)
+  const polygons = []
 
-  // 计算合并后的包围盒
-  let minCol = newLeft, maxCol = newRight
-  let minRow = newTop, maxRow = newBottom
-
-  for (const c of overlapping) {
-    minCol = Math.min(minCol, c.col)
-    maxCol = Math.max(maxCol, c.col + (c.colSpan || 1) - 1)
-    minRow = Math.min(minRow, c.row)
-    maxRow = Math.max(maxRow, c.row + (c.rowSpan || 1) - 1)
+  for (let start = 0; start < edges.length; start++) {
+    if (used[start]) continue
+    const poly = []
+    let cur = start
+    while (!used[cur]) {
+      used[cur] = true
+      poly.push([edges[cur][0], edges[cur][1]])
+      const nextKey = `${edges[cur][2]},${edges[cur][3]}`
+      const nexts = (adj.get(nextKey) || []).filter(i => !used[i])
+      if (!nexts.length) break
+      cur = nexts[0]
+    }
+    if (poly.length >= 2) polygons.push(poly)
   }
 
-  // 删除被合并的旧元素
-  const overlappingIds = new Set(overlapping.map(c => c.id))
-  cells.value = cells.value.filter(c => !overlappingIds.has(c.id))
+  // Build SVG path with rounded corners
+  const R = 5
+  let d = ''
+  for (const poly of polygons) {
+    const n = poly.length
+    for (let i = 0; i < n; i++) {
+      const [px, py] = poly[(i - 1 + n) % n]
+      const [cx, cy] = poly[i]
+      const [nx, ny] = poly[(i + 1) % n]
 
-  // 返回合并后的大元素
+      const dx1 = cx - px, dy1 = cy - py
+      const dx2 = nx - cx, dy2 = ny - cy
+      const l1 = Math.sqrt(dx1*dx1 + dy1*dy1)
+      const l2 = Math.sqrt(dx2*dx2 + dy2*dy2)
+      const r = Math.min(R, l1 / 2, l2 / 2)
+
+      const bx = cx - (dx1 / l1) * r
+      const by = cy - (dy1 / l1) * r
+      const fx = cx + (dx2 / l2) * r
+      const fy = cy + (dy2 / l2) * r
+
+      if (i === 0) d += `M${bx.toFixed(1)},${by.toFixed(1)} `
+      else d += `L${bx.toFixed(1)},${by.toFixed(1)} `
+      d += `Q${cx},${cy} ${fx.toFixed(1)},${fy.toFixed(1)} `
+    }
+    d += 'Z '
+  }
+  return d
+}
+
+// ---- Mouse events ----
+function getSVGCell(e) {
+  const rect = svgEl.value.getBoundingClientRect()
+  const x = e.clientX - rect.left
+  const y = e.clientY - rect.top
   return {
-    ...newCell,
-    col: minCol,
-    row: minRow,
-    colSpan: maxCol - minCol + 1,
-    rowSpan: maxRow - minRow + 1,
+    col: Math.floor(x / cellSize),
+    row: Math.floor(y / cellSize),
   }
 }
 
-// ── 画布鼠标事件（绘制新元素） ────────────────────────────────────────────
-function onCanvasMouseDown(e) {
+function onMouseDown(e) {
   if (e.button !== 0) return
-  if (moveState.value) return
-  const pos = getGridPos(e)
-  if (!pos) return
-  drawState.value = { startCol: pos.col, startRow: pos.row }
-  drawPreview.value = { col: pos.col, row: pos.row, colSpan: 1, rowSpan: 1 }
-}
+  const { col, row } = getSVGCell(e)
+  if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return
 
-function onCanvasMouseMove(e) {
-  if (drawState.value) {
-    const pos = getGridPos(e)
-    if (!pos) return
-    const { startCol, startRow } = drawState.value
-    const col = Math.min(startCol, pos.col)
-    const row = Math.min(startRow, pos.row)
-    const colSpan = Math.abs(pos.col - startCol) + 1
-    const rowSpan = Math.abs(pos.row - startRow) + 1
-    drawPreview.value = { col, row, colSpan, rowSpan }
+  // Click on existing region → select it
+  const hit = getRegionAt(col, row)
+  if (hit) {
+    selectRegion(hit)
     return
   }
-  if (moveState.value) {
-    const pos = getGridPos(e)
-    if (!pos) return
-    const { cellId, offsetCol, offsetRow } = moveState.value
-    const cell = cells.value.find(c => c.id === cellId)
-    if (!cell) return
-    const newCol = Math.max(0, Math.min(pos.col - offsetCol, gridCols.value - (cell.colSpan || 1)))
-    const newRow = Math.max(0, Math.min(pos.row - offsetRow, gridRows.value - (cell.rowSpan || 1)))
-    cell.col = newCol
-    cell.row = newRow
-  }
+
+  // Start drawing
+  selectedRegion.value = null
+  isDrawing.value = true
+  drawStart.value = { col, row }
+  updateDrawPreview(col, row)
 }
 
-function onCanvasMouseUp(e) {
-  if (drawState.value && drawPreview.value) {
-    const { col, row, colSpan, rowSpan } = drawPreview.value
-    const shelfCount = cells.value.filter(c => c.type.startsWith('shelf')).length
-    let newCell = {
-      id: `cell_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      type: activeTool.value,
-      col, row, colSpan, rowSpan,
-      code: activeTool.value.startsWith('shelf')
-        ? String.fromCharCode(65 + (shelfCount % 26))
-        : '',
-      label: '',
-      levels: activeTool.value.startsWith('shelf') ? 1 : undefined,
-    }
-    // 尝试与相邻同类元素合并
-    newCell = tryMerge(newCell)
-    cells.value.push(newCell)
-    drawState.value = null
+function onMouseMove(e) {
+  if (!isDrawing.value) return
+  const { col, row } = getSVGCell(e)
+  const c = Math.max(0, Math.min(COLS - 1, col))
+  const r = Math.max(0, Math.min(ROWS - 1, row))
+  updateDrawPreview(c, r)
+}
+
+function onMouseUp(e) {
+  if (!isDrawing.value) return
+  finishDraw(e)
+}
+
+function onMouseLeave(e) {
+  if (isDrawing.value) finishDraw(e)
+}
+
+function finishDraw(e) {
+  isDrawing.value = false
+  if (!drawPreview.value || !drawStart.value) {
     drawPreview.value = null
     return
   }
-  if (moveState.value) {
-    moveState.value = null
+
+  const { col: sc, row: sr } = drawStart.value
+  const { col: ec, row: er } = getSVGCell(e)
+
+  const minCol = Math.max(0, Math.min(sc, ec))
+  const maxCol = Math.min(COLS - 1, Math.max(sc, ec))
+  const minRow = Math.max(0, Math.min(sr, er))
+  const maxRow = Math.min(ROWS - 1, Math.max(sr, er))
+
+  const newCells = new Set()
+  for (let c = minCol; c <= maxCol; c++) {
+    for (let r = minRow; r <= maxRow; r++) {
+      if (!getRegionAt(c, r)) newCells.add(`${c},${r}`)
+    }
+  }
+
+  drawPreview.value = null
+
+  if (newCells.size === 0) return
+
+  // Save undo snapshot
+  pushHistory()
+
+  // Try to merge with adjacent same-type regions
+  const merged = mergeWithAdjacent(activeTool.value, newCells)
+  if (!merged) {
+    const newRegion = {
+      id: Date.now(),
+      type: activeTool.value,
+      cells: newCells,
+      code: activeTool.value === 'shelf' ? getNextShelfCode() : '',
+      levels: 1,
+    }
+    regions.value.push(newRegion)
+    selectedRegion.value = newRegion
   }
 }
 
-function onCanvasMouseLeave() {
-  if (drawState.value && drawPreview.value) {
-    onCanvasMouseUp()
+function updateDrawPreview(col, row) {
+  const sc = drawStart.value.col
+  const sr = drawStart.value.row
+  const minCol = Math.min(sc, col)
+  const maxCol = Math.max(sc, col)
+  const minRow = Math.min(sr, row)
+  const maxRow = Math.max(sr, row)
+  drawPreview.value = {
+    x: minCol * cellSize,
+    y: minRow * cellSize,
+    w: (maxCol - minCol + 1) * cellSize,
+    h: (maxRow - minRow + 1) * cellSize,
   }
-  if (moveState.value) {
-    moveState.value = null
+}
+
+function getRegionAt(col, row) {
+  const key = `${col},${row}`
+  return regions.value.find(r => r.cells.has(key)) || null
+}
+
+function mergeWithAdjacent(type, newCells) {
+  const adjacent = regions.value.filter(r => {
+    if (r.type !== type) return false
+    for (const key of newCells) {
+      const [c, row] = key.split(',').map(Number)
+      if (r.cells.has(`${c},${row-1}`) || r.cells.has(`${c},${row+1}`) ||
+          r.cells.has(`${c-1},${row}`) || r.cells.has(`${c+1},${row}`)) return true
+    }
+    return false
+  })
+
+  if (!adjacent.length) return false
+
+  const target = adjacent[0]
+  for (const cell of newCells) target.cells.add(cell)
+  for (let i = 1; i < adjacent.length; i++) {
+    for (const cell of adjacent[i].cells) target.cells.add(cell)
+    regions.value = regions.value.filter(r => r.id !== adjacent[i].id)
   }
+  selectedRegion.value = target
+  return true
 }
 
-// ── 已有元素的鼠标事件（选中 / 移动） ────────────────────────────────────
-function onCellMouseDown(e, cell) {
-  if (activeTool.value) return
-  if (e.button !== 0) return
-  const pos = getGridPos(e)
-  if (!pos) return
-  const offsetCol = pos.col - cell.col
-  const offsetRow = pos.row - cell.row
-  moveState.value = { cellId: cell.id, offsetCol, offsetRow }
-  selectedCell.value = { ...cell }
+function getNextShelfCode() {
+  const used = new Set(regions.value.filter(r => r.type === 'shelf').map(r => r.code || ''))
+  for (const l of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+    if (!used.has(l)) return l
+  }
+  return 'A'
 }
 
-function selectCell(cell) {
-  selectedCell.value = { ...cell }
-  const el = document.querySelector('.map-builder')
-  if (el) el.focus()
-}
-
-function updateCell() {
-  const idx = cells.value.findIndex(c => c.id === selectedCell.value.id)
-  if (idx >= 0) cells.value[idx] = { ...selectedCell.value }
+function selectRegion(region) {
+  selectedRegion.value = region
 }
 
 function deleteSelected() {
-  if (!selectedCell.value) return
-  cells.value = cells.value.filter(c => c.id !== selectedCell.value.id)
-  selectedCell.value = null
-  ElMessage.success('已删除')
+  if (!selectedRegion.value) return
+  pushHistory()
+  regions.value = regions.value.filter(r => r.id !== selectedRegion.value.id)
+  selectedRegion.value = null
 }
 
-function clearCanvas() {
-  cells.value = []
-  selectedCell.value = null
-}
-
-// ── 保存布局 ─────────────────────────────────────────────────────────────
-async function saveLayout() {
-  if (!saveForm.value.name.trim()) {
-    ElMessage.warning('请输入布局名称')
-    return
+function onKeyDown(e) {
+  if (showSaveDialog.value) return
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (selectedRegion.value) { e.preventDefault(); deleteSelected() }
   }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo() }
+  if (e.key === 'Escape') selectedRegion.value = null
+}
+
+function pushHistory() {
+  history.value.push(regions.value.map(r => ({ ...r, cells: [...r.cells] })))
+  if (history.value.length > 50) history.value.shift()
+}
+
+function undo() {
+  if (!history.value.length) return
+  const prev = history.value.pop()
+  regions.value = prev.map(r => ({ ...r, cells: new Set(r.cells) }))
+  selectedRegion.value = null
+}
+
+function clearAll() {
+  if (!regions.value.length) return
+  pushHistory()
+  regions.value = []
+  selectedRegion.value = null
+}
+
+// ---- Save ----
+function openSaveDialog() {
+  showSaveDialog.value = true
+  nextTick(() => nameInputRef.value?.focus())
+}
+
+async function saveLayout() {
+  if (!saveForm.value.name.trim() || saving.value) return
   saving.value = true
+
+  const layout_json = regions.value.map(r => ({
+    id: r.id,
+    type: r.type,
+    cells: [...r.cells],
+    code: r.code || '',
+    levels: r.levels || 1,
+  }))
+
   try {
-    let layoutId = currentLayoutId.value
-    if (!layoutId) {
-      const createRes = await layoutApi.create({
+    if (layoutId.value) {
+      await api.put(`/api/layouts/${layoutId.value}`, {
         name: saveForm.value.name,
         description: saveForm.value.description,
-        grid_cols: gridCols.value,
-        grid_rows: gridRows.value,
+        layout_json: JSON.stringify(layout_json),
+        set_active: saveForm.value.setActive,
       })
-      layoutId = createRes.data.id
-      currentLayoutId.value = layoutId
+    } else {
+      const res = await api.post('/api/layouts', {
+        name: saveForm.value.name,
+        description: saveForm.value.description,
+      })
+      const newId = res.data?.id || res.id
+      layoutId.value = newId
+      await api.put(`/api/layouts/${newId}`, {
+        layout_json: JSON.stringify(layout_json),
+        set_active: saveForm.value.setActive,
+      })
     }
-    const updateRes = await layoutApi.update(layoutId, {
-      name: saveForm.value.name,
-      description: saveForm.value.description,
-      grid_cols: gridCols.value,
-      grid_rows: gridRows.value,
-      layout_json: cells.value,
-    })
-    if (saveForm.value.activate) {
-      await layoutApi.activate(layoutId)
-    }
-    const locationCount = updateRes.data?.locations?.length || 0
-    ElMessage.success(`布局已保存，共 ${locationCount} 个货位`)
     showSaveDialog.value = false
     router.push('/map')
   } catch (err) {
-    ElMessage.error(err.message || '保存失败')
+    console.error('Save failed', err)
+    alert('保存失败，请重试')
   } finally {
     saving.value = false
   }
 }
+
+function goBack() {
+  router.push('/map')
+}
+
+// ---- Load layout on mount ----
+onMounted(async () => {
+  builderRef.value?.focus()
+  const id = route.query.id
+  if (!id) return
+
+  layoutId.value = id
+  try {
+    const res = await api.get(`/api/layouts/${id}`)
+    const layout = res.data || res
+    saveForm.value.name = layout.name || ''
+    saveForm.value.description = layout.description || ''
+
+    if (layout.layout_json) {
+      const parsed = typeof layout.layout_json === 'string'
+        ? JSON.parse(layout.layout_json)
+        : layout.layout_json
+
+      regions.value = parsed.map(r => ({
+        id: r.id || Date.now() + Math.random(),
+        type: r.type,
+        cells: new Set(r.cells || []),
+        code: r.code || '',
+        levels: r.levels || 1,
+      }))
+    }
+  } catch (err) {
+    console.error('Load layout failed', err)
+  }
+})
 </script>
 
 <style scoped>
-.map-builder { animation: fadeIn 0.3s ease; outline: none; user-select: none; }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-.builder-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
-.page-title { font-size: 22px; font-weight: 700; color: #1a1a2e; margin: 0 0 4px; }
-.page-subtitle { color: #909399; font-size: 13px; }
-.header-actions { display: flex; gap: 10px; }
-.builder-body { display: flex; gap: 20px; height: calc(100vh - 160px); }
-
-/* 左侧面板 */
-.module-panel { width: 220px; flex-shrink: 0; background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 2px 12px rgba(0,0,0,.06); overflow-y: auto; }
-.panel-title { font-size: 12px; font-weight: 600; color: #909399; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
-.tool-list { display: flex; flex-direction: column; gap: 6px; }
-.tool-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: all .15s; }
-.tool-item:hover { background: #f5f7fa; }
-.tool-item.active { border-color: #409EFF; background: #ecf5ff; }
-.tool-preview { width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.tool-icon { font-size: 14px; color: #fff; }
-.tool-name { font-size: 13px; font-weight: 600; color: #303133; }
-.tool-desc { font-size: 11px; color: #909399; }
-
-.canvas-settings { display: flex; flex-direction: column; gap: 8px; }
-.setting-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: #606266; }
-
-.selected-info { display: flex; flex-direction: column; gap: 8px; }
-.info-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: #606266; }
-.no-selection { font-size: 12px; color: #c0c4cc; text-align: center; padding: 12px 0; line-height: 1.8; }
-
-.stats-box { display: flex; flex-direction: column; gap: 6px; }
-.stat-item { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: #606266; }
-.stat-label { color: #909399; }
-
-/* 画布 */
-.canvas-wrapper { flex: 1; overflow: auto; background: #f8f9fb; border-radius: 12px; padding: 16px; box-shadow: 0 2px 12px rgba(0,0,0,.06); }
-.canvas-grid { position: relative; display: grid; gap: 2px; width: fit-content; }
-.grid-cell { background: #fff; border: 1px dashed #dcdfe6; border-radius: 4px; }
-
-/* 预览层 */
-.draw-preview {
-  position: absolute;
-  border: 2px dashed;
-  border-radius: 6px;
-  pointer-events: none;
-  z-index: 5;
-  grid-column: var(--gc);
-  grid-row: var(--gr);
+.map-builder {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #f8fafc;
+  outline: none;
+  user-select: none;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-/* 已放置元素 */
-.placed-module {
-  position: relative;
-  border-radius: 8px;
+/* ---- Toolbar ---- */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: white;
+  border-bottom: 1px solid #e5e7eb;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.tool-group { display: flex; gap: 4px; align-items: center; }
+.tool-sep { width: 1px; height: 28px; background: #e5e7eb; margin: 0 4px; }
+.spacer { flex: 1; }
+
+.tool-btn {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 2px;
-  border: 2px solid transparent;
-  transition: border-color .15s, box-shadow .15s;
-  z-index: 2;
+  padding: 5px 10px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.15s;
+  color: #374151;
+  min-width: 52px;
 }
-.placed-module.selected { border-color: #fff; box-shadow: 0 0 0 3px #409EFF; }
-.cell-icon { font-size: 16px; line-height: 1; }
-.cell-label { font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.3); }
-.cell-levels { font-size: 10px; color: rgba(255,255,255,.8); background: rgba(0,0,0,.2); border-radius: 3px; padding: 0 3px; }
+.tool-btn:hover { background: #f9fafb; border-color: #d1d5db; }
+.tool-btn.active { background: #eff6ff; border-color: #3b82f6; color: #1d4ed8; }
+.tool-btn.primary { background: #3b82f6; border-color: #3b82f6; color: white; }
+.tool-btn.primary:hover { background: #2563eb; }
+.tool-btn.danger:hover { background: #fef2f2; border-color: #fca5a5; color: #ef4444; }
+.tool-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.tool-icon { font-size: 15px; line-height: 1; }
+.tool-label { font-size: 11px; white-space: nowrap; }
 
-.save-summary { display: flex; margin-top: 12px; }
+/* ---- Body ---- */
+.builder-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ---- Side panel ---- */
+.side-panel {
+  width: 196px;
+  flex-shrink: 0;
+  background: white;
+  border-right: 1px solid #e5e7eb;
+  padding: 16px;
+  overflow-y: auto;
+}
+.side-panel.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.panel-hint { text-align: center; color: #9ca3af; }
+.hint-icon { font-size: 36px; margin-bottom: 8px; }
+.hint-title { font-size: 14px; font-weight: 600; color: #6b7280; margin-bottom: 4px; }
+.hint-desc { font-size: 12px; margin-bottom: 12px; }
+.hint-tips { text-align: left; font-size: 11px; color: #9ca3af; line-height: 1.8; }
+
+.panel-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 14px;
+}
+.panel-section { margin-bottom: 14px; }
+.panel-section label {
+  display: block;
+  font-size: 12px;
+  color: #6b7280;
+  font-weight: 500;
+  margin-bottom: 5px;
+}
+.type-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 12px;
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+}
+.panel-input {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 7px;
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+}
+.panel-input:focus { border-color: #3b82f6; }
+.number-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.number-input button {
+  width: 28px; height: 28px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.number-input button:hover { background: #f3f4f6; }
+.number-input span { font-size: 16px; font-weight: 700; min-width: 24px; text-align: center; }
+.info-text { font-size: 12px; color: #6b7280; line-height: 1.5; }
+.delete-btn {
+  width: 100%;
+  padding: 8px;
+  background: #fef2f2;
+  border: 1.5px solid #fca5a5;
+  border-radius: 8px;
+  color: #ef4444;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.delete-btn:hover { background: #fee2e2; }
+
+/* ---- Canvas ---- */
+.canvas-wrap {
+  flex: 1;
+  overflow: auto;
+  background: #f1f5f9;
+  padding: 24px;
+}
+.map-svg {
+  display: block;
+  cursor: crosshair;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+}
+.region-shape {
+  cursor: pointer;
+  transition: fill-opacity 0.15s;
+}
+.region-shape:hover { fill-opacity: 1 !important; }
+
+/* ---- Save dialog ---- */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.dialog {
+  background: white;
+  border-radius: 16px;
+  width: 480px;
+  max-width: 92vw;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.22);
+}
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 0;
+}
+.dialog-header h3 { font-size: 18px; font-weight: 700; color: #111827; margin: 0; }
+.dialog-close {
+  width: 32px; height: 32px;
+  border: none;
+  background: #f3f4f6;
+  border-radius: 8px;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b7280;
+}
+.dialog-close:hover { background: #e5e7eb; }
+.dialog-body { padding: 20px 24px; }
+.form-group { margin-bottom: 16px; }
+.form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 6px;
+}
+.form-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  box-sizing: border-box;
+  font-family: inherit;
+  resize: vertical;
+}
+.form-input:focus { border-color: #3b82f6; }
+.form-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: #1d4ed8;
+  font-weight: 500;
+  cursor: pointer;
+}
+.form-check input { width: 16px; height: 16px; cursor: pointer; }
+.save-stats {
+  display: flex;
+  gap: 8px;
+  padding: 12px;
+  background: #f8fafc;
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+.stat-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.stat-badge.shelf { background: #dbeafe; color: #1d4ed8; }
+.stat-badge.location { background: #dcfce7; color: #166534; }
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px 20px;
+  border-top: 1px solid #f3f4f6;
+}
+.btn-cancel {
+  padding: 10px 20px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  background: white;
+  font-size: 14px;
+  cursor: pointer;
+  color: #374151;
+}
+.btn-cancel:hover { background: #f9fafb; }
+.btn-primary {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  background: #3b82f6;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.btn-primary:hover { background: #2563eb; }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
