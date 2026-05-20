@@ -47,6 +47,7 @@ export const pickingApi = {
   pickLine: (taskId, lineId, data) => api.patch(`/picking/tasks/${taskId}/lines/${lineId}/pick`, data),
   getShopifyOrders: () => api.get('/picking/shopify-orders'),
   inventoryCheck: (variantIds) => api.get('/picking/inventory-check', { params: { shopify_variant_ids: variantIds.join(',') } }),
+  deleteTask: (id) => api.delete(`/picking/tasks/${id}`),
 }
 
 export const productApi = {

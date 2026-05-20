@@ -423,4 +423,23 @@ function deductInventory(locationId, variantId, stockType, exhibitionId, qty, ta
   return qty - deduct;
 }
 
+// ── DELETE /api/picking/tasks/:id  删除拣货任务 ───────────────────────────────────
+router.delete('/tasks/:id', requireStaff, (req, res) => {
+  try {
+    const task = db.prepare('SELECT * FROM warehouse_pick_tasks WHERE id = ?').get(req.params.id);
+    if (!task) return res.status(404).json({ success: false, message: '任务不存在' });
+    if (task.status === 'in_progress') {
+      return res.status(409).json({ success: false, message: '进行中的任务不能删除，请先取消任务' });
+    }
+    db.transaction(() => {
+      db.prepare('DELETE FROM warehouse_pick_lines WHERE task_id = ?').run(req.params.id);
+      db.prepare('DELETE FROM warehouse_pick_tasks WHERE id = ?').run(req.params.id);
+    })();
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[picking] delete task:', err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;

@@ -51,6 +51,14 @@
         </div>
         <div class="task-right">
           <el-tag :type="statusType(task.status)" size="large">{{ statusLabel(task.status) }}</el-tag>
+          <el-button
+            type="danger"
+            :icon="Delete"
+            circle
+            size="small"
+            @click.stop="deleteTask(task)"
+            title="删除任务"
+          />
           <el-icon class="arrow-icon"><ArrowRight /></el-icon>
         </div>
       </div>
@@ -118,7 +126,8 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { pickingApi, productApi } from '@/api/index.js'
-import { Plus, ArrowRight, Check } from '@element-plus/icons-vue'
+import { ElMessageBox } from 'element-plus'
+import { Plus, ArrowRight, Check, Delete } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const tasks = ref([])
@@ -199,6 +208,21 @@ Object.defineProperty(showCreateDialog, 'value', {
     if (v) openCreateDialog()
   }
 })
+
+async function deleteTask(task) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除拣货任务「${task.shopify_order_name || task.exhibition_name || task.id}」吗？此操作不可恢复。`,
+      '删除任务',
+      { confirmButtonText: '确定删除', cancelButtonText: '取消', type: 'warning' }
+    )
+    await pickingApi.deleteTask(task.id)
+    ElMessage.success('任务已删除')
+    await loadTasks()
+  } catch (err) {
+    if (err !== 'cancel') ElMessage.error(err.message || '删除失败')
+  }
+}
 
 onMounted(loadTasks)
 </script>
