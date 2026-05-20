@@ -1,12 +1,60 @@
 /**
  * 图表分析 API
  * 提供预设图表数据 + 自定义 SQL 查询（仅 SELECT，需登录）
+ * + AI 自然语言转 SQL（需要 OPENAI_API_KEY 环境变量）
  */
 
 const express = require('express')
 const router = express.Router()
 const db = require('../db')
 const { requireLogin } = require('../middleware/auth')
+
+// ─── OpenAI 客户端（懒加载，仅当 OPENAI_API_KEY 存在时初始化）────
+let openaiClient = null
+function getOpenAI() {
+  if (openaiClient) return openaiClient
+  const key = process.env.OPENAI_API_KEY
+  if (!key) return null
+  try {
+    const { OpenAI } = require('openai')
+    openaiClient = new OpenAI({ apiKey: key })
+    return openaiClient
+  } catch {
+    return null
+  }
+}
+
+// 数据库 Schema 摘要（用于 AI prompt）
+const DB_SCHEMA_SUMMARY = `
+You are a SQLite SQL expert for an exhibition management system. Generate ONLY a single SELECT SQL query.
+
+Database tables:
+
+exhibitions (id, name, date TEXT 'YYYY-MM-DD', location, status TEXT 'preparing'|'active'|'completed', created_at)
+
+exhibition_items (id, exhibition_id, shopify_variant_id, planned_quantity, rack_quantity, stock_quantity, checked INTEGER 0|1, hanger_done INTEGER 0|1, storage_done INTEGER 0|1)
+
+inventory_snapshots (id, exhibition_id, shopify_variant_id, square_quantity_before, sold_quantity, remaining_quantity, synced_at)
+
+products (id, shopify_product_id, title, product_type, status, vendor, created_at)
+
+product_variants (id, product_id, shopify_variant_id, variant_title, sku, price)
+
+Common JOINs:
+- inventory_snapshots JOIN exhibitions ON exhibitions.id = inventory_snapshots.exhibition_id
+- inventory_snapshots LEFT JOIN product_variants ON product_variants.shopify_variant_id = inventory_snapshots.shopify_variant_id
+- product_variants LEFT JOIN products ON products.id = product_variants.product_id
+- exhibition_items JOIN exhibitions ON exhibitions.id = exhibition_items.exhibition_id
+
+Sell rate formula: ROUND(CAST(SUM(sold_quantity) AS FLOAT) / NULLIF(SUM(square_quantity_before), 0) * 100, 1)
+
+Rules:
+- Return ONLY the SQL query, no explanation, no markdown code blocks
+- Only SELECT statements
+- Use COALESCE for nullable fields
+- Add ORDER BY for better readability
+- Limit results to 100 rows unless user specifies otherwise
+`.trim()
 
 // 所有接口均需登录
 router.use(requireLogin)
@@ -213,6 +261,58 @@ router.post('/query', (req, res) => {
     res.json({ success: true, data: rows, columns, count: rows.length })
   } catch (err) {
     res.status(500).json({ success: false, message: err.message })
+  }
+})
+
+// ─── 8. AI 状态检查（前端用于判断是否展示 AI 功能）─────────────
+router.get('/ai-status', (req, res) => {
+  const available = !!(process.env.OPENAI_API_KEY)
+  res.json({ success: true, available })
+})
+
+// ─── 9. AI 自然语言转 SQL ────────────────────────────────
+router.post('/ai-to-sql', async (req, res) => {
+  try {
+    const { prompt } = req.body
+    if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+      return res.status(400).json({ success: false, message: '请提供查询描述' })
+    }
+
+    const client = getOpenAI()
+    if (!client) {
+      return res.status(503).json({
+        success: false,
+        message: 'AI 功能未配置，请在服务器环境变量中设置 OPENAI_API_KEY'
+      })
+    }
+
+    const completion = await client.chat.completions.create({
+      model: 'gpt-4.1-mini',
+      messages: [
+        { role: 'system', content: DB_SCHEMA_SUMMARY },
+        { role: 'user', content: prompt.trim() }
+      ],
+      temperature: 0.1,
+      max_tokens: 800,
+    })
+
+    let sql = completion.choices[0]?.message?.content?.trim() || ''
+
+    // 清理 markdown 代码块包裹（以防 AI 还是输出了 ```sql ... ```）
+    sql = sql.replace(/^```(?:sql)?\s*/i, '').replace(/\s*```$/, '').trim()
+
+    // 安全检查：确保是 SELECT
+    if (!/^SELECT\b/i.test(sql)) {
+      return res.status(400).json({
+        success: false,
+        message: 'AI 生成的语句不是 SELECT 查询，请重新描述'
+      })
+    }
+
+    res.json({ success: true, sql })
+  } catch (err) {
+    console.error('[AI-to-SQL]', err.message)
+    res.status(500).json({ success: false, message: 'AI 服务暂时不可用：' + err.message })
   }
 })
 

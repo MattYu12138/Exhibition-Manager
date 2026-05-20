@@ -179,6 +179,50 @@
 
           <!-- 右侧：查询编辑器 + 结果 -->
           <div class="query-main">
+
+            <!-- AI 自然语言输入框 -->
+            <div class="ai-input-section">
+              <div class="ai-header">
+                <div class="ai-badge">
+                  <span class="ai-spark">✦</span>
+                  <span>AI 查询生成</span>
+                </div>
+                <span v-if="!aiAvailable" class="ai-unavailable-tip">（未配置 API Key，功能不可用）</span>
+              </div>
+              <div class="ai-input-row">
+                <input
+                  v-model="aiPrompt"
+                  class="ai-input"
+                  :placeholder="aiAvailable ? '用自然语言描述你想查询的内容，例如：各展会的销售率是多少？哪些品类卖得最好？' : 'AI 功能未启用'"
+                  :disabled="!aiAvailable"
+                  @keydown.enter.prevent="generateSql"
+                />
+                <button
+                  class="ai-gen-btn"
+                  :class="{ loading: aiLoading }"
+                  :disabled="!aiAvailable || aiLoading || !aiPrompt.trim()"
+                  @click="generateSql"
+                >
+                  <span v-if="aiLoading" class="ai-spin">◌</span>
+                  <span v-else>生成 SQL</span>
+                </button>
+              </div>
+              <Transition name="ai-result">
+                <div v-if="aiError" class="ai-error">
+                  <span>⚠ {{ aiError }}</span>
+                </div>
+              </Transition>
+              <Transition name="ai-result">
+                <div v-if="aiGeneratedSql" class="ai-preview">
+                  <div class="ai-preview-header">
+                    <span class="ai-preview-label">✦ AI 生成的 SQL</span>
+                    <button class="ai-use-btn" @click="useGeneratedSql">使用此 SQL ↓</button>
+                  </div>
+                  <pre class="ai-preview-sql">{{ aiGeneratedSql }}</pre>
+                </div>
+              </Transition>
+            </div>
+
             <!-- 快捷模版 -->
             <div class="query-templates">
               <span class="tmpl-label">快捷模板：</span>
@@ -316,6 +360,13 @@ const queryLoading = ref(false)
 const queryError = ref('')
 const queryResult = ref(null)
 const sqlInput = ref(null)
+
+// AI 自然语言转 SQL
+const aiAvailable = ref(false)
+const aiPrompt = ref('')
+const aiLoading = ref(false)
+const aiError = ref('')
+const aiGeneratedSql = ref('')
 
 // ── 计算属性 ──────────────────────────────────────────────────
 const hasData = computed(() => overviewData.value.length > 0)
@@ -594,12 +645,14 @@ async function toggle() {
 async function loadAll() {
   loading.value = true
   try {
-    const [ov, cat, cl, schema] = await Promise.all([
+    const [ov, cat, cl, schema, aiStatus] = await Promise.all([
       analyticsApi.overview(),
       analyticsApi.byCategory(),
       analyticsApi.checklistProgress(),
       analyticsApi.schema(),
+      analyticsApi.aiStatus(),
     ])
+    aiAvailable.value = aiStatus?.available ?? false
     overviewData.value = ov.data || []
     categoryData.value = cat.data || []
     checklistData.value = cl.data || []
@@ -649,6 +702,30 @@ function insertCol(table, col) {
   const pos = sqlInput.value?.selectionStart ?? customSql.value.length
   const text = customSql.value
   customSql.value = text.slice(0, pos) + col + text.slice(pos)
+}
+
+async function generateSql() {
+  if (!aiPrompt.value.trim() || aiLoading.value) return
+  aiLoading.value = true
+  aiError.value = ''
+  aiGeneratedSql.value = ''
+  try {
+    const res = await analyticsApi.aiToSql(aiPrompt.value)
+    aiGeneratedSql.value = res.sql || ''
+  } catch (e) {
+    aiError.value = e.message || 'AI 生成失败'
+  } finally {
+    aiLoading.value = false
+  }
+}
+
+function useGeneratedSql() {
+  if (aiGeneratedSql.value) {
+    customSql.value = aiGeneratedSql.value
+    aiGeneratedSql.value = ''
+    // 自动滚动到 SQL 编辑器
+    setTimeout(() => sqlInput.value?.focus(), 100)
+  }
 }
 
 function exportCsv() {
@@ -918,5 +995,133 @@ function statusLabel(s) {
 @media (max-width: 640px) {
   .custom-query-panel { flex-direction: column; }
   .schema-sidebar { width: 100%; max-height: 200px; }
+}
+
+/* ── AI 自然语言输入框 ────────────────────────────────── */
+.ai-input-section {
+  background: linear-gradient(135deg, #f5f0ff 0%, #f0f4ff 100%);
+  border: 1px solid #d9c8f5;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.ai-header {
+  display: flex; align-items: center; gap: 8px;
+  margin-bottom: 10px;
+}
+.ai-badge {
+  display: flex; align-items: center; gap: 5px;
+  background: linear-gradient(135deg, #7c5cbf, #5470c6);
+  color: #fff;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.ai-spark {
+  font-size: 11px;
+  animation: sparkle 2s ease-in-out infinite;
+}
+@keyframes sparkle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(1.3); }
+}
+.ai-unavailable-tip {
+  font-size: 11px; color: #c0c4cc;
+}
+.ai-input-row {
+  display: flex; gap: 8px; align-items: stretch;
+}
+.ai-input {
+  flex: 1;
+  padding: 9px 14px;
+  border: 1px solid #c8b8f0;
+  border-radius: 8px;
+  font-size: 13px; color: #303133;
+  background: #fff;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.ai-input:focus {
+  border-color: #7c5cbf;
+  box-shadow: 0 0 0 2px rgba(124,92,191,0.15);
+}
+.ai-input:disabled {
+  background: #f5f7fa; color: #c0c4cc; cursor: not-allowed;
+}
+.ai-gen-btn {
+  padding: 9px 18px;
+  background: linear-gradient(135deg, #7c5cbf, #5470c6);
+  color: #fff;
+  border: none; border-radius: 8px;
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+  display: flex; align-items: center; gap: 6px;
+}
+.ai-gen-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #6a4aad, #4560b4);
+  box-shadow: 0 4px 12px rgba(124,92,191,0.35);
+  transform: translateY(-1px);
+}
+.ai-gen-btn:disabled {
+  opacity: 0.5; cursor: not-allowed; transform: none;
+}
+.ai-gen-btn.loading { opacity: 0.8; }
+.ai-spin {
+  display: inline-block;
+  animation: spin 0.8s linear infinite;
+  font-size: 14px;
+}
+.ai-error {
+  margin-top: 8px;
+  padding: 7px 12px;
+  background: #fff2f0; border: 1px solid #ffccc7;
+  border-radius: 7px; font-size: 12px; color: #cf1322;
+}
+.ai-preview {
+  margin-top: 10px;
+  background: #1e2235;
+  border: 1px solid #3a3f5c;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.ai-preview-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px;
+  background: rgba(124,92,191,0.2);
+  border-bottom: 1px solid #3a3f5c;
+}
+.ai-preview-label {
+  font-size: 12px; color: #b8a8f0; font-weight: 600;
+}
+.ai-use-btn {
+  padding: 3px 10px;
+  background: linear-gradient(135deg, #7c5cbf, #5470c6);
+  color: #fff; border: none; border-radius: 5px;
+  font-size: 11px; font-weight: 600;
+  cursor: pointer; transition: all 0.15s;
+}
+.ai-use-btn:hover {
+  background: linear-gradient(135deg, #6a4aad, #4560b4);
+  box-shadow: 0 2px 8px rgba(124,92,191,0.4);
+}
+.ai-preview-sql {
+  margin: 0;
+  padding: 12px 14px;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+  font-size: 12px; line-height: 1.6;
+  color: #e0e6f0;
+  white-space: pre-wrap; word-break: break-all;
+  max-height: 160px; overflow-y: auto;
+}
+
+/* AI 结果出现动画 */
+.ai-result-enter-active { transition: all 0.3s cubic-bezier(0.34,1.2,0.64,1); }
+.ai-result-leave-active { transition: all 0.2s ease; }
+.ai-result-enter-from, .ai-result-leave-to {
+  opacity: 0; transform: translateY(-6px);
 }
 </style>

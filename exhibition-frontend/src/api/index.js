@@ -74,4 +74,6 @@ export const analyticsApi = {
   rackStock: () => api.get('/analytics/rack-stock'),
   schema: () => api.get('/analytics/schema'),
   query: (sql) => api.post('/analytics/query', { sql }),
+  aiStatus: () => api.get('/analytics/ai-status'),
+  aiToSql: (prompt) => api.post('/analytics/ai-to-sql', { prompt }),
 }
