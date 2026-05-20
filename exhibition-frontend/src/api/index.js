@@ -65,3 +65,13 @@ export const squareApi = {
 export const healthApi = {
   check: () => api.get('/health'),
 }
+// ==================== 图表分析 ====================
+export const analyticsApi = {
+  overview: () => api.get('/analytics/overview'),
+  byCategory: () => api.get('/analytics/by-category'),
+  checklistProgress: () => api.get('/analytics/checklist-progress'),
+  topProducts: (params) => api.get('/analytics/top-products', { params }),
+  rackStock: () => api.get('/analytics/rack-stock'),
+  schema: () => api.get('/analytics/schema'),
+  query: (sql) => api.post('/analytics/query', { sql }),
+}

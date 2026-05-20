@@ -12,6 +12,7 @@ const authRouter = require('./routes/auth');
 const usersRouter = require('./routes/users');
 const ssoRouter = require('./routes/sso');
 const dbadminRouter = require('./routes/dbadmin');
+const analyticsRouter = require('./routes/analytics');
 const { requireLogin, requireStaff } = require('./middleware/auth');
 
 const app = express();
@@ -82,6 +83,9 @@ app.use('/api/users', usersRouter);
 
 // 数据库可视化管理路由（仅管理员）
 app.use('/api/dbadmin', dbadminRouter);
+
+// 图表分析路由（需要登录）
+app.use('/api/analytics', analyticsRouter);
 
 // 业务路由（需要登录）
 app.use('/api/exhibitions', requireLogin, exhibitionsRouter);

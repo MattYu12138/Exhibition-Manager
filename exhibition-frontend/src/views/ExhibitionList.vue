@@ -12,6 +12,9 @@
       </div>
     </div>
 
+    <!-- 数据分析面板 -->
+    <AnalyticsDashboard />
+
     <!-- 统计卡片 -->
     <el-row :gutter="12" class="stats-row">
       <el-col :span="8">
@@ -210,6 +213,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import AnalyticsDashboard from '@/components/AnalyticsDashboard.vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox, ElMessage } from 'element-plus'
