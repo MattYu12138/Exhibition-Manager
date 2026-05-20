@@ -95,7 +95,7 @@
                 @click="selectedExhibitionId = ex.id"
               >
                 <div class="ex-name">{{ ex.name }}</div>
-                <div class="ex-date">{{ ex.start_date }} ~ {{ ex.end_date }}</div>
+                <div class="ex-date">{{ ex.date || ex.location }}</div>
                 <el-tag size="small" :type="ex.status === 'upcoming' ? 'warning' : 'info'">{{ ex.status }}</el-tag>
                 <el-icon v-if="selectedExhibitionId === ex.id" class="check-icon" color="#409EFF"><Check /></el-icon>
               </div>
@@ -158,16 +158,14 @@ async function loadTasks() {
 async function openCreateDialog() {
   showCreateDialog.value = true
   ordersLoading.value = true
-  try {
-    const [ordersRes, exRes] = await Promise.all([
-      pickingApi.getShopifyOrders(),
-      productApi.getExhibitions(),
-    ])
-    shopifyOrders.value = ordersRes.data || []
-    exhibitions.value = exRes.data || []
-  } finally {
-    ordersLoading.value = false
-  }
+  // 展会和 Shopify 订单独立加载，互不影响
+  productApi.getExhibitions()
+    .then(exRes => { exhibitions.value = exRes.data || [] })
+    .catch(() => { exhibitions.value = [] })
+  pickingApi.getShopifyOrders()
+    .then(ordersRes => { shopifyOrders.value = ordersRes.data || [] })
+    .catch(() => { shopifyOrders.value = [] })
+    .finally(() => { ordersLoading.value = false })
 }
 
 async function createTask() {
