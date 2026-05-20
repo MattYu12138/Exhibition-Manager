@@ -3,11 +3,11 @@
     <div class="builder-header">
       <div>
         <h1 class="page-title">🔧 仓库地图构建器</h1>
-        <p class="page-subtitle">选择工具后在画布上拖拉绘制，点击已有元素可编辑属性</p>
+        <p class="page-subtitle">选择工具后在画布上拖拉绘制；相邻同类元素自动合并；点击已有元素可编辑</p>
       </div>
       <div class="header-actions">
         <el-button @click="clearCanvas" :disabled="cells.length === 0">清空画布</el-button>
-        <el-button @click="showSaveDialog = true" type="primary" :disabled="cells.length === 0">
+        <el-button @click="openSaveDialog" type="primary" :disabled="cells.length === 0">
           <el-icon><Check /></el-icon> 保存布局
         </el-button>
       </div>
@@ -56,16 +56,20 @@
           <template v-if="selectedCell.type.startsWith('shelf')">
             <div class="info-row">
               <span>编码前缀</span>
-              <el-input v-model="selectedCell.code" size="small" placeholder="如 A" @change="updateCell" style="width:80px" />
+              <el-input v-model="selectedCell.code" size="small" placeholder="如 A" @input="updateCell" style="width:80px" />
             </div>
             <div class="info-row">
               <span>层数</span>
               <el-input-number v-model="selectedCell.levels" :min="1" :max="10" size="small" style="width:80px" @change="updateCell" />
             </div>
+            <div class="info-row">
+              <span>货位数</span>
+              <el-tag size="small" type="success">{{ (selectedCell.colSpan||1)*(selectedCell.rowSpan||1) }} 格 × {{ selectedCell.levels||1 }} 层</el-tag>
+            </div>
           </template>
           <div class="info-row" v-if="!selectedCell.type.startsWith('shelf')">
             <span>标签</span>
-            <el-input v-model="selectedCell.label" size="small" placeholder="可选" @change="updateCell" />
+            <el-input v-model="selectedCell.label" size="small" placeholder="可选" @input="updateCell" />
           </div>
           <el-button type="danger" size="small" style="width:100%;margin-top:8px" @click="deleteSelected">
             <el-icon><Delete /></el-icon> 删除 (Del)
@@ -148,10 +152,15 @@
     </div>
 
     <!-- 保存对话框 -->
-    <el-dialog v-model="showSaveDialog" title="保存仓库布局" width="420px">
+    <el-dialog v-model="showSaveDialog" title="保存仓库布局" width="420px" :close-on-click-modal="false">
       <el-form :model="saveForm" label-position="top">
         <el-form-item label="布局名称" required>
-          <el-input v-model="saveForm.name" placeholder="如：主仓库 2026" />
+          <el-input
+            v-model="saveForm.name"
+            placeholder="如：主仓库 2026"
+            clearable
+            autofocus
+          />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="saveForm.description" type="textarea" :rows="2" placeholder="可选备注" />
@@ -173,7 +182,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Check, Delete } from '@element-plus/icons-vue'
@@ -182,10 +191,7 @@ import { layoutApi } from '@/api/index.js'
 const router = useRouter()
 const route = useRoute()
 
-// 当前编辑的布局 ID（有则为编辑模式，无则为新建模式）
 const currentLayoutId = ref(null)
-
-// 每个格子的像素大小（含 gap 2px）
 const CELL_SIZE = 62
 
 const gridCols = ref(16)
@@ -196,16 +202,12 @@ const showSaveDialog = ref(false)
 const saving = ref(false)
 const canvasRef = ref(null)
 
-// 当前激活的绘制工具
 const activeTool = ref('shelf_h')
+const drawState = ref(null)
+const drawPreview = ref(null)
+const moveState = ref(null)
 
-// 鼠标拖拉状态
-const drawState = ref(null) // { startCol, startRow }
-const drawPreview = ref(null) // { col, row, colSpan, rowSpan }
-
-// 移动状态（点击已有元素拖动）
-const moveState = ref(null) // { cellId, offsetCol, offsetRow }
-
+// 保存表单 — 使用独立对象，不共享引用
 const saveForm = ref({ name: '', description: '', activate: true })
 
 const modules = [
@@ -228,7 +230,10 @@ function getCellLabel(cell) {
   return cell.label || ''
 }
 
-const shelfCount = computed(() => cells.value.filter(c => c.type.startsWith('shelf')).length)
+const shelfCount = computed(() =>
+  cells.value.filter(c => c.type.startsWith('shelf'))
+    .reduce((sum, c) => sum + (c.colSpan || 1) * (c.rowSpan || 1), 0)
+)
 const estimatedLocations = computed(() =>
   cells.value.filter(c => c.type.startsWith('shelf')).reduce((sum, c) => {
     const slots = (c.colSpan || 1) * (c.rowSpan || 1)
@@ -237,7 +242,7 @@ const estimatedLocations = computed(() =>
   }, 0)
 )
 
-// 自动聚焦 + 加载现有布局
+// ── 加载现有布局 ──────────────────────────────────────────────────────────
 onMounted(async () => {
   const el = document.querySelector('.map-builder')
   if (el) el.focus()
@@ -253,13 +258,28 @@ onMounted(async () => {
         ? JSON.parse(layout.layout_json)
         : (layout.layout_json || [])
       cells.value = json
-      saveForm.value.name = layout.name
-      saveForm.value.description = layout.description || ''
+      // 用独立字符串赋值，避免引用问题
+      saveForm.value = {
+        name: String(layout.name || ''),
+        description: String(layout.description || ''),
+        activate: true,
+      }
     } catch (err) {
       ElMessage.error('加载布局失败：' + (err.message || '未知错误'))
     }
   }
 })
+
+// ── 打开保存对话框 ─────────────────────────────────────────────────────────
+function openSaveDialog() {
+  // 确保每次打开时 name 是可编辑的新字符串
+  saveForm.value = {
+    name: String(saveForm.value.name || ''),
+    description: String(saveForm.value.description || ''),
+    activate: saveForm.value.activate,
+  }
+  showSaveDialog.value = true
+}
 
 // ── 坐标计算 ────────────────────────────────────────────────────────────────
 function getGridPos(e) {
@@ -273,10 +293,61 @@ function getGridPos(e) {
   return { col, row }
 }
 
+// ── 自动合并：将新绘制的矩形与相邻同类型元素合并 ──────────────────────────
+function tryMerge(newCell) {
+  const type = newCell.type
+  // 只合并非货架类型（墙、通道、通道等），货架保持独立以便编码
+  if (type.startsWith('shelf')) return newCell
+
+  const newLeft = newCell.col
+  const newRight = newCell.col + newCell.colSpan - 1
+  const newTop = newCell.row
+  const newBottom = newCell.row + newCell.rowSpan - 1
+
+  // 找到所有同类型且与新矩形相邻或重叠的元素
+  const overlapping = cells.value.filter(c => {
+    if (c.type !== type) return false
+    const cLeft = c.col
+    const cRight = c.col + (c.colSpan || 1) - 1
+    const cTop = c.row
+    const cBottom = c.row + (c.rowSpan || 1) - 1
+    // 检查是否相邻（上下左右紧贴）或重叠
+    const horizAdj = (newLeft <= cRight + 1) && (newRight >= cLeft - 1)
+    const vertAdj = (newTop <= cBottom + 1) && (newBottom >= cTop - 1)
+    return horizAdj && vertAdj
+  })
+
+  if (overlapping.length === 0) return newCell
+
+  // 计算合并后的包围盒
+  let minCol = newLeft, maxCol = newRight
+  let minRow = newTop, maxRow = newBottom
+
+  for (const c of overlapping) {
+    minCol = Math.min(minCol, c.col)
+    maxCol = Math.max(maxCol, c.col + (c.colSpan || 1) - 1)
+    minRow = Math.min(minRow, c.row)
+    maxRow = Math.max(maxRow, c.row + (c.rowSpan || 1) - 1)
+  }
+
+  // 删除被合并的旧元素
+  const overlappingIds = new Set(overlapping.map(c => c.id))
+  cells.value = cells.value.filter(c => !overlappingIds.has(c.id))
+
+  // 返回合并后的大元素
+  return {
+    ...newCell,
+    col: minCol,
+    row: minRow,
+    colSpan: maxCol - minCol + 1,
+    rowSpan: maxRow - minRow + 1,
+  }
+}
+
 // ── 画布鼠标事件（绘制新元素） ────────────────────────────────────────────
 function onCanvasMouseDown(e) {
-  if (!activeTool.value) return
   if (e.button !== 0) return
+  if (moveState.value) return
   const pos = getGridPos(e)
   if (!pos) return
   drawState.value = { startCol: pos.col, startRow: pos.row }
@@ -284,7 +355,6 @@ function onCanvasMouseDown(e) {
 }
 
 function onCanvasMouseMove(e) {
-  // 绘制预览
   if (drawState.value) {
     const pos = getGridPos(e)
     if (!pos) return
@@ -296,7 +366,6 @@ function onCanvasMouseMove(e) {
     drawPreview.value = { col, row, colSpan, rowSpan }
     return
   }
-  // 移动已有元素
   if (moveState.value) {
     const pos = getGridPos(e)
     if (!pos) return
@@ -311,25 +380,26 @@ function onCanvasMouseMove(e) {
 }
 
 function onCanvasMouseUp(e) {
-  // 完成绘制
   if (drawState.value && drawPreview.value) {
     const { col, row, colSpan, rowSpan } = drawPreview.value
-    const shelfIdx = cells.value.filter(c => c.type.startsWith('shelf')).length
-    cells.value.push({
+    const shelfCount = cells.value.filter(c => c.type.startsWith('shelf')).length
+    let newCell = {
       id: `cell_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       type: activeTool.value,
       col, row, colSpan, rowSpan,
       code: activeTool.value.startsWith('shelf')
-        ? String.fromCharCode(65 + (shelfIdx % 26))
+        ? String.fromCharCode(65 + (shelfCount % 26))
         : '',
       label: '',
       levels: activeTool.value.startsWith('shelf') ? 1 : undefined,
-    })
+    }
+    // 尝试与相邻同类元素合并
+    newCell = tryMerge(newCell)
+    cells.value.push(newCell)
     drawState.value = null
     drawPreview.value = null
     return
   }
-  // 完成移动
   if (moveState.value) {
     moveState.value = null
   }
@@ -337,7 +407,6 @@ function onCanvasMouseUp(e) {
 
 function onCanvasMouseLeave() {
   if (drawState.value && drawPreview.value) {
-    // 鼠标离开画布时完成绘制
     onCanvasMouseUp()
   }
   if (moveState.value) {
@@ -347,7 +416,7 @@ function onCanvasMouseLeave() {
 
 // ── 已有元素的鼠标事件（选中 / 移动） ────────────────────────────────────
 function onCellMouseDown(e, cell) {
-  if (activeTool.value) return // 绘制模式下不处理元素点击
+  if (activeTool.value) return
   if (e.button !== 0) return
   const pos = getGridPos(e)
   if (!pos) return
@@ -397,6 +466,7 @@ async function saveLayout() {
         grid_rows: gridRows.value,
       })
       layoutId = createRes.data.id
+      currentLayoutId.value = layoutId
     }
     const updateRes = await layoutApi.update(layoutId, {
       name: saveForm.value.name,
@@ -429,30 +499,13 @@ async function saveLayout() {
 .header-actions { display: flex; gap: 10px; }
 .builder-body { display: flex; gap: 20px; height: calc(100vh - 160px); }
 
-.module-panel {
-  width: 220px;
-  flex-shrink: 0;
-  background: #fff;
-  border-radius: 12px;
-  padding: 16px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-  overflow-y: auto;
-}
-.panel-title { font-size: 12px; font-weight: 600; color: #909399; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
-
+/* 左侧面板 */
+.module-panel { width: 220px; flex-shrink: 0; background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 2px 12px rgba(0,0,0,.06); overflow-y: auto; }
+.panel-title { font-size: 12px; font-weight: 600; color: #909399; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
 .tool-list { display: flex; flex-direction: column; gap: 6px; }
-.tool-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px;
-  border-radius: 8px;
-  border: 2px solid transparent;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-.tool-item:hover { background: #f5f7ff; }
-.tool-item.active { background: #ecf5ff; border-color: #409EFF; }
+.tool-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: all .15s; }
+.tool-item:hover { background: #f5f7fa; }
+.tool-item.active { border-color: #409EFF; background: #ecf5ff; }
 .tool-preview { width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .tool-icon { font-size: 14px; color: #fff; }
 .tool-name { font-size: 13px; font-weight: 600; color: #303133; }
@@ -462,64 +515,46 @@ async function saveLayout() {
 .setting-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: #606266; }
 
 .selected-info { display: flex; flex-direction: column; gap: 8px; }
-.info-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; gap: 8px; }
-.info-row span:first-child { color: #909399; flex-shrink: 0; }
+.info-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: #606266; }
 .no-selection { font-size: 12px; color: #c0c4cc; text-align: center; padding: 12px 0; line-height: 1.8; }
 
-.stats-box { display: flex; flex-direction: column; gap: 6px; padding: 10px; background: #f5f7ff; border-radius: 8px; }
-.stat-item { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #606266; }
+.stats-box { display: flex; flex-direction: column; gap: 6px; }
+.stat-item { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: #606266; }
 .stat-label { color: #909399; }
 
-.canvas-wrapper {
-  flex: 1;
-  background: #fff;
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-  overflow: auto;
-}
-.canvas-grid {
-  display: grid;
-  gap: 2px;
-  position: relative;
-  background: #f5f6fa;
-  border-radius: 8px;
-  padding: 4px;
-  min-width: fit-content;
-}
-.grid-cell {
-  width: 60px;
-  height: 60px;
-  border: 1px dashed #e0e0e0;
-  border-radius: 4px;
-}
+/* 画布 */
+.canvas-wrapper { flex: 1; overflow: auto; background: #f8f9fb; border-radius: 12px; padding: 16px; box-shadow: 0 2px 12px rgba(0,0,0,.06); }
+.canvas-grid { position: relative; display: grid; gap: 2px; width: fit-content; }
+.grid-cell { background: #fff; border: 1px dashed #dcdfe6; border-radius: 4px; }
 
-/* 拖拉预览 */
+/* 预览层 */
 .draw-preview {
-  border-radius: 6px;
+  position: absolute;
   border: 2px dashed;
-  z-index: 5;
+  border-radius: 6px;
   pointer-events: none;
-  position: relative;
+  z-index: 5;
+  grid-column: var(--gc);
+  grid-row: var(--gr);
 }
 
+/* 已放置元素 */
 .placed-module {
-  border-radius: 6px;
+  position: relative;
+  border-radius: 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
+  gap: 2px;
   border: 2px solid transparent;
-  transition: box-shadow 0.15s, border-color 0.15s;
-  z-index: 10;
-  position: relative;
+  transition: border-color .15s, box-shadow .15s;
+  z-index: 2;
 }
-.placed-module:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.18); }
-.placed-module.selected { border-color: #1a1a2e; box-shadow: 0 0 0 3px rgba(26,26,46,0.2); }
-.cell-icon { font-size: 16px; color: #fff; }
-.cell-label { font-size: 11px; color: rgba(255,255,255,0.95); font-weight: 700; text-align: center; max-width: 54px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cell-levels { font-size: 10px; color: rgba(255,255,255,0.8); background: rgba(0,0,0,0.2); border-radius: 3px; padding: 0 3px; }
+.placed-module.selected { border-color: #fff; box-shadow: 0 0 0 3px #409EFF; }
+.cell-icon { font-size: 16px; line-height: 1; }
+.cell-label { font-size: 11px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.3); }
+.cell-levels { font-size: 10px; color: rgba(255,255,255,.8); background: rgba(0,0,0,.2); border-radius: 3px; padding: 0 3px; }
 
-.save-summary { margin-top: 12px; padding: 10px; background: #f5f7ff; border-radius: 8px; }
+.save-summary { display: flex; margin-top: 12px; }
 </style>
