@@ -1,5 +1,5 @@
 <template>
-  <div class="map-builder">
+  <div class="map-builder" tabindex="0" @keydown.delete.prevent="deleteSelected" @keydown.backspace.prevent="deleteSelected">
     <div class="builder-header">
       <div>
         <h1 class="page-title">🔧 仓库地图构建器</h1>
@@ -70,29 +70,39 @@
             <el-input v-model="selectedCell.label" size="small" placeholder="可选备注" @change="updateCell" />
           </div>
           <el-button type="danger" size="small" style="width:100%;margin-top:8px" @click="deleteSelected">
-            <el-icon><Delete /></el-icon> 删除
+            <el-icon><Delete /></el-icon> 删除选中 (Del)
           </el-button>
         </div>
-        <div v-else class="no-selection">点击画布上的模块进行编辑</div>
+        <div v-else class="no-selection">点击画布上的模块进行编辑<br><span style="font-size:11px;color:#c0c4cc">选中后可按 Delete 键删除</span></div>
       </div>
 
       <!-- 右侧画布 -->
-      <div class="canvas-wrapper">
+      <div class="canvas-wrapper" @click.self="selectedCell = null">
         <div
           ref="canvasRef"
           class="canvas-grid"
-          :style="{ gridTemplateColumns: `repeat(${gridCols}, 62px)`, gridTemplateRows: `repeat(${gridRows}, 62px)` }"
+          :style="{ gridTemplateColumns: `repeat(${gridCols}, ${CELL_SIZE}px)`, gridTemplateRows: `repeat(${gridRows}, ${CELL_SIZE}px)` }"
           @dragover.prevent="onCanvasDragOver"
           @drop.prevent="onCanvasDrop"
-          @dragleave="dragOverCell = null"
+          @dragleave.self="dragPreview = null"
+          @click.self="selectedCell = null"
         >
           <!-- 空格子 -->
           <div
             v-for="idx in gridCols * gridRows"
             :key="`cell-${idx - 1}`"
             class="grid-cell"
-            :class="{ 'drag-over': dragOverCell === idx - 1 }"
             :data-idx="idx - 1"
+          />
+
+          <!-- 拖拽预览层（与实际方块等大，位置准确） -->
+          <div
+            v-if="dragPreview"
+            class="drag-preview"
+            :style="{
+              gridColumn: `${dragPreview.col + 1} / span ${dragPreview.colSpan}`,
+              gridRow: `${dragPreview.row + 1} / span ${dragPreview.rowSpan}`,
+            }"
           />
 
           <!-- 放置的模块 -->
@@ -144,7 +154,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Check, Delete } from '@element-plus/icons-vue'
@@ -152,19 +162,23 @@ import { layoutApi } from '@/api/index.js'
 
 const router = useRouter()
 
-const CELL_SIZE = 62 // px per grid cell (60px + 2px gap)
+// 每个格子的实际像素大小（含 gap）
+// canvas-grid gap: 2px，grid-cell: 60px → 每格占 62px
+const CELL_SIZE = 62
 
 const gridCols = ref(12)
 const gridRows = ref(10)
 const cells = ref([])
 const selectedCell = ref(null)
-const dragOverCell = ref(null)
 const showSaveDialog = ref(false)
 const saving = ref(false)
 const canvasRef = ref(null)
 
 // 拖拽状态
-const dragState = ref(null) // { type: 'new'|'move', mod?, cellId?, offsetCol, offsetRow }
+const dragState = ref(null) // { type: 'new'|'move', mod?, cellId?, offsetCol, offsetRow, colSpan, rowSpan }
+
+// 拖拽预览（显示将要放置的位置和大小）
+const dragPreview = ref(null) // { col, row, colSpan, rowSpan }
 
 const saveForm = ref({ name: '', description: '', activate: true })
 
@@ -189,35 +203,50 @@ const estimatedLocations = computed(() =>
   cells.value.filter(c => c.type.startsWith('shelf')).reduce((sum, c) => sum + (c.rows || 2) * (c.cols || 4), 0)
 )
 
+// 自动聚焦以捕获键盘事件
+onMounted(() => {
+  const el = document.querySelector('.map-builder')
+  if (el) el.focus()
+})
+
 // 从模块面板开始拖拽新模块
 function onModuleDragStart(e, mod) {
-  dragState.value = { type: 'new', mod, offsetCol: 0, offsetRow: 0 }
-  // 设置拖拽幽灵图像为模块预览
+  dragState.value = {
+    type: 'new',
+    mod,
+    offsetCol: 0,
+    offsetRow: 0,
+    colSpan: mod.colSpan || 1,
+    rowSpan: mod.rowSpan || 1,
+  }
+  // 设置拖拽幽灵图像为模块预览（与实际大小一致）
   const ghost = document.createElement('div')
   ghost.style.cssText = `
-    width: ${(mod.colSpan || 1) * 62}px;
-    height: ${(mod.rowSpan || 1) * 62}px;
+    width: ${(mod.colSpan || 1) * CELL_SIZE - 2}px;
+    height: ${(mod.rowSpan || 1) * CELL_SIZE - 2}px;
     background: ${mod.color};
     border-radius: 6px;
-    opacity: 0.8;
+    opacity: 0.85;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 24px;
     color: white;
     position: fixed;
-    top: -200px;
+    top: -9999px;
+    left: -9999px;
   `
   ghost.textContent = mod.icon
   document.body.appendChild(ghost)
-  e.dataTransfer.setDragImage(ghost, (mod.colSpan || 1) * 31, (mod.rowSpan || 1) * 31)
+  // 锚点设在模块左上角（0,0），这样放置位置就是鼠标所在格子
+  e.dataTransfer.setDragImage(ghost, 0, 0)
   setTimeout(() => document.body.removeChild(ghost), 0)
 }
 
 // 从画布上已有模块开始拖拽（移动）
 function onCellDragStart(e, cell) {
   const rect = e.currentTarget.getBoundingClientRect()
-  // 计算鼠标在模块内的格子偏移（鼠标在模块的第几格）
+  // 计算鼠标在模块内的格子偏移
   const offsetCol = Math.floor((e.clientX - rect.left) / CELL_SIZE)
   const offsetRow = Math.floor((e.clientY - rect.top) / CELL_SIZE)
   dragState.value = {
@@ -225,7 +254,33 @@ function onCellDragStart(e, cell) {
     cellId: cell.id,
     offsetCol: Math.max(0, Math.min(offsetCol, (cell.colSpan || 1) - 1)),
     offsetRow: Math.max(0, Math.min(offsetRow, (cell.rowSpan || 1) - 1)),
+    colSpan: cell.colSpan || 1,
+    rowSpan: cell.rowSpan || 1,
   }
+  // 创建与实际方块等大的幽灵图像
+  const ghost = document.createElement('div')
+  ghost.style.cssText = `
+    width: ${(cell.colSpan || 1) * CELL_SIZE - 2}px;
+    height: ${(cell.rowSpan || 1) * CELL_SIZE - 2}px;
+    background: ${getModuleColor(cell.type)};
+    border-radius: 6px;
+    opacity: 0.85;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    color: white;
+    position: fixed;
+    top: -9999px;
+    left: -9999px;
+  `
+  ghost.textContent = getModuleIcon(cell.type)
+  document.body.appendChild(ghost)
+  // 锚点设在鼠标在模块内的实际像素位置
+  const anchorX = offsetCol * CELL_SIZE + Math.floor(CELL_SIZE / 2)
+  const anchorY = offsetRow * CELL_SIZE + Math.floor(CELL_SIZE / 2)
+  e.dataTransfer.setDragImage(ghost, anchorX, anchorY)
+  setTimeout(() => document.body.removeChild(ghost), 0)
   e.stopPropagation()
 }
 
@@ -233,7 +288,8 @@ function onCellDragStart(e, cell) {
 function getGridPos(e) {
   if (!canvasRef.value) return null
   const rect = canvasRef.value.getBoundingClientRect()
-  const x = e.clientX - rect.left - 4 // 4px padding
+  // canvas-grid 有 4px padding
+  const x = e.clientX - rect.left - 4
   const y = e.clientY - rect.top - 4
   const col = Math.floor(x / CELL_SIZE)
   const row = Math.floor(y / CELL_SIZE)
@@ -244,28 +300,23 @@ function getGridPos(e) {
 function onCanvasDragOver(e) {
   e.preventDefault()
   const pos = getGridPos(e)
-  if (!pos || !dragState.value) { dragOverCell.value = null; return }
-  const { offsetCol, offsetRow } = dragState.value
-  const targetCol = pos.col - offsetCol
-  const targetRow = pos.row - offsetRow
-  dragOverCell.value = targetRow * gridCols.value + targetCol
+  if (!pos || !dragState.value) { dragPreview.value = null; return }
+  const { offsetCol, offsetRow, colSpan, rowSpan } = dragState.value
+  const targetCol = Math.max(0, Math.min(pos.col - offsetCol, gridCols.value - colSpan))
+  const targetRow = Math.max(0, Math.min(pos.row - offsetRow, gridRows.value - rowSpan))
+  dragPreview.value = { col: targetCol, row: targetRow, colSpan, rowSpan }
 }
 
 function onCanvasDrop(e) {
   e.preventDefault()
-  dragOverCell.value = null
-  const pos = getGridPos(e)
-  if (!pos || !dragState.value) return
+  const preview = dragPreview.value
+  dragPreview.value = null
+  if (!preview || !dragState.value) return
 
-  const { offsetCol, offsetRow } = dragState.value
-  const targetCol = Math.max(0, pos.col - offsetCol)
-  const targetRow = Math.max(0, pos.row - offsetRow)
+  const { col, row } = preview
 
   if (dragState.value.type === 'new') {
     const mod = dragState.value.mod
-    // 确保不超出画布边界
-    const col = Math.min(targetCol, gridCols.value - (mod.colSpan || 1))
-    const row = Math.min(targetRow, gridRows.value - (mod.rowSpan || 1))
     const id = `cell_${Date.now()}`
     cells.value.push({
       id,
@@ -282,8 +333,8 @@ function onCanvasDrop(e) {
   } else if (dragState.value.type === 'move') {
     const cell = cells.value.find(c => c.id === dragState.value.cellId)
     if (cell) {
-      cell.col = Math.min(targetCol, gridCols.value - (cell.colSpan || 1))
-      cell.row = Math.min(targetRow, gridRows.value - (cell.rowSpan || 1))
+      cell.col = col
+      cell.row = row
     }
   }
   dragState.value = null
@@ -291,6 +342,9 @@ function onCanvasDrop(e) {
 
 function selectCell(cell) {
   selectedCell.value = { ...cell }
+  // 确保组件获得焦点以响应键盘事件
+  const el = document.querySelector('.map-builder')
+  if (el) el.focus()
 }
 
 function updateCell() {
@@ -299,8 +353,10 @@ function updateCell() {
 }
 
 function deleteSelected() {
-  cells.value = cells.value.filter(c => c.id !== selectedCell.value?.id)
+  if (!selectedCell.value) return
+  cells.value = cells.value.filter(c => c.id !== selectedCell.value.id)
   selectedCell.value = null
+  ElMessage.success('已删除')
 }
 
 function clearCanvas() {
@@ -336,7 +392,7 @@ async function saveLayout() {
 </script>
 
 <style scoped>
-.map-builder { animation: fadeIn 0.3s ease; }
+.map-builder { animation: fadeIn 0.3s ease; outline: none; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 .builder-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
 .page-title { font-size: 22px; font-weight: 700; color: #1a1a2e; margin: 0 0 4px; }
@@ -376,7 +432,7 @@ async function saveLayout() {
 .selected-info { display: flex; flex-direction: column; gap: 8px; }
 .info-row { display: flex; align-items: center; justify-content: space-between; font-size: 13px; gap: 8px; }
 .info-row span:first-child { color: #909399; flex-shrink: 0; }
-.no-selection { font-size: 12px; color: #c0c4cc; text-align: center; padding: 12px 0; }
+.no-selection { font-size: 12px; color: #c0c4cc; text-align: center; padding: 12px 0; line-height: 1.8; }
 .canvas-wrapper {
   flex: 1;
   background: #fff;
@@ -401,7 +457,15 @@ async function saveLayout() {
   border-radius: 4px;
   transition: background 0.1s;
 }
-.grid-cell.drag-over { background: #ecf5ff; border-color: #409EFF; border-style: solid; }
+/* 拖拽预览层：与实际方块等大，半透明蓝色 */
+.drag-preview {
+  border-radius: 6px;
+  background: rgba(64, 158, 255, 0.25);
+  border: 2px dashed #409EFF;
+  z-index: 5;
+  pointer-events: none;
+  position: relative;
+}
 .placed-module {
   border-radius: 6px;
   display: flex;

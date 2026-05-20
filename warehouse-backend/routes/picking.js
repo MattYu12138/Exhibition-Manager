@@ -7,8 +7,7 @@ const router = express.Router();
 const { db, nextPickTaskId, nextPickLineId, nextInventoryId, nextMovementId } = require('../db');
 const { requireLogin, requireStaff } = require('../middleware/auth');
 
-const SHOPIFY_SHOP = process.env.SHOPIFY_SHOP;
-const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
+const shopifyService = require('../services/shopify');
 
 // ── GET /api/picking/tasks  列出拣货任务 ────────────────────────────────────
 router.get('/tasks', requireLogin, (req, res) => {
@@ -276,21 +275,33 @@ router.patch('/tasks/:id/lines/:lineId/pick', requireStaff, (req, res) => {
   }
 });
 
+// ── GET /api/picking/exhibitions  获取展会列表（供创建备货任务选择） ──────────
+router.get('/exhibitions', requireLogin, (req, res) => {
+  try {
+    const exhibitions = db.prepare(`
+      SELECT id, name, date, location, status
+      FROM exhibitions
+      ORDER BY date DESC
+    `).all();
+    res.json({ success: true, data: exhibitions });
+  } catch (err) {
+    console.error('[picking] exhibitions:', err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ── GET /api/picking/shopify-orders  获取 Shopify 待发货订单 ─────────────────
 router.get('/shopify-orders', requireLogin, async (req, res) => {
   try {
-    if (!SHOPIFY_SHOP || !SHOPIFY_ACCESS_TOKEN) {
+    const headers = await shopifyService._getHeaders();
+    const shop = process.env.SHOPIFY_SHOP;
+    if (!shop) {
       return res.status(503).json({ success: false, message: 'Shopify 未配置' });
     }
-
+    const apiVersion = '2025-10';
     const response = await fetch(
-      `https://${SHOPIFY_SHOP}.myshopify.com/admin/api/2024-01/orders.json?status=open&fulfillment_status=unfulfilled&limit=50`,
-      {
-        headers: {
-          'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN,
-          'Content-Type': 'application/json',
-        },
-      }
+      `https://${shop}.myshopify.com/admin/api/${apiVersion}/orders.json?status=open&fulfillment_status=unfulfilled&limit=50`,
+      { headers }
     );
 
     if (!response.ok) {

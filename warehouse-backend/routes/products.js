@@ -60,9 +60,9 @@ router.get('/variant/:variantId', requireLogin, (req, res) => {
 router.get('/exhibitions', requireLogin, (req, res) => {
   try {
     const exhibitions = db.prepare(`
-      SELECT id, name, start_date, end_date, status
+      SELECT id, name, date, location, status
       FROM exhibitions
-      ORDER BY start_date DESC
+      ORDER BY date DESC
     `).all();
     res.json({ success: true, data: exhibitions });
   } catch (err) {
