@@ -293,10 +293,10 @@ function getGridPos(e) {
   return { col, row }
 }
 
-// ── 自动合并：将新绘制的矩形与相邻同类型元素合并 ──────────────────────────
+// ── 自动合并：将新绘制的矩形与真正重叠的同类型元素合并 ──────────────────────────
 function tryMerge(newCell) {
   const type = newCell.type
-  // 只合并非货架类型（墙、通道、通道等），货架保持独立以便编码
+  // 货架保持独立以便编码
   if (type.startsWith('shelf')) return newCell
 
   const newLeft = newCell.col
@@ -304,17 +304,17 @@ function tryMerge(newCell) {
   const newTop = newCell.row
   const newBottom = newCell.row + newCell.rowSpan - 1
 
-  // 找到所有同类型且与新矩形相邻或重叠的元素
+  // 只合并真正重叠（有公共格子）的同类型元素，不合并仅相邻的
   const overlapping = cells.value.filter(c => {
     if (c.type !== type) return false
     const cLeft = c.col
     const cRight = c.col + (c.colSpan || 1) - 1
     const cTop = c.row
     const cBottom = c.row + (c.rowSpan || 1) - 1
-    // 检查是否相邻（上下左右紧贴）或重叠
-    const horizAdj = (newLeft <= cRight + 1) && (newRight >= cLeft - 1)
-    const vertAdj = (newTop <= cBottom + 1) && (newBottom >= cTop - 1)
-    return horizAdj && vertAdj
+    // 严格重叠：两个矩形有公共格子
+    const horizOverlap = newLeft <= cRight && newRight >= cLeft
+    const vertOverlap = newTop <= cBottom && newBottom >= cTop
+    return horizOverlap && vertOverlap
   })
 
   if (overlapping.length === 0) return newCell
