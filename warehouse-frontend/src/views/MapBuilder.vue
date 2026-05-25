@@ -320,15 +320,18 @@ function getSlotCode(region, idx) {
 function getRegionCenterX(region) {
   const cells = getRegionCells(region)
   if (!cells.length) return 0
-  const cols = cells.map(c => c.col)
-  return (Math.min(...cols) + Math.max(...cols) + 1) / 2 * cellSize
+  // Use the median cell to ensure the icon lands on an actual cell (handles L/U shapes)
+  const sorted = [...cells].sort((a, b) => a.row !== b.row ? a.row - b.row : a.col - b.col)
+  const mid = sorted[Math.floor(sorted.length / 2)]
+  return (mid.col + 0.5) * cellSize
 }
 
 function getRegionCenterY(region) {
   const cells = getRegionCells(region)
   if (!cells.length) return 0
-  const rows = cells.map(c => c.row)
-  return (Math.min(...rows) + Math.max(...rows) + 1) / 2 * cellSize
+  const sorted = [...cells].sort((a, b) => a.row !== b.row ? a.row - b.row : a.col - b.col)
+  const mid = sorted[Math.floor(sorted.length / 2)]
+  return (mid.row + 0.5) * cellSize
 }
 
 // ---- SVG outline path (true polygon, supports L/U shapes) ----
