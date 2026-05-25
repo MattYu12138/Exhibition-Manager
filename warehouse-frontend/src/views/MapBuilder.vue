@@ -353,10 +353,11 @@ function buildOutlinePath(region) {
 
   if (!edges.length) return ''
 
-  // Build adjacency: end-point -> [edge index]
+  // Build adjacency: start-point -> [edge index]
+  // After edge[cur] ends at (x2,y2), we need the next edge that STARTS at (x2,y2)
   const adj = new Map()
   edges.forEach((e, i) => {
-    const k = `${e[2]},${e[3]}`
+    const k = `${e[0]},${e[1]}`  // use START point as key
     if (!adj.has(k)) adj.set(k, [])
     adj.get(k).push(i)
   })
