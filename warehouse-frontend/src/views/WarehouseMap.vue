@@ -136,13 +136,45 @@ const typeNameMap = {
 function getIcon(type) { return iconMap[type] || '?' }
 function getTypeName(type) { return typeNameMap[type] || type }
 
-// 解析 layout_json（可能是字符串或数组）
+// 解析 layout_json，支持新版（cells 数组格式）和旧版（col/row/colSpan/rowSpan 格式）
 const layoutCells = computed(() => {
   if (!layout.value) return []
   const raw = layout.value.layout_json
   if (!raw) return []
   try {
-    return typeof raw === 'string' ? JSON.parse(raw) : raw
+    let parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+    // Handle double-encoded JSON (legacy data)
+    if (typeof parsed === 'string') parsed = JSON.parse(parsed)
+    if (!Array.isArray(parsed)) return []
+
+    // Convert new format (cells: ["col,row", ...]) to display cells
+    const result = []
+    for (const region of parsed) {
+      if (Array.isArray(region.cells) && region.cells.length > 0 && typeof region.cells[0] === 'string') {
+        // New format: cells is array of "col,row" strings
+        // For display, find bounding box and render as one block per region
+        const coords = region.cells.map(k => { const [c, r] = k.split(',').map(Number); return { c, r } })
+        const minCol = Math.min(...coords.map(p => p.c))
+        const maxCol = Math.max(...coords.map(p => p.c))
+        const minRow = Math.min(...coords.map(p => p.r))
+        const maxRow = Math.max(...coords.map(p => p.r))
+        result.push({
+          id: region.id,
+          type: region.type === 'shelf' ? 'shelf_h' : region.type,
+          col: minCol,
+          row: minRow,
+          colSpan: maxCol - minCol + 1,
+          rowSpan: maxRow - minRow + 1,
+          code: region.code || '',
+          levels: region.levels || 1,
+          _cells: region.cells,
+        })
+      } else {
+        // Old format: already has col/row/colSpan/rowSpan
+        result.push(region)
+      }
+    }
+    return result
   } catch { return [] }
 })
 

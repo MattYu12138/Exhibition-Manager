@@ -113,7 +113,7 @@ router.put('/:id', requireAdmin, (req, res) => {
       description !== undefined ? description : layout.description,
       grid_cols || layout.grid_cols,
       grid_rows || layout.grid_rows,
-      layout_json !== undefined ? JSON.stringify(layout_json) : layout.layout_json,
+      layout_json !== undefined ? (typeof layout_json === 'string' ? layout_json : JSON.stringify(layout_json)) : layout.layout_json,
       layout.id
     );
 
