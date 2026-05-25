@@ -244,7 +244,7 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import api from '../api/index.js'
+import { layoutApi } from '../api/index.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -610,20 +610,20 @@ async function saveLayout() {
 
   try {
     if (layoutId.value) {
-      await api.put(`/api/layouts/${layoutId.value}`, {
+      await layoutApi.update(layoutId.value, {
         name: saveForm.value.name,
         description: saveForm.value.description,
         layout_json: JSON.stringify(layout_json),
         set_active: saveForm.value.setActive,
       })
     } else {
-      const res = await api.post('/api/layouts', {
+      const res = await layoutApi.create({
         name: saveForm.value.name,
         description: saveForm.value.description,
       })
       const newId = res.data?.id || res.id
       layoutId.value = newId
-      await api.put(`/api/layouts/${newId}`, {
+      await layoutApi.update(newId, {
         layout_json: JSON.stringify(layout_json),
         set_active: saveForm.value.setActive,
       })
@@ -650,7 +650,7 @@ onMounted(async () => {
 
   layoutId.value = id
   try {
-    const res = await api.get(`/api/layouts/${id}`)
+    const res = await layoutApi.get(id)
     const layout = res.data || res
     saveForm.value.name = layout.name || ''
     saveForm.value.description = layout.description || ''
