@@ -61,5 +61,4 @@ app.get('/api/health', (req, res) => {
 
 // ── 启动 ──────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`[warehouse-backend] 运行在端口 ${PORT}`);
-});
+  console.log(`

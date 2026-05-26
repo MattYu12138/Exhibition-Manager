@@ -86,16 +86,4 @@ router.beforeEach(async (to) => {
   if (ssoToken && !authStore.isLoggedIn) {
     try {
       const res = await axios.post('/api/sso/login', { token: ssoToken }, { withCredentials: true })
-      if (res.data.success) {
-        authStore.user = res.data.user
-        const cleanQuery = { ...to.query }
-        delete cleanQuery.sso_token
-        return { ...to, query: cleanQuery, replace: true }
-      }
-    } catch (err) {
-      console.warn('[SSO] 自动登录失败', err.message)
-    }
-  }
-  // ─────────────────────────────────────────────────────────────────────────
-
-  if 
+      if (res.data.succe
