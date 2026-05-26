@@ -42,7 +42,6 @@
           :height="svgHeight"
           :viewBox="`0 0 ${svgWidth} ${svgHeight}`"
         >
-          <!-- Grid pattern -->
           <defs>
             <pattern id="map-grid-pat" :width="CELL_SIZE" :height="CELL_SIZE" patternUnits="userSpaceOnUse">
               <rect :width="CELL_SIZE" :height="CELL_SIZE" fill="none" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="3,3"/>
@@ -51,9 +50,7 @@
           <rect width="100%" height="100%" fill="#f8fafc" />
           <rect width="100%" height="100%" fill="url(#map-grid-pat)" />
 
-          <!-- Regions -->
           <g v-for="region in regions" :key="region.id">
-            <!-- Main shape outline path -->
             <path
               :d="buildOutlinePath(region)"
               :fill="getRegionFill(region)"
@@ -64,7 +61,6 @@
               :class="{ clickable: region.type === 'shelf', highlighted: isHighlighted(region) }"
               @click="region.type === 'shelf' && openLocationPanel(region)"
             />
-            <!-- Shelf: individual cell labels -->
             <template v-if="region.type === 'shelf'">
               <g v-for="(cell, idx) in getRegionCells(region)" :key="`${cell.col}-${cell.row}`"
                  @click="openLocationPanel(region)" style="cursor:pointer">
@@ -97,7 +93,6 @@
                   fill="rgba(255,255,255,0.8)"
                   pointer-events="none"
                 >×{{ region.levels }}</text>
-                <!-- stock dot -->
                 <circle
                   v-if="hasStockByCode(region, idx)"
                   :cx="cell.col * CELL_SIZE + 10"
@@ -109,7 +104,6 @@
                 />
               </g>
             </template>
-            <!-- Non-shelf center icon -->
             <template v-if="region.type !== 'shelf'">
               <text
                 :x="getRegionCenterX(region)"
@@ -129,9 +123,16 @@
       </el-empty>
     </div>
 
-    <!-- 货位详情侧边栏 -->
-    <el-drawer v-model="showPanel" :title="panelRegion?.code ? `货架 ${panelRegion.code}` : '货位详情'" direction="rtl" size="400px">
-      <div v-if="panelRegion" class="location-panel">
+    <!-- ── 货架侧边栏 ── -->
+    <el-drawer
+      v-model="showPanel"
+      :title="selectedLocation ? selectedLocation.code : (panelRegion?.code ? `货架 ${panelRegion.code}` : '货位详情')"
+      direction="rtl"
+      size="420px"
+      :before-close="handleDrawerClose"
+    >
+      <!-- 货架列表视图 -->
+      <div v-if="!selectedLocation && panelRegion" class="location-panel">
         <div class="panel-section">
           <div class="section-title">货架信息</div>
           <div class="info-grid">
@@ -146,22 +147,111 @@
           <div class="section-title">货位列表</div>
           <div v-loading="locationsLoading" class="locations-list">
             <div v-for="loc in panelLocations" :key="loc.id" class="location-row"
-              :class="{ highlighted: highlightedLocationIds.has(loc.id) }"
-              @click="$router.push(`/locations/${loc.id}`)">
-              <div class="loc-code">{{ loc.code }}</div>
-              <div class="loc-stock">
-                <el-tag v-if="loc.total_qty > 0" size="small" type="success">{{ loc.total_qty }} 件</el-tag>
-                <el-tag v-else size="small" type="info">空</el-tag>
+              :class="{
+                highlighted: highlightedLocationIds.has(loc.id),
+                'alert-empty': loc.stock_alert === 'empty',
+                'alert-low': loc.stock_alert === 'low',
+              }"
+              @click="openLocationDetail(loc)">
+              <div class="loc-left">
+                <div class="loc-code">{{ loc.code }}</div>
+                <div v-if="loc.top_items && loc.top_items.length > 0" class="loc-items">
+                  <span v-for="item in loc.top_items.slice(0,2)" :key="item.variant_id" class="loc-item-tag">
+                    {{ item.product_title?.slice(0,12) }}
+                  </span>
+                </div>
               </div>
-              <el-icon class="loc-arrow"><ArrowRight /></el-icon>
+              <div class="loc-right">
+                <el-tag v-if="loc.stock_alert === 'empty'" size="small" type="danger">空</el-tag>
+                <el-tag v-else-if="loc.stock_alert === 'low'" size="small" type="warning">⚠ {{ loc.total_qty }}</el-tag>
+                <el-tag v-else-if="loc.total_qty > 0" size="small" type="success">{{ loc.total_qty }} 件</el-tag>
+                <el-tag v-else size="small" type="info">空</el-tag>
+                <el-icon class="loc-arrow"><ArrowRight /></el-icon>
+              </div>
             </div>
             <el-empty v-if="!locationsLoading && panelLocations.length === 0" description="暂无货位" :image-size="40" />
           </div>
         </div>
 
         <div class="panel-section">
-          <el-button type="primary" style="width:100%" @click="$router.push('/locations')">
+          <el-button style="width:100%" @click="$router.push('/locations')">
             管理所有货位
+          </el-button>
+        </div>
+      </div>
+
+      <!-- 货位详情视图（嵌套） -->
+      <div v-if="selectedLocation" class="loc-detail-panel" v-loading="locDetailLoading">
+        <!-- 返回按钮 -->
+        <div class="loc-detail-back" @click="selectedLocation = null">
+          <el-icon><ArrowLeft /></el-icon>
+          <span>返回货架 {{ panelRegion?.code }}</span>
+        </div>
+
+        <!-- 预警横幅 -->
+        <el-alert
+          v-if="locDetail?.stock_alert === 'empty'"
+          title="⚠️ 此货位已空"
+          type="error"
+          :description="locDetailTransfer.length > 0 ? `备库中有 ${locDetailTransfer.length} 个 SKU 可调拨` : '请通过补货流程补货'"
+          show-icon :closable="false"
+          style="margin-bottom:12px"
+        />
+        <el-alert
+          v-else-if="locDetail?.stock_alert === 'low'"
+          :title="`⚠️ 库存不足（${locDetail.total_qty} 件，阈值 ${locDetail.low_stock_threshold || 10} 件）`"
+          type="warning"
+          show-icon :closable="false"
+          style="margin-bottom:12px"
+        />
+
+        <!-- 库存列表 -->
+        <div class="panel-section">
+          <div class="section-title-row">
+            <span class="section-title">当前库存</span>
+            <el-tag :type="locDetail?.stock_alert === 'ok' ? 'success' : locDetail?.stock_alert === 'low' ? 'warning' : 'danger'" size="small">
+              {{ locDetail?.total_qty || 0 }} 件
+            </el-tag>
+          </div>
+          <div v-if="locDetail?.inventory?.length > 0" class="inv-list">
+            <div v-for="inv in locDetail.inventory" :key="inv.id" class="inv-item">
+              <img v-if="inv.image_url" :src="inv.image_url" class="inv-thumb" />
+              <div v-else class="inv-thumb-placeholder">📦</div>
+              <div class="inv-info">
+                <div class="inv-name">{{ inv.product_title }}</div>
+                <div class="inv-variant">{{ inv.variant_title }}</div>
+                <div class="inv-sku">SKU: {{ inv.sku }}</div>
+              </div>
+              <div class="inv-qty-block">
+                <el-tag size="small" :type="inv.stock_type === 'exhibition' ? 'warning' : inv.stock_type === 'retail_storage' ? 'info' : 'primary'">
+                  {{ stockTypeLabel(inv.stock_type) }}
+                </el-tag>
+                <div class="inv-qty">{{ inv.quantity }} 件</div>
+              </div>
+            </div>
+          </div>
+          <el-empty v-else-if="!locDetailLoading" description="此货位暂无库存" :image-size="40" />
+        </div>
+
+        <!-- 可调拨 -->
+        <div v-if="locDetailTransfer.length > 0" class="panel-section">
+          <div class="section-title-row">
+            <span class="section-title">🔄 可调拨（备库→上架）</span>
+            <el-tag type="success" size="small">{{ locDetailTransfer.length }} 个 SKU</el-tag>
+          </div>
+          <div v-for="item in locDetailTransfer" :key="item.shopify_variant_id" class="transfer-mini-item">
+            <div class="transfer-mini-info">
+              <div class="transfer-mini-name">{{ item.product_title }}</div>
+              <div class="transfer-mini-sub">{{ item.variant_title }} · 备库 {{ item.storage_qty }} 件 · 来自 {{ item.from_location_code }}</div>
+            </div>
+            <el-button type="success" size="small" plain @click="quickTransfer(item)">调拨</el-button>
+          </div>
+        </div>
+
+        <!-- 操作按钮 -->
+        <div class="panel-section loc-detail-actions">
+          <el-button type="primary" style="width:100%" @click="$router.push(`/locations/${selectedLocation.id}`)">
+            <el-icon><ArrowRight /></el-icon> 查看完整详情
           </el-button>
         </div>
       </div>
@@ -197,35 +287,33 @@ import { useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { layoutApi, locationApi } from '@/api/index.js'
 import { useAuthStore } from '@/stores/auth'
-import { Edit, Star, ArrowRight, Plus, Delete } from '@element-plus/icons-vue'
+import { Edit, ArrowRight, ArrowLeft, Plus, Delete } from '@element-plus/icons-vue'
 
 const authStore = useAuthStore()
 const router = useRouter()
 
-// ── Constants ──────────────────────────────────────────────────────────────
 const CELL_SIZE = 64
 
 const typeConfig = {
-  shelf:     { label: '货架',   icon: '📦', color: '#3b82f6', stroke: '#1d4ed8' },
-  wall:      { label: '墙壁',   icon: '🧱', color: '#6b7280', stroke: '#374151' },
-  door:      { label: '出入口', icon: '🚪', color: '#f59e0b', stroke: '#d97706' },
-  aisle:     { label: '通道',   icon: '↔',  color: '#d1fae5', stroke: '#6ee7b7' },
-  workbench: { label: '工作台', icon: '🖥',  color: '#8b5cf6', stroke: '#6d28d9' },
-  pillar:    { label: '柱子',   icon: '⬛',  color: '#374151', stroke: '#111827' },
-  // Legacy type aliases
-  shelf_h:   { label: '货架',   icon: '📦', color: '#3b82f6', stroke: '#1d4ed8' },
-  shelf_v:   { label: '货架',   icon: '📦', color: '#3b82f6', stroke: '#1d4ed8' },
-  entrance:  { label: '出入口', icon: '🚪', color: '#f59e0b', stroke: '#d97706' },
-  workstation:{ label: '工作台',icon: '🖥',  color: '#8b5cf6', stroke: '#6d28d9' },
+  shelf:       { label: '货架',   icon: '📦', color: '#3b82f6', stroke: '#1d4ed8' },
+  wall:        { label: '墙壁',   icon: '🧱', color: '#6b7280', stroke: '#374151' },
+  door:        { label: '出入口', icon: '🚪', color: '#f59e0b', stroke: '#d97706' },
+  aisle:       { label: '通道',   icon: '↔',  color: '#d1fae5', stroke: '#6ee7b7' },
+  workbench:   { label: '工作台', icon: '🖥',  color: '#8b5cf6', stroke: '#6d28d9' },
+  pillar:      { label: '柱子',   icon: '⬛',  color: '#374151', stroke: '#111827' },
+  shelf_h:     { label: '货架',   icon: '📦', color: '#3b82f6', stroke: '#1d4ed8' },
+  shelf_v:     { label: '货架',   icon: '📦', color: '#3b82f6', stroke: '#1d4ed8' },
+  entrance:    { label: '出入口', icon: '🚪', color: '#f59e0b', stroke: '#d97706' },
+  workstation: { label: '工作台', icon: '🖥',  color: '#8b5cf6', stroke: '#6d28d9' },
 }
 
 const legend = [
-  { label: '货架（有货）', color: '#3b82f6' },
-  { label: '货架（空）',   color: '#93c5fd' },
+  { label: '货架（有货）',     color: '#3b82f6' },
+  { label: '货架（空）',       color: '#93c5fd' },
   { label: '高亮（拣货目标）', color: '#ef4444' },
-  { label: '通道',         color: '#d1fae5' },
-  { label: '出入口',       color: '#f59e0b' },
-  { label: '墙壁',         color: '#6b7280' },
+  { label: '通道',             color: '#d1fae5' },
+  { label: '出入口',           color: '#f59e0b' },
+  { label: '墙壁',             color: '#6b7280' },
 ]
 
 // ── State ──────────────────────────────────────────────────────────────────
@@ -238,8 +326,14 @@ const showPanel = ref(false)
 const panelRegion = ref(null)
 const panelLocations = ref([])
 const locationsLoading = ref(false)
-const locationStockMap = ref({})   // slotCode -> has stock
+const locationStockMap = ref({})
 const highlightedLocationIds = ref(new Set())
+
+// 货位详情（嵌套）
+const selectedLocation = ref(null)
+const locDetail = ref(null)
+const locDetailLoading = ref(false)
+const locDetailTransfer = ref([])
 
 const showCreateDialog = ref(false)
 const creating = ref(false)
@@ -254,16 +348,10 @@ const regions = computed(() => {
     let parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
     if (typeof parsed === 'string') parsed = JSON.parse(parsed)
     if (!Array.isArray(parsed)) return []
-
     return parsed.map(region => {
-      // New format: cells is array of "col,row" strings
       if (Array.isArray(region.cells) && region.cells.length > 0 && typeof region.cells[0] === 'string') {
-        return {
-          ...region,
-          cells: new Set(region.cells),
-        }
+        return { ...region, cells: new Set(region.cells) }
       }
-      // Old format: col/row/colSpan/rowSpan → convert to cells Set
       if (region.col !== undefined && region.colSpan !== undefined) {
         const cells = new Set()
         for (let r = region.row; r < region.row + (region.rowSpan || 1); r++) {
@@ -278,14 +366,8 @@ const regions = computed(() => {
   } catch { return [] }
 })
 
-const svgWidth = computed(() => {
-  if (!layout.value) return 800
-  return (layout.value.grid_cols || 20) * CELL_SIZE
-})
-const svgHeight = computed(() => {
-  if (!layout.value) return 600
-  return (layout.value.grid_rows || 15) * CELL_SIZE
-})
+const svgWidth = computed(() => (layout.value?.grid_cols || 20) * CELL_SIZE)
+const svgHeight = computed(() => (layout.value?.grid_rows || 15) * CELL_SIZE)
 
 // ── Cell helpers ───────────────────────────────────────────────────────────
 function getRegionCells(region) {
@@ -314,12 +396,11 @@ function getRegionCenterY(region) {
   return (mid.row + 0.5) * CELL_SIZE
 }
 
-// ── SVG outline path (true polygon, supports L/U shapes) ──────────────────
+// ── SVG outline path ───────────────────────────────────────────────────────
 function buildOutlinePath(region) {
   const cs = CELL_SIZE
   const cellSet = region.cells
   if (!cellSet.size) return ''
-
   const edges = []
   for (const key of cellSet) {
     const [c, r] = key.split(',').map(Number)
@@ -329,14 +410,12 @@ function buildOutlinePath(region) {
     if (!cellSet.has(`${c-1},${r}`)) edges.push([c*cs, (r+1)*cs, c*cs, r*cs])
   }
   if (!edges.length) return ''
-
   const adj = new Map()
   edges.forEach((e, i) => {
     const k = `${e[0]},${e[1]}`
     if (!adj.has(k)) adj.set(k, [])
     adj.get(k).push(i)
   })
-
   const used = new Array(edges.length).fill(false)
   const polygons = []
   for (let start = 0; start < edges.length; start++) {
@@ -353,7 +432,6 @@ function buildOutlinePath(region) {
     }
     if (poly.length >= 2) polygons.push(poly)
   }
-
   const R = 5
   let d = ''
   for (const poly of polygons) {
@@ -409,6 +487,10 @@ function hasStockByCode(region, idx) {
   return !!locationStockMap.value[code]
 }
 
+function stockTypeLabel(t) {
+  return { retail_display: '上架中', retail_storage: '备库中', exhibition: '展会', retail: '零售' }[t] || t
+}
+
 // ── Data loading ───────────────────────────────────────────────────────────
 async function loadLayouts() {
   const res = await layoutApi.list().catch(() => ({ data: [] }))
@@ -426,14 +508,10 @@ async function loadLayout() {
   try {
     const res = await layoutApi.get(activeLayoutId.value)
     layout.value = res.data
-
-    // Load location stock info
     const locRes = await locationApi.list({ layout_id: activeLayoutId.value }).catch(() => ({ data: [] }))
     const locs = locRes.data || []
     const stockMap = {}
-    locs.forEach(l => {
-      if (l.total_qty > 0) stockMap[l.code] = true
-    })
+    locs.forEach(l => { if (l.total_qty > 0) stockMap[l.code] = true })
     locationStockMap.value = stockMap
   } finally {
     loading.value = false
@@ -446,6 +524,9 @@ async function onLayoutChange() {
 
 async function openLocationPanel(region) {
   panelRegion.value = region
+  selectedLocation.value = null
+  locDetail.value = null
+  locDetailTransfer.value = []
   showPanel.value = true
   locationsLoading.value = true
   try {
@@ -456,12 +537,79 @@ async function openLocationPanel(region) {
   }
 }
 
+async function openLocationDetail(loc) {
+  selectedLocation.value = loc
+  locDetail.value = null
+  locDetailTransfer.value = []
+  locDetailLoading.value = true
+  try {
+    const res = await locationApi.get(loc.id)
+    const data = res.data
+    // 计算 total_qty 和 stock_alert
+    const totalQty = (data.inventory || []).reduce((s, i) => s + i.quantity, 0)
+    const threshold = data.low_stock_threshold ?? 10
+    data.total_qty = totalQty
+    data.stock_alert = totalQty === 0 ? 'empty' : totalQty < threshold ? 'low' : 'ok'
+    locDetail.value = data
+
+    // 加载可调拨信息
+    try {
+      const alertsRes = await locationApi.getAlerts()
+      const alerts = alertsRes.data || []
+      const myAlert = alerts.find(a => String(a.id) === String(loc.id))
+      if (myAlert?.transfer_available?.length > 0) {
+        locDetailTransfer.value = myAlert.transfer_available.map(item => ({
+          ...item,
+          transfer_qty: Math.min(item.storage_qty, 10),
+        }))
+      }
+    } catch { /* ignore */ }
+  } finally {
+    locDetailLoading.value = false
+  }
+}
+
+async function quickTransfer(item) {
+  try {
+    await ElMessageBox.confirm(
+      `从备库货位 ${item.from_location_code} 调拨 ${item.transfer_qty} 件「${item.product_title} ${item.variant_title}」到本货位？`,
+      '确认内部调拨',
+      { type: 'info', confirmButtonText: '确认调拨', cancelButtonText: '取消' }
+    )
+  } catch { return }
+  try {
+    await locationApi.transfer(selectedLocation.value.id, {
+      shopify_variant_id: item.shopify_variant_id,
+      quantity: item.transfer_qty,
+      from_location_id: item.from_location_id,
+      note: `地图快捷调拨：从 ${item.from_location_code} 调拨 ${item.transfer_qty} 件`,
+    })
+    ElMessage.success(`已调拨 ${item.transfer_qty} 件`)
+    await openLocationDetail(selectedLocation.value)
+    // 刷新地图库存点
+    const locRes = await locationApi.list({ layout_id: activeLayoutId.value }).catch(() => ({ data: [] }))
+    const locs = locRes.data || []
+    const stockMap = {}
+    locs.forEach(l => { if (l.total_qty > 0) stockMap[l.code] = true })
+    locationStockMap.value = stockMap
+  } catch (err) {
+    ElMessage.error(err.message || '调拨失败')
+  }
+}
+
+function handleDrawerClose(done) {
+  if (selectedLocation.value) {
+    selectedLocation.value = null
+    locDetail.value = null
+    locDetailTransfer.value = []
+  } else {
+    done()
+  }
+}
+
 // ── Create layout ──────────────────────────────────────────────────────────
 async function createLayout() {
-  if (!createForm.value.name.trim()) {
-    ElMessage.warning('请输入仓库名称')
-    return
-  }
+  if (!createForm.value.name.trim()) { ElMessage.warning('请输入仓库名称'); return }
   creating.value = true
   try {
     const res = await layoutApi.create({
@@ -527,17 +675,8 @@ onMounted(loadLayouts)
   overflow: auto;
   min-height: 300px;
 }
-
-.svg-scroll-wrap {
-  overflow: auto;
-  border-radius: 8px;
-}
-
-.map-svg {
-  display: block;
-  border-radius: 8px;
-}
-
+.svg-scroll-wrap { overflow: auto; border-radius: 8px; }
+.map-svg { display: block; border-radius: 8px; }
 .region-shape { transition: filter 0.15s; }
 .region-shape.clickable { cursor: pointer; }
 .region-shape.clickable:hover { filter: brightness(1.12) drop-shadow(0 2px 8px rgba(0,0,0,0.25)); }
@@ -547,18 +686,21 @@ onMounted(loadLayouts)
   50% { filter: drop-shadow(0 0 8px rgba(239,68,68,0.7)); }
 }
 
-/* 侧边栏 */
+/* ── 货架列表面板 ── */
 .location-panel { padding: 4px; }
 .panel-section { margin-bottom: 20px; }
-.section-title { font-size: 13px; font-weight: 600; color: #909399; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
-.info-grid { display: flex; flex-direction: column; gap: 8px; }
+.section-title { font-size: 12px; font-weight: 600; color: #909399; text-transform: uppercase; letter-spacing: 0.5px; }
+.section-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+
+.info-grid { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .info-item { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
 .info-label { color: #909399; }
 
-.locations-list { display: flex; flex-direction: column; gap: 6px; }
+.locations-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .location-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid #f0f0f0;
@@ -567,7 +709,64 @@ onMounted(loadLayouts)
 }
 .location-row:hover { background: #f5f7ff; transform: translateX(2px); }
 .location-row.highlighted { background: #fff0f0; border-color: #F56C6C; }
-.loc-code { flex: 1; font-size: 14px; font-weight: 600; color: #303133; }
-.loc-stock { margin-right: 8px; }
+.location-row.alert-empty { border-left: 3px solid #F56C6C; }
+.location-row.alert-low { border-left: 3px solid #E6A23C; }
+.loc-left { flex: 1; min-width: 0; }
+.loc-code { font-size: 14px; font-weight: 600; color: #303133; }
+.loc-items { display: flex; gap: 4px; margin-top: 3px; flex-wrap: wrap; }
+.loc-item-tag { font-size: 11px; color: #909399; background: #f5f5f5; padding: 1px 5px; border-radius: 4px; }
+.loc-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .loc-arrow { color: #c0c4cc; }
+
+/* ── 货位详情面板 ── */
+.loc-detail-panel { padding: 4px; }
+.loc-detail-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #409EFF;
+  cursor: pointer;
+  margin-bottom: 16px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.loc-detail-back:hover { background: #ecf5ff; }
+
+.inv-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.inv-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #f0f0f0;
+  border-radius: 8px;
+  background: #fafafa;
+}
+.inv-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+.inv-thumb-placeholder { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; font-size: 20px; background: #f0f0f0; border-radius: 6px; flex-shrink: 0; }
+.inv-info { flex: 1; min-width: 0; }
+.inv-name { font-size: 13px; font-weight: 600; color: #303133; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.inv-variant { font-size: 12px; color: #606266; }
+.inv-sku { font-size: 11px; color: #909399; }
+.inv-qty-block { text-align: right; flex-shrink: 0; }
+.inv-qty { font-size: 15px; font-weight: 700; color: #303133; margin-top: 4px; }
+
+.transfer-mini-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid #b3e19d;
+  border-radius: 8px;
+  background: #f0f9eb;
+  margin-top: 8px;
+}
+.transfer-mini-info { flex: 1; min-width: 0; }
+.transfer-mini-name { font-size: 13px; font-weight: 600; color: #303133; }
+.transfer-mini-sub { font-size: 11px; color: #67C23A; margin-top: 2px; }
+
+.loc-detail-actions { margin-top: 8px; }
 </style>
