@@ -50,6 +50,12 @@ const routes = [
     meta: { title: '货位详情' },
   },
   {
+    path: '/replenishment',
+    name: 'Replenishment',
+    component: () => import('@/views/Replenishment.vue'),
+    meta: { title: '补货管理' },
+  },
+  {
     path: '/picking',
     name: 'PickingList',
     component: () => import('@/views/PickingList.vue'),

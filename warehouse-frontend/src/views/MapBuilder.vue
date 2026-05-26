@@ -52,7 +52,18 @@
         <template v-if="selectedRegion.type === 'shelf'">
           <div class="panel-section">
             <label>区域编码前缀</label>
-            <input v-model="selectedRegion.code" class="panel-input" placeholder="如 A" maxlength="4" />
+            <el-select v-model="selectedRegion.code" style="width:100%" placeholder="选择前缀">
+              <el-option
+                v-for="letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')"
+                :key="letter"
+                :label="letter"
+                :value="letter"
+                :disabled="isCodeUsedByOther(letter, selectedRegion.id)"
+              >
+                <span>{{ letter }}</span>
+                <span v-if="isCodeUsedByOther(letter, selectedRegion.id)" style="color:#aaa;font-size:12px;margin-left:6px">(已使用)</span>
+              </el-option>
+            </el-select>
           </div>
           <div class="panel-section">
             <label>层数</label>
@@ -553,6 +564,11 @@ function getNextShelfCode() {
     if (!used.has(l)) return l
   }
   return 'A'
+}
+
+// Returns true if the given letter is already used by a DIFFERENT shelf region
+function isCodeUsedByOther(letter, selfId) {
+  return regions.value.some(r => r.type === 'shelf' && r.id !== selfId && r.code === letter)
 }
 
 function selectRegion(region) {

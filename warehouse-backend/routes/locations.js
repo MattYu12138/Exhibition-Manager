@@ -11,11 +11,13 @@ const { requireLogin, requireStaff, requireAdmin } = require('../middleware/auth
 // ── GET /api/locations  列出所有货位（支持按布局/区域筛选） ─────────────────
 router.get('/', requireLogin, (req, res) => {
   try {
-    const { layout_id, zone, search } = req.query;
+    const { layout_id, zone, search, stock_status } = req.query;
     let sql = `
       SELECT wl.*,
         COALESCE(SUM(wi.quantity), 0) AS total_qty,
-        COUNT(DISTINCT CASE WHEN wi.quantity > 0 THEN wi.id END) AS sku_count
+        COUNT(DISTINCT CASE WHEN wi.quantity > 0 THEN wi.shopify_variant_id END) AS sku_count,
+        MAX(CASE WHEN wi.stock_type IN ('exhibition') AND wi.quantity > 0 THEN 1 ELSE 0 END) AS has_exhibition,
+        MAX(CASE WHEN wi.stock_type IN ('retail','retail_display','retail_storage') AND wi.quantity > 0 THEN 1 ELSE 0 END) AS has_retail
       FROM warehouse_locations wl
       LEFT JOIN warehouse_inventory wi ON wi.location_id = wl.id AND wi.quantity > 0
       WHERE wl.is_active = 1
@@ -24,9 +26,29 @@ router.get('/', requireLogin, (req, res) => {
     if (layout_id) { sql += ' AND wl.layout_id = ?'; params.push(layout_id); }
     if (zone)      { sql += ' AND wl.zone = ?';      params.push(zone); }
     if (search)    { sql += ' AND (wl.code LIKE ? OR wl.label LIKE ?)'; params.push(`%${search}%`, `%${search}%`); }
-    sql += ' GROUP BY wl.id ORDER BY wl.zone, wl.row_no, wl.col_no';
+    sql += ' GROUP BY wl.id';
+    if (stock_status === 'stocked') sql += ' HAVING total_qty > 0';
+    if (stock_status === 'empty')   sql += ' HAVING total_qty = 0';
+    sql += ' ORDER BY wl.zone, wl.row_no, wl.col_no';
 
     const locations = db.prepare(sql).all(...params);
+
+    // 为每个货位附加 top_items（最多2个有库存的 SKU）
+    const topItemsStmt = db.prepare(`
+      SELECT wi.shopify_variant_id AS variant_id, wi.stock_type,
+        p.title AS product_title, pv.variant_title, wi.quantity
+      FROM warehouse_inventory wi
+      LEFT JOIN product_variants pv ON pv.shopify_variant_id = wi.shopify_variant_id
+      LEFT JOIN products p ON p.id = pv.product_id
+      WHERE wi.location_id = ? AND wi.quantity > 0
+      ORDER BY wi.quantity DESC
+      LIMIT 2
+    `);
+
+    for (const loc of locations) {
+      loc.top_items = topItemsStmt.all(loc.id);
+    }
+
     res.json({ success: true, data: locations });
   } catch (err) {
     console.error('[locations] list:', err.message);
@@ -141,7 +163,7 @@ router.post('/:id/inventory', requireStaff, (req, res) => {
 
     if (!shopify_variant_id) return res.status(400).json({ success: false, message: '缺少 shopify_variant_id' });
     if (!quantity || quantity <= 0) return res.status(400).json({ success: false, message: '数量必须大于 0' });
-    if (!['retail', 'exhibition'].includes(stock_type)) return res.status(400).json({ success: false, message: 'stock_type 必须为 retail 或 exhibition' });
+    if (!['retail', 'retail_display', 'retail_storage', 'exhibition'].includes(stock_type)) return res.status(400).json({ success: false, message: 'stock_type 必须为 retail/retail_display/retail_storage/exhibition' });
     if (stock_type === 'exhibition' && !exhibition_id) return res.status(400).json({ success: false, message: '展会备货必须指定 exhibition_id' });
 
     const location = db.prepare('SELECT * FROM warehouse_locations WHERE id = ? AND is_active = 1').get(req.params.id);

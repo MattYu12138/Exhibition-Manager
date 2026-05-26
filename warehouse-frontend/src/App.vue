@@ -19,6 +19,10 @@
           <el-button text :style="{ color: '#fff' }" @click="$router.push('/picking')">
             <el-icon><List /></el-icon> 拣货
           </el-button>
+          <el-button text :style="{ color: '#fff', position: 'relative' }" @click="$router.push('/replenishment')">
+            🚚 补货
+            <span v-if="pendingReplenishCount > 0" class="nav-badge">{{ pendingReplenishCount }}</span>
+          </el-button>
           <el-button v-if="authStore.isAdmin" text :style="{ color: '#fff' }" @click="$router.push('/map/builder')">
             <el-icon><Setting /></el-icon> 构建器
           </el-button>
@@ -46,9 +50,10 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { replenishmentApi } from '@/api/index.js'
 import axios from 'axios'
 import { Box, HomeFilled, MapLocation, Grid, List, Setting } from '@element-plus/icons-vue'
 
@@ -59,6 +64,15 @@ const authStore = useAuthStore()
 const isHiddenNavPage = computed(() =>
   route.name === 'Login' || route.name === 'ScanLocation'
 )
+
+const pendingReplenishCount = ref(0)
+
+onMounted(async () => {
+  try {
+    const res = await replenishmentApi.getPendingCount()
+    pendingReplenishCount.value = res.data?.count || 0
+  } catch {}
+})
 
 async function backToPlatform() {
   try {
@@ -116,6 +130,22 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
   transform: translateX(-2px);
 }
 .back-btn svg { flex-shrink: 0; }
+
+/* 导航补货红点 */
+.nav-badge {
+  position: absolute;
+  top: 2px; right: 2px;
+  background: #f56c6c;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 1px 4px;
+  min-width: 14px;
+  text-align: center;
+  line-height: 14px;
+  pointer-events: none;
+}
 
 .app-main { flex: 1; padding: 24px; max-width: 1400px; margin: 0 auto; width: 100%; }
 .app-main.no-header { max-width: 100%; padding: 0; }

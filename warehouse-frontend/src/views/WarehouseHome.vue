@@ -15,6 +15,18 @@
       </div>
     </div>
 
+    <!-- 补货提醒横幅 -->
+    <div v-if="pendingReplenishCount > 0" class="replenishment-banner" @click="$router.push('/replenishment')">
+      <div class="banner-left">
+        <span class="banner-icon">🚚</span>
+        <div>
+          <div class="banner-title">有新货物待补货</div>
+          <div class="banner-desc">共 {{ pendingReplenishCount }} 条补货明细待确认，点击进入补货界面</div>
+        </div>
+      </div>
+      <el-button type="warning" size="small">立即处理 →</el-button>
+    </div>
+
     <!-- 统计卡片 -->
     <div class="stats-grid" v-loading="statsLoading">
       <div class="stat-card" v-for="stat in stats" :key="stat.label" :style="{ '--accent': stat.color }">
@@ -78,6 +90,16 @@
         <el-card>
           <template #header><span>快捷操作</span></template>
           <div class="quick-actions">
+            <div class="quick-item" @click="$router.push('/replenishment')">
+              <div class="quick-icon" style="background: linear-gradient(135deg, #f7971e, #ffd200)">
+                🚚
+                <span v-if="pendingReplenishCount > 0" class="badge">{{ pendingReplenishCount }}</span>
+              </div>
+              <div class="quick-text">
+                <div class="quick-title">补货管理</div>
+                <div class="quick-desc">处理 inbound 入库后的货位补货</div>
+              </div>
+            </div>
             <div class="quick-item" @click="$router.push('/picking')">
               <div class="quick-icon" style="background: linear-gradient(135deg, #667eea, #764ba2)">📦</div>
               <div class="quick-text">
@@ -115,7 +137,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { layoutApi, pickingApi } from '@/api/index.js'
+import { layoutApi, pickingApi, replenishmentApi } from '@/api/index.js'
 import { useAuthStore } from '@/stores/auth'
 import { List, MapLocation, ArrowRight } from '@element-plus/icons-vue'
 
@@ -124,11 +146,12 @@ const statsLoading = ref(false)
 const tasksLoading = ref(false)
 const recentTasks = ref([])
 const layoutData = ref(null)
+const pendingReplenishCount = ref(0)
 
 const stats = computed(() => [
   { label: '货位总数', value: layoutData.value?.locations?.length || 0, icon: '📍', color: '#667eea' },
   { label: '已使用货位', value: layoutData.value?.locations?.filter(l => l.total_qty > 0).length || 0, icon: '📦', color: '#f093fb' },
-  { label: '待处理任务', value: recentTasks.value.filter(t => t.status === 'pending').length, icon: '⏳', color: '#f5a623' },
+  { label: '待补货', value: pendingReplenishCount.value, icon: '🚚', color: '#f7971e' },
   { label: '今日完成', value: recentTasks.value.filter(t => t.status === 'completed').length, icon: '✅', color: '#43e97b' },
 ])
 
@@ -143,12 +166,14 @@ onMounted(async () => {
   statsLoading.value = true
   tasksLoading.value = true
   try {
-    const [layoutRes, tasksRes] = await Promise.all([
+    const [layoutRes, tasksRes, replenishRes] = await Promise.all([
       layoutApi.getActive().catch(() => ({ data: null })),
       pickingApi.listTasks({ limit: 8 }).catch(() => ({ data: [] })),
+      replenishmentApi.getPendingCount().catch(() => ({ data: { count: 0 } })),
     ])
     layoutData.value = layoutRes.data
     recentTasks.value = tasksRes.data?.slice(0, 8) || []
+    pendingReplenishCount.value = replenishRes.data?.count || 0
   } finally {
     statsLoading.value = false
     tasksLoading.value = false
@@ -164,6 +189,25 @@ onMounted(async () => {
 .page-title { font-size: 24px; font-weight: 700; color: #1a1a2e; margin: 0 0 4px; }
 .page-subtitle { color: #909399; font-size: 14px; }
 .header-actions { display: flex; gap: 10px; }
+
+/* 补货横幅 */
+.replenishment-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(135deg, #fff3cd, #ffe69c);
+  border: 1px solid #ffc107;
+  border-radius: 12px;
+  padding: 14px 20px;
+  margin-bottom: 20px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.replenishment-banner:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(255,193,7,0.3); }
+.banner-left { display: flex; align-items: center; gap: 14px; }
+.banner-icon { font-size: 28px; }
+.banner-title { font-size: 15px; font-weight: 700; color: #856404; }
+.banner-desc { font-size: 13px; color: #997404; margin-top: 2px; }
 
 .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
 .stat-card {
@@ -197,7 +241,24 @@ onMounted(async () => {
   border: 1px solid #f0f0f0;
 }
 .quick-item:hover { background: #f8f9ff; transform: translateX(4px); }
-.quick-icon { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+.quick-icon {
+  width: 44px; height: 44px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; flex-shrink: 0; position: relative;
+}
+.badge {
+  position: absolute;
+  top: -6px; right: -6px;
+  background: #f56c6c;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 1px 5px;
+  min-width: 16px;
+  text-align: center;
+  line-height: 14px;
+}
 .quick-title { font-size: 14px; font-weight: 600; color: #1a1a2e; }
 .quick-desc { font-size: 12px; color: #909399; margin-top: 2px; }
 </style>

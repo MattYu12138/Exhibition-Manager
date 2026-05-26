@@ -52,6 +52,7 @@ app.use('/api/layouts',  require('./routes/layouts'));
 app.use('/api/locations',require('./routes/locations'));
 app.use('/api/picking',  require('./routes/picking'));
 app.use('/api/products', require('./routes/products'));
+app.use('/api/replenishment', require('./routes/replenishment'));
 
 // ── 健康检查 ──────────────────────────────────────────────────────────────────
 app.get('/api/health', (req, res) => {

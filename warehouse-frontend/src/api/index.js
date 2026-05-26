@@ -57,6 +57,19 @@ export const productApi = {
   getInboundShipments: () => api.get('/products/inbound-shipments'),
 }
 
+export const replenishmentApi = {
+  getPendingCount: () => api.get('/replenishment/pending-count'),
+  listTasks: () => api.get('/replenishment/tasks'),
+  getTask: (id) => api.get(`/replenishment/tasks/${id}`),
+  generateTask: (inbound_shipment_id) => api.post('/replenishment/generate', { inbound_shipment_id }),
+  confirmLine: (lineId, confirmed_qty) => api.post(`/replenishment/lines/${lineId}/confirm`, { confirmed_qty }),
+  skipLine: (lineId) => api.post(`/replenishment/lines/${lineId}/skip`),
+  getBindings: (locationId) => api.get(`/replenishment/bindings/${locationId}`),
+  createBinding: (data) => api.post('/replenishment/bindings', data),
+  deleteBinding: (bindingId) => api.delete(`/replenishment/bindings/${bindingId}`),
+  listInboundShipments: () => api.get('/replenishment/inbound-shipments'),
+}
+
 export const healthApi = {
   check: () => api.get('/health'),
 }
