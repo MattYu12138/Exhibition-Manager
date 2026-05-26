@@ -18,12 +18,16 @@
           <el-option label="零售货物" value="retail" />
           <el-option label="展会货物" value="exhibition" />
         </el-select>
-        <el-select v-model="filterEmpty" placeholder="库存状态" clearable style="width:130px" @change="loadLocations">
+        <el-select v-model="filterEmpty" placeholder="库存状态" clearable style="width:140px" @change="loadLocations">
           <el-option label="全部" value="" />
           <el-option label="有货" value="stocked" />
           <el-option label="空货位" value="empty" />
+          <el-option label="库存不足" value="low_stock" />
         </el-select>
         <el-tag type="info" style="margin-left:auto">共 {{ total }} 个货位</el-tag>
+        <el-tag v-if="alertCount > 0" type="danger" style="cursor:pointer" @click="filterEmpty='low_stock';loadLocations()">
+          ⚠️ {{ alertCount }} 个货位需关注
+        </el-tag>
       </div>
     </el-card>
 
@@ -33,14 +37,27 @@
         v-for="loc in locations"
         :key="loc.id"
         class="location-card"
-        :class="{ 'has-stock': loc.total_qty > 0, 'is-empty': loc.total_qty === 0 }"
+        :class="{
+          'has-stock': loc.total_qty > 0 && loc.stock_alert === 'ok',
+          'is-empty': loc.total_qty === 0,
+          'is-low': loc.stock_alert === 'low',
+          'is-alert-empty': loc.stock_alert === 'empty' && loc.total_qty === 0
+        }"
         @click="$router.push(`/locations/${loc.id}`)"
       >
         <div class="loc-header">
           <span class="loc-code">{{ loc.code }}</span>
-          <el-tag size="small" :type="loc.total_qty > 0 ? 'success' : 'info'">
+          <el-tag size="small"
+            :type="loc.total_qty === 0 ? 'info' : loc.stock_alert === 'low' ? 'warning' : 'success'">
             {{ loc.total_qty > 0 ? `${loc.total_qty} 件` : '空' }}
           </el-tag>
+        </div>
+        <!-- 预警提示条 -->
+        <div v-if="loc.stock_alert === 'low'" class="alert-bar alert-low">
+          ⚠️ 库存不足（阈值 {{ loc.low_stock_threshold || 10 }} 件）
+        </div>
+        <div v-else-if="loc.stock_alert === 'empty' && loc.total_qty === 0 && loc.has_display_binding" class="alert-bar alert-empty">
+          🔴 上架货位已空，需补货
         </div>
         <div class="loc-body">
           <div v-if="loc.top_items?.length" class="top-items">
@@ -75,6 +92,7 @@ const search = ref('')
 const filterType = ref('')
 const filterEmpty = ref('')
 const total = ref(0)
+const alertCount = ref(0)
 
 async function loadLocations() {
   loading.value = true
@@ -86,6 +104,8 @@ async function loadLocations() {
     })
     locations.value = res.data || []
     total.value = locations.value.length
+    // 统计预警数量
+    alertCount.value = locations.value.filter(l => l.stock_alert === 'low' || l.stock_alert === 'empty').length
   } finally {
     loading.value = false
   }
@@ -122,6 +142,17 @@ onMounted(loadLocations)
 .location-card:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(0,0,0,0.1); }
 .location-card.has-stock { border-color: #b3d8ff; }
 .location-card.is-empty { opacity: 0.7; }
+.location-card.is-low { border-color: #f6a623; background: #fffbf0; }
+.location-card.is-alert-empty { border-color: #f56c6c; background: #fff5f5; }
+
+.alert-bar {
+  font-size: 11px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+.alert-low { background: #fdf6ec; color: #e6a23c; }
+.alert-empty { background: #fef0f0; color: #f56c6c; }
 
 .loc-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 .loc-code { font-size: 15px; font-weight: 700; color: #1a1a2e; }

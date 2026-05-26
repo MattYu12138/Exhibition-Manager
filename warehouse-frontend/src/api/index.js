@@ -37,6 +37,9 @@ export const locationApi = {
   addInventory: (id, data) => api.post(`/locations/${id}/inventory`, data),
   adjustInventory: (id, invId, data) => api.patch(`/locations/${id}/inventory/${invId}`, data),
   deleteInventory: (id, invId) => api.delete(`/locations/${id}/inventory/${invId}`),
+  getAlerts: () => api.get('/locations/alerts'),
+  updateThreshold: (id, threshold) => api.patch(`/locations/${id}/threshold`, { threshold }),
+  transfer: (id, data) => api.post(`/locations/${id}/transfer`, data),
 }
 
 export const pickingApi = {

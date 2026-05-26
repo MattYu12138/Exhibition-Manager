@@ -30,6 +30,7 @@ router.get('/', requireLogin, (req, res) => {
     if (stock_status === 'stocked') sql += ' HAVING total_qty > 0';
     if (stock_status === 'empty')   sql += ' HAVING total_qty = 0';
     sql += ' ORDER BY wl.zone, wl.row_no, wl.col_no';
+    if (stock_status === 'low_stock') sql += ' HAVING total_qty > 0 AND total_qty < wl.low_stock_threshold';
 
     const locations = db.prepare(sql).all(...params);
 
@@ -47,6 +48,11 @@ router.get('/', requireLogin, (req, res) => {
 
     for (const loc of locations) {
       loc.top_items = topItemsStmt.all(loc.id);
+      // 预警状态
+      const threshold = loc.low_stock_threshold || 10;
+      if (loc.total_qty === 0) loc.stock_alert = 'empty';
+      else if (loc.total_qty < threshold) loc.stock_alert = 'low';
+      else loc.stock_alert = 'ok';
     }
 
     res.json({ success: true, data: locations });
@@ -88,6 +94,50 @@ router.get('/scan/:token', (req, res) => {
   }
 });
 
+// ── GET /api/locations/alerts  获取所有预警货位 ──────────────────────────────
+router.get('/alerts', requireLogin, (req, res) => {
+  try {
+    const alerts = db.prepare(`
+      SELECT wl.id, wl.code, wl.zone, wl.low_stock_threshold,
+        COALESCE(SUM(wi.quantity), 0) AS total_qty,
+        MAX(CASE WHEN wi.stock_type = 'retail_display' AND wi.quantity > 0 THEN 1 ELSE 0 END) AS has_display,
+        MAX(CASE WHEN wi.stock_type = 'retail_storage' AND wi.quantity > 0 THEN 1 ELSE 0 END) AS has_storage
+      FROM warehouse_locations wl
+      LEFT JOIN warehouse_inventory wi ON wi.location_id = wl.id AND wi.quantity > 0
+      WHERE wl.is_active = 1
+      GROUP BY wl.id
+      HAVING total_qty < wl.low_stock_threshold OR total_qty = 0
+      ORDER BY total_qty ASC
+    `).all();
+
+    // 对每个预警货位，检查是否有同 SKU 的备库存可调拨
+    const storageCheckStmt = db.prepare(`
+      SELECT wi_s.location_id AS storage_location_id, wl.code AS storage_code,
+        wi_s.shopify_variant_id, wi_s.quantity AS storage_qty,
+        p.title AS product_title, pv.variant_title
+      FROM warehouse_inventory wi_d
+      JOIN warehouse_inventory wi_s ON wi_s.shopify_variant_id = wi_d.shopify_variant_id
+        AND wi_s.stock_type = 'retail_storage' AND wi_s.quantity > 0
+      JOIN warehouse_locations wl ON wl.id = wi_s.location_id
+      JOIN product_variants pv ON pv.shopify_variant_id = wi_s.shopify_variant_id
+      JOIN products p ON p.id = pv.product_id
+      WHERE wi_d.location_id = ? AND wi_d.stock_type = 'retail_display'
+      LIMIT 5
+    `);
+
+    for (const loc of alerts) {
+      const threshold = loc.low_stock_threshold || 10;
+      loc.stock_alert = loc.total_qty === 0 ? 'empty' : 'low';
+      loc.transfer_available = storageCheckStmt.all(loc.id);
+    }
+
+    res.json({ success: true, data: alerts });
+  } catch (err) {
+    console.error('[locations] alerts:', err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ── GET /api/locations/:id  获取单个货位详情（含库存） ──────────────────────
 router.get('/:id', requireLogin, (req, res) => {
   try {
@@ -111,9 +161,103 @@ router.get('/:id', requireLogin, (req, res) => {
       ORDER BY wi.stock_type, wi.quantity DESC, wi.received_at ASC
     `).all(location.id);
 
-    res.json({ success: true, data: { location, inventory } });
+    const logs = db.prepare(`
+      SELECT wm.*, p.title AS product_title
+      FROM warehouse_movements wm
+      LEFT JOIN product_variants pv ON pv.shopify_variant_id = wm.shopify_variant_id
+      LEFT JOIN products p ON p.id = pv.product_id
+      WHERE wm.location_id = ?
+      ORDER BY wm.created_at DESC
+      LIMIT 20
+    `).all(location.id);
+
+    res.json({ success: true, data: { ...location, inventory, logs } });
   } catch (err) {
     console.error('[locations] get:', err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── PATCH /api/locations/:id/threshold  更新预警阈值 ────────────────────────
+router.patch('/:id/threshold', requireStaff, (req, res) => {
+  try {
+    const { low_stock_threshold } = req.body;
+    if (low_stock_threshold === undefined || low_stock_threshold < 0) {
+      return res.status(400).json({ success: false, message: '阈值必须为非负整数' });
+    }
+    const location = db.prepare('SELECT * FROM warehouse_locations WHERE id = ? AND is_active = 1').get(req.params.id);
+    if (!location) return res.status(404).json({ success: false, message: '货位不存在' });
+    db.prepare('UPDATE warehouse_locations SET low_stock_threshold = ? WHERE id = ?').run(low_stock_threshold, req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[locations] threshold:', err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── POST /api/locations/:id/transfer  内部调拨（备库→上架） ─────────────────
+router.post('/:id/transfer', requireStaff, (req, res) => {
+  try {
+    const { shopify_variant_id, quantity, from_location_id, note } = req.body;
+    if (!shopify_variant_id) return res.status(400).json({ success: false, message: '缺少 shopify_variant_id' });
+    if (!quantity || quantity <= 0) return res.status(400).json({ success: false, message: '数量必须大于 0' });
+    if (!from_location_id) return res.status(400).json({ success: false, message: '缺少来源货位 from_location_id' });
+
+    const toLocation = db.prepare('SELECT * FROM warehouse_locations WHERE id = ? AND is_active = 1').get(req.params.id);
+    if (!toLocation) return res.status(404).json({ success: false, message: '目标货位不存在' });
+
+    const transferTx = db.transaction(() => {
+      // 检查来源备库存
+      const srcInv = db.prepare(`
+        SELECT * FROM warehouse_inventory
+        WHERE location_id = ? AND shopify_variant_id = ? AND stock_type = 'retail_storage' AND quantity >= ?
+      `).get(from_location_id, shopify_variant_id, quantity);
+      if (!srcInv) throw new Error('备库存不足，无法调拨');
+
+      // 减少来源备库存
+      db.prepare('UPDATE warehouse_inventory SET quantity = quantity - ?, updated_at = datetime(\'now\') WHERE id = ?').run(quantity, srcInv.id);
+      const movSrc = nextMovementId();
+      db.prepare(`
+        INSERT INTO warehouse_movements (id, inventory_id, location_id, shopify_variant_id, stock_type,
+          movement_type, quantity_delta, quantity_before, quantity_after, reference_type, reference_id, note, operated_by)
+        VALUES (?, ?, ?, ?, 'retail_storage', 'transfer', ?, ?, ?, 'transfer', ?, ?, ?)
+      `).run(movSrc, srcInv.id, from_location_id, shopify_variant_id,
+        -quantity, srcInv.quantity, srcInv.quantity - quantity,
+        req.params.id, note || null, req.session.user.id);
+
+      // 增加目标上架库存
+      let dstInv = db.prepare(`
+        SELECT * FROM warehouse_inventory
+        WHERE location_id = ? AND shopify_variant_id = ? AND stock_type = 'retail_display' AND exhibition_id IS NULL
+      `).get(req.params.id, shopify_variant_id);
+
+      let dstInvId;
+      if (dstInv) {
+        db.prepare('UPDATE warehouse_inventory SET quantity = quantity + ?, updated_at = datetime(\'now\') WHERE id = ?').run(quantity, dstInv.id);
+        dstInvId = dstInv.id;
+      } else {
+        dstInvId = nextInventoryId();
+        db.prepare(`
+          INSERT INTO warehouse_inventory (id, location_id, shopify_variant_id, stock_type, quantity, received_at, created_by)
+          VALUES (?, ?, ?, 'retail_display', ?, datetime('now'), ?)
+        `).run(dstInvId, req.params.id, shopify_variant_id, quantity, req.session.user.id);
+        dstInv = { quantity: 0 };
+      }
+
+      const movDst = nextMovementId();
+      db.prepare(`
+        INSERT INTO warehouse_movements (id, inventory_id, location_id, shopify_variant_id, stock_type,
+          movement_type, quantity_delta, quantity_before, quantity_after, reference_type, reference_id, note, operated_by)
+        VALUES (?, ?, ?, ?, 'retail_display', 'transfer', ?, ?, ?, 'transfer', ?, ?, ?)
+      `).run(movDst, dstInvId, req.params.id, shopify_variant_id,
+        quantity, dstInv.quantity, dstInv.quantity + quantity,
+        from_location_id, note || null, req.session.user.id);
+    });
+
+    transferTx();
+    res.json({ success: true, message: `已成功调拨 ${quantity} 件到上架货位` });
+  } catch (err) {
+    console.error('[locations] transfer:', err.message);
     res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -140,6 +284,7 @@ router.get('/:id/qrcode', requireLogin, async (req, res) => {
         location_label: location.label,
         qr_url: qrUrl,
         qr_image: qrDataUrl,
+        qr_data_url: qrDataUrl,
       },
     });
   } catch (err) {

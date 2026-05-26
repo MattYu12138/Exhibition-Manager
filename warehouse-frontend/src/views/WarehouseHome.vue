@@ -15,6 +15,18 @@
       </div>
     </div>
 
+    <!-- 可调拨提醒横幅 -->
+    <div v-if="transferAlertCount > 0" class="transfer-banner" @click="$router.push('/locations')">
+      <div class="banner-left">
+        <span class="banner-icon">🔄</span>
+        <div>
+          <div class="banner-title">有货位可内部调拨</div>
+          <div class="banner-desc">{{ transferAlertCount }} 个货位的备库有货可调拨到上架区，点击查看</div>
+        </div>
+      </div>
+      <el-button type="success" size="small">立即处理 →</el-button>
+    </div>
+
     <!-- 补货提醒横幅 -->
     <div v-if="pendingReplenishCount > 0" class="replenishment-banner" @click="$router.push('/replenishment')">
       <div class="banner-left">
@@ -137,7 +149,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { layoutApi, pickingApi, replenishmentApi } from '@/api/index.js'
+import { layoutApi, pickingApi, replenishmentApi, locationApi } from '@/api/index.js'
 import { useAuthStore } from '@/stores/auth'
 import { List, MapLocation, ArrowRight } from '@element-plus/icons-vue'
 
@@ -147,6 +159,7 @@ const tasksLoading = ref(false)
 const recentTasks = ref([])
 const layoutData = ref(null)
 const pendingReplenishCount = ref(0)
+const transferAlertCount = ref(0)
 
 const stats = computed(() => [
   { label: '货位总数', value: layoutData.value?.locations?.length || 0, icon: '📍', color: '#667eea' },
@@ -166,14 +179,17 @@ onMounted(async () => {
   statsLoading.value = true
   tasksLoading.value = true
   try {
-    const [layoutRes, tasksRes, replenishRes] = await Promise.all([
+    const [layoutRes, tasksRes, replenishRes, alertsRes] = await Promise.all([
       layoutApi.getActive().catch(() => ({ data: null })),
       pickingApi.listTasks({ limit: 8 }).catch(() => ({ data: [] })),
       replenishmentApi.getPendingCount().catch(() => ({ data: { count: 0 } })),
+      locationApi.getAlerts().catch(() => ({ data: [] })),
     ])
     layoutData.value = layoutRes.data
     recentTasks.value = tasksRes.data?.slice(0, 8) || []
     pendingReplenishCount.value = replenishRes.data?.count || 0
+    const alerts = alertsRes.data || []
+    transferAlertCount.value = alerts.filter(a => a.transfer_available?.length > 0).length
   } finally {
     statsLoading.value = false
     tasksLoading.value = false
@@ -189,6 +205,21 @@ onMounted(async () => {
 .page-title { font-size: 24px; font-weight: 700; color: #1a1a2e; margin: 0 0 4px; }
 .page-subtitle { color: #909399; font-size: 14px; }
 .header-actions { display: flex; gap: 10px; }
+
+/* 可调拨横幅 */
+.transfer-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(135deg, #d4edda, #c3e6cb);
+  border: 1px solid #28a745;
+  border-radius: 12px;
+  padding: 14px 20px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.transfer-banner:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(40,167,69,0.3); }
 
 /* 补货横幅 */
 .replenishment-banner {
