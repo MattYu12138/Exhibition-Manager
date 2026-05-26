@@ -1,7 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import axios from 'axios'
-
 const routes = [
   {
     path: '/login',
@@ -68,67 +67,40 @@ const routes = [
     meta: { title: '拣货导航' },
   },
 ]
-
 const router = createRouter({
   history: createWebHistory(),
   routes,
 })
-
-// 防止 SSO 登录时重复处理（一次性 token 只能用一次）
-let ssoProcessing = false
-
 router.beforeEach(async (to) => {
   document.title = `${to.meta.title || '仓库管理'} - Warehouse Manager`
-
-  // 公开路由直接放行
   if (to.meta.public) return true
-
   const authStore = useAuthStore()
   const ssoToken = to.query.sso_token
-
-  // ── SSO 自动登录 ──────────────────────────────────────────────────────────
-  if (ssoToken && !ssoProcessing) {
-    ssoProcessing = true
+  if (ssoToken && !authStore.isLoggedIn) {
     try {
       const res = await axios.post('/api/sso/login', { token: ssoToken }, { withCredentials: true })
       if (res.data.success) {
-        // SSO 后端已建立 session，再调用 fetchMe 确认 session cookie 已持久化
-        await authStore.fetchMe()
-        // 清除 URL 中的 sso_token 参数，避免重复使用
+        authStore.user = res.data.user
         const cleanQuery = { ...to.query }
         delete cleanQuery.sso_token
-        ssoProcessing = false
         return { ...to, query: cleanQuery, replace: true }
-      } else {
-        console.warn('[SSO] 登录失败:', res.data.message)
       }
     } catch (err) {
       console.warn('[SSO] 自动登录失败', err.message)
-    } finally {
-      ssoProcessing = false
     }
   }
-
-  // ── 普通 session 验证 ─────────────────────────────────────────────────────
   if (!authStore.isLoggedIn) {
     await authStore.fetchMe()
   }
-
   if (!authStore.isLoggedIn) {
-    // 如果 URL 里还有 sso_token（说明 SSO 失败了），跳转登录页时保留 redirect
-    const redirectPath = to.fullPath.replace(/[?&]sso_token=[^&]*/g, '').replace(/[?&]$/, '') || to.path
-    return { name: 'Login', query: { redirect: redirectPath } }
+    return { name: 'Login', query: { redirect: to.fullPath } }
   }
-
   if (to.meta.requireAdmin && !authStore.isAdmin) {
     return { name: 'WarehouseHome' }
   }
-
   if (to.meta.requireStaff && !authStore.isStaff) {
     return { name: 'WarehouseHome' }
   }
-
   return true
 })
-
 export default router
