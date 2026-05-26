@@ -6,7 +6,8 @@ const express = require('express');
 const router = express.Router();
 const { db, nextInventoryId, nextMovementId } = require('../db');
 const { requireLogin, requireStaff, requireAdmin } = require('../middleware/auth');
-const { v4: uuidv4 } = require('uuid');
+const { randomUUID } = require('crypto');
+const uuidv4 = () => randomUUID();
 
 // ── GET /api/replenishment/pending-count  获取待补货数量（首页提醒用） ─────────
 router.get('/pending-count', requireLogin, (req, res) => {
