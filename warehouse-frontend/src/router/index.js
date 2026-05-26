@@ -81,6 +81,7 @@ router.beforeEach(async (to) => {
 
   const authStore = useAuthStore()
 
+  // ── SSO 自动登录（与 inventory 保持完全一致）────────────────────────────
   const ssoToken = to.query.sso_token
   if (ssoToken && !authStore.isLoggedIn) {
     try {
@@ -95,24 +96,6 @@ router.beforeEach(async (to) => {
       console.warn('[SSO] 自动登录失败', err.message)
     }
   }
+  // ─────────────────────────────────────────────────────────────────────────
 
-  if (!authStore.isLoggedIn) {
-    await authStore.fetchMe()
-  }
-
-  if (!authStore.isLoggedIn) {
-    return { name: 'Login', query: { redirect: to.fullPath } }
-  }
-
-  if (to.meta.requireAdmin && !authStore.isAdmin) {
-    return { name: 'WarehouseHome' }
-  }
-
-  if (to.meta.requireStaff && !authStore.isStaff) {
-    return { name: 'WarehouseHome' }
-  }
-
-  return true
-})
-
-export default router
+  if 

@@ -74,5 +74,4 @@ export const replenishmentApi = {
 }
 
 export const healthApi = {
-  check: () => api.get('/health'),
-}
+  check: () => api.get('/healt
