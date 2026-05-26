@@ -178,51 +178,87 @@ router.delete('/:id', requireAdmin, (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 内部：根据 layout_json 同步货位
-// layout_json 格式（新版）：数组，每个元素为一个模块对象：
-// {
-//   id: "cell_xxx",         // 模块唯一 ID（前端生成）
-//   type: "shelf_h" | "wall" | "entrance" | "aisle" | "workstation" | "pillar",
-//   col: 3, row: 2,         // 在画布上的位置（格子坐标，0-based）
-//   colSpan: 4, rowSpan: 1, // 占用的格子宽高
-//   code: "A",              // 货架编码前缀（shelf 类型才有）
-//   levels: 2,              // 层数（shelf 类型才有，默认 1）
-//   label: "...",           // 非货架元素的标签
-// }
-// 货位编码规则：{code}-{格子序号}-L{层号}
-// 例如：A 区货架占 4 格 2 层 → A-01-L1, A-01-L2, A-02-L1, A-02-L2 ...
+// 支持新格式（cells 数组）和旧格式（col/row/colSpan/rowSpan）
+// 新格式：{ id, type: 'shelf', cells: ['col,row', ...], code, levels }
+// 旧格式：{ id, type: 'shelf_h', col, row, colSpan, rowSpan, code, levels }
+// 货位编码规则：{code}-{格子序号}  或  {code}-{格子序号}-L{层号}（多层时）
 // ─────────────────────────────────────────────────────────────────────────────
 function syncLocations(layoutId, modules) {
-  const moduleArray = Array.isArray(modules) ? modules : [];
+  // modules 可能是字符串（已序列化的 JSON）
+  let moduleArray;
+  if (typeof modules === 'string') {
+    try { moduleArray = JSON.parse(modules); } catch { moduleArray = []; }
+  } else {
+    moduleArray = Array.isArray(modules) ? modules : [];
+  }
+  // 双重编码兼容
+  if (typeof moduleArray === 'string') {
+    try { moduleArray = JSON.parse(moduleArray); } catch { moduleArray = []; }
+  }
+  if (!Array.isArray(moduleArray)) moduleArray = [];
 
   // 收集所有应该存在的货位（来自 shelf 类型模块）
   const expectedLocations = new Map(); // code → location data
 
   for (const mod of moduleArray) {
-    if (!mod.type || !mod.type.startsWith('shelf')) continue;
-    const prefix = mod.code || 'A';
-    const colSpan = mod.colSpan || 1;
-    const rowSpan = mod.rowSpan || 1;
-    const levels = mod.levels || 1;
-    const totalSlots = colSpan * rowSpan;
+    if (!mod.type) continue;
+    const isShelf = mod.type === 'shelf' || mod.type.startsWith('shelf');
+    if (!isShelf) continue;
 
-    for (let slot = 1; slot <= totalSlots; slot++) {
-      for (let level = 1; level <= levels; level++) {
-        const code = levels > 1
-          ? `${prefix}-${String(slot).padStart(2, '0')}-L${level}`
-          : `${prefix}-${String(slot).padStart(2, '0')}`;
-        if (!expectedLocations.has(code)) {
-          // 计算该 slot 在网格中的实际位置
-          const slotCol = mod.col + ((slot - 1) % colSpan);
-          const slotRow = mod.row + Math.floor((slot - 1) / colSpan);
-          expectedLocations.set(code, {
-            zone: prefix,
-            row_no: level,
-            col_no: slot,
-            module_id: mod.id,
-            grid_x: slotCol,
-            grid_y: slotRow,
-            label: code,
-          });
+    const prefix = (mod.code || 'A').toUpperCase();
+    const levels = mod.levels || 1;
+
+    // ── 新格式：cells 是 ["col,row", ...] 字符串数组 ──
+    if (Array.isArray(mod.cells) && mod.cells.length > 0 && typeof mod.cells[0] === 'string') {
+      // 按行列排序，与前端 getRegionCells 保持一致
+      const sortedCells = [...mod.cells]
+        .map(k => { const [c, r] = k.split(',').map(Number); return { col: c, row: r }; })
+        .sort((a, b) => a.row !== b.row ? a.row - b.row : a.col - b.col);
+
+      sortedCells.forEach((cell, idx) => {
+        const slot = idx + 1;
+        for (let level = 1; level <= levels; level++) {
+          const code = levels > 1
+            ? `${prefix}-${String(slot).padStart(2, '0')}-L${level}`
+            : `${prefix}-${String(slot).padStart(2, '0')}`;
+          if (!expectedLocations.has(code)) {
+            expectedLocations.set(code, {
+              zone: prefix,
+              row_no: level,
+              col_no: slot,
+              module_id: String(mod.id),
+              grid_x: cell.col,
+              grid_y: cell.row,
+              label: code,
+            });
+          }
+        }
+      });
+
+    // ── 旧格式：col/row/colSpan/rowSpan ──
+    } else {
+      const colSpan = mod.colSpan || 1;
+      const rowSpan = mod.rowSpan || 1;
+      const totalSlots = colSpan * rowSpan;
+
+      for (let slot = 1; slot <= totalSlots; slot++) {
+        for (let level = 1; level <= levels; level++) {
+          const code = levels > 1
+            ? `${prefix}-${String(slot).padStart(2, '0')}-L${level}`
+            : `${prefix}-${String(slot).padStart(2, '0')}`;
+          if (!expectedLocations.has(code)) {
+            const slotCol = mod.col + ((slot - 1) % colSpan);
+            const slotRow = mod.row + Math.floor((slot - 1) / colSpan);
+            expectedLocations.set(code, {
+              zone: prefix,
+              row_no: level,
+              col_no: slot,
+              module_id: String(mod.id),
+              grid_x: slotCol,
+              grid_y: slotRow,
+              label: code,
+            });
+          }
         }
       }
     }
