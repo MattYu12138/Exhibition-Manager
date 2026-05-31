@@ -1,54 +1,67 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
 import axios from 'axios'
 
-export const useAuthStore = defineStore('auth', () => {
-  const user = ref(null)
-  const loading = ref(false)
+const api = axios.create({ baseURL: '/api', withCredentials: true })
 
-  const isLoggedIn = computed(() => !!user.value)
-  const isAdmin = computed(() => user.value?.role === 'admin')
-  const isStaff = computed(() => user.value?.role === 'staff' || user.value?.role === 'admin')
-  const isGuest = computed(() => user.value?.role === 'guest')
-  const canEdit = computed(() => isStaff.value) // admin + staff 可编辑，guest 只读
-
-  // 从后端获取当前登录用户（页面刷新时调用）
-  async function fetchMe() {
-    try {
-      const res = await axios.get('/api/auth/me', { withCredentials: true })
-      if (res.data.success) {
-        user.value = res.data.user
+export const useAuthStore = defineStore('auth', {
+  state: () => ({
+    user: null,
+    loading: false,
+    // 当前用户对 warehouse-manager 的权限
+    warehousePermission: null, // null | 'viewer' | 'admin'
+  }),
+  getters: {
+    isLoggedIn: (state) => !!state.user,
+    isAdmin: (state) => state.user?.role === 'admin',
+    isStaff: (state) => state.user?.role === 'staff' || state.user?.role === 'admin',
+    isGuest: (state) => state.user?.role === 'guest',
+    // 是否有写入权限（admin 全局角色 或 warehouse-manager permission = 'admin'）
+    canWrite: (state) => {
+      if (!state.user) return false
+      if (state.user.role === 'admin') return true
+      return state.warehousePermission === 'admin'
+    },
+    // 是否有读取权限（有 warehouse-manager 的任意权限记录）
+    canRead: (state) => {
+      if (!state.user) return false
+      if (state.user.role === 'admin') return true
+      return !!state.warehousePermission
+    },
+  },
+  actions: {
+    async fetchMe() {
+      try {
+        const res = await api.get('/auth/me')
+        if (res.data.success) {
+          this.user = res.data.user
+          this.warehousePermission = res.data.user.warehousePermission || null
+        } else {
+          this.user = null
+        }
+      } catch {
+        this.user = null
       }
-    } catch {
-      user.value = null
-    }
-  }
-
-  // 登录
-  async function login(username, password) {
-    loading.value = true
-    try {
-      const res = await axios.post('/api/auth/login', { username, password }, { withCredentials: true })
-      if (res.data.success) {
-        user.value = res.data.user
-        return { success: true }
+    },
+    async login(username, password) {
+      this.loading = true
+      try {
+        const res = await api.post('/auth/login', { username, password })
+        if (res.data.success) {
+          this.user = res.data.user
+          this.warehousePermission = res.data.user.warehousePermission || null
+          return { success: true }
+        }
+        return { success: false, message: res.data.message }
+      } catch (err) {
+        return { success: false, message: err.response?.data?.message || '登录失败' }
+      } finally {
+        this.loading = false
       }
-      return { success: false, message: res.data.message }
-    } catch (err) {
-      return { success: false, message: err.response?.data?.message || '登录失败' }
-    } finally {
-      loading.value = false
-    }
-  }
-
-  // 登出
-  async function logout() {
-    try {
-      await axios.post('/api/auth/logout', {}, { withCredentials: true })
-    } finally {
-      user.value = null
-    }
-  }
-
-  return { user, loading, isLoggedIn, isAdmin, isStaff, isGuest, canEdit, fetchMe, login, logout }
+    },
+    async logout() {
+      await api.post('/auth/logout').catch(() => {})
+      this.user = null
+      this.warehousePermission = null
+    },
+  },
 })

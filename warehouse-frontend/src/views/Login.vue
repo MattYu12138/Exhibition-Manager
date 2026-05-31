@@ -1,95 +1,87 @@
 <template>
   <div class="login-page">
     <div class="login-card">
+      <!-- Logo / Title -->
       <div class="login-logo">
-        <el-icon size="40" color="#0f3460"><Box /></el-icon>
+        <span class="logo-icon">🏭</span>
         <h1>Warehouse Manager</h1>
-        <p>仓库管理系统</p>
+        <p class="login-subtitle">Lummi in Colour</p>
       </div>
 
-      <!-- SSO 自动登录中 -->
-      <div v-if="ssoLoading" class="sso-loading">
-        <el-icon class="is-loading" size="24"><Loading /></el-icon>
-        <p>正在通过平台账号登录...</p>
-      </div>
+      <form @submit.prevent="handleLogin">
+        <!-- 用户名 -->
+        <div class="form-item">
+          <label>用户名</label>
+          <input
+            v-model="form.username"
+            type="text"
+            placeholder="请输入用户名"
+            autocomplete="username"
+            class="form-input"
+          />
+        </div>
 
-      <!-- 手动登录表单 -->
-      <template v-else>
-        <el-form ref="formRef" :model="form" :rules="rules" @submit.prevent="handleLogin">
-          <el-form-item prop="username">
-            <el-input v-model="form.username" placeholder="用户名" size="large" prefix-icon="User" />
-          </el-form-item>
-          <el-form-item prop="password">
-            <el-input v-model="form.password" type="password" placeholder="密码" size="large" prefix-icon="Lock" show-password @keyup.enter="handleLogin" />
-          </el-form-item>
-          <el-button type="primary" size="large" :loading="loading" style="width:100%;margin-top:8px" @click="handleLogin">
-            登录
-          </el-button>
-        </el-form>
-        <p v-if="error" class="error-msg">{{ error }}</p>
-      </template>
+        <!-- 密码 -->
+        <div class="form-item">
+          <label>密码</label>
+          <input
+            v-model="form.password"
+            type="password"
+            placeholder="请输入密码"
+            autocomplete="current-password"
+            class="form-input"
+            @keyup.enter="handleLogin"
+          />
+        </div>
+
+        <!-- 错误提示 -->
+        <div v-if="errorMsg" class="error-msg">{{ errorMsg }}</div>
+
+        <!-- 登录按钮 -->
+        <button type="submit" :disabled="loading" class="login-btn">
+          {{ loading ? '登录中...' : '登录' }}
+        </button>
+      </form>
+
+      <!-- 返回平台 -->
+      <div class="back-link">
+        <a :href="platformUrl">← 返回管理平台</a>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import axios from 'axios'
-import { Box, Loading } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 
+const platformUrl = import.meta.env.VITE_PLATFORM_URL || 'https://licplatform.lummiincolour.com.au'
+
 const form = ref({ username: '', password: '' })
 const loading = ref(false)
-const ssoLoading = ref(false)
-const error = ref('')
-const formRef = ref(null)
-
-const rules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
-}
-
-// 兜底：如果路由守卫没处理 sso_token（极少数情况），Login 页自己处理
-onMounted(async () => {
-  const ssoToken = route.query.sso_token
-  if (ssoToken) {
-    ssoLoading.value = true
-    try {
-      const res = await axios.post('/api/sso/login', { token: ssoToken }, { withCredentials: true })
-      if (res.data.success) {
-        await authStore.fetchMe()
-        if (authStore.isLoggedIn) {
-          const redirect = route.query.redirect || '/warehouse'
-          router.replace(redirect)
-          return
-        }
-      }
-      error.value = 'SSO 自动登录失败，请手动输入账号密码'
-    } catch (err) {
-      error.value = 'SSO 登录出错，请手动输入账号密码'
-    } finally {
-      ssoLoading.value = false
-    }
-  }
-})
+const errorMsg = ref('')
 
 async function handleLogin() {
-  const valid = await formRef.value?.validate().catch(() => false)
-  if (!valid) return
+  if (!form.value.username || !form.value.password) {
+    errorMsg.value = '请填写用户名和密码'
+    return
+  }
   loading.value = true
-  error.value = ''
+  errorMsg.value = ''
+
   const result = await authStore.login(form.value.username, form.value.password)
+
   loading.value = false
   if (result.success) {
-    const redirect = route.query.redirect || '/warehouse'
-    router.push(redirect)
+    const redirect = route.query.redirect
+    router.push(redirect && redirect !== '/login' ? redirect : '/warehouse')
   } else {
-    error.value = result.message || '登录失败'
+    errorMsg.value = result.message || '登录失败'
   }
 }
 </script>
@@ -97,45 +89,119 @@ async function handleLogin() {
 <style scoped>
 .login-page {
   min-height: 100vh;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
   display: flex;
   align-items: center;
   justify-content: center;
+  background: #F5EFE6;
 }
+
 .login-card {
   background: #fff;
+  border: 1px solid #EFE7DD;
   border-radius: 16px;
-  padding: 40px;
-  width: 360px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  padding: 40px 36px;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
 }
+
 .login-logo {
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 32px;
 }
+
+.logo-icon {
+  font-size: 48px;
+}
+
 .login-logo h1 {
   font-size: 20px;
   font-weight: 700;
   color: #1a1a2e;
-  margin: 12px 0 4px;
+  margin: 0;
 }
-.login-logo p {
-  color: #909399;
+
+.login-subtitle {
   font-size: 13px;
+  color: #9ca3af;
+  margin: 0;
 }
-.error-msg {
-  color: #f56c6c;
-  font-size: 13px;
-  text-align: center;
-  margin-top: 12px;
+
+.form-item {
+  margin-bottom: 16px;
 }
-.sso-loading {
-  text-align: center;
-  padding: 20px 0;
-  color: #606266;
-}
-.sso-loading p {
-  margin-top: 12px;
+
+.form-item label {
+  display: block;
   font-size: 14px;
+  color: #374151;
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.form-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.2s;
+}
+
+.form-input:focus {
+  border-color: #0f3460;
+  box-shadow: 0 0 0 2px rgba(15, 52, 96, 0.1);
+}
+
+.error-msg {
+  color: #dc2626;
+  font-size: 13px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: #fef2f2;
+  border-radius: 6px;
+}
+
+.login-btn {
+  width: 100%;
+  padding: 12px;
+  background: #0f3460;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-top: 8px;
+}
+
+.login-btn:hover:not(:disabled) {
+  background: #16213e;
+}
+
+.login-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.back-link {
+  text-align: center;
+  margin-top: 20px;
+}
+
+.back-link a {
+  font-size: 13px;
+  color: #0f3460;
+  text-decoration: none;
+}
+
+.back-link a:hover {
+  text-decoration: underline;
 }
 </style>

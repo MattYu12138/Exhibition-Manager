@@ -7,6 +7,18 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const { db } = require('../db');
 
+// ─── 辅助函数：获取用户的 warehouse-manager 权限 ──────────────
+function getWarehousePermission(userId) {
+  try {
+    const perm = db.prepare(
+      "SELECT role FROM platform_permissions WHERE user_id = ? AND system = 'warehouse-manager'"
+    ).get(userId);
+    return perm ? perm.role : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 // ─── 登录 ─────────────────────────────────────────────────────
 router.post('/login', (req, res) => {
   const { username, password } = req.body;
@@ -26,6 +38,7 @@ router.post('/login', (req, res) => {
   }
 
   // 权限检查：非管理员必须拥有 warehouse-manager 的读权限才能登录
+  let warehousePermission = null;
   if (user.role !== 'admin') {
     try {
       const perm = db.prepare(
@@ -34,9 +47,12 @@ router.post('/login', (req, res) => {
       if (!perm) {
         return res.status(403).json({ success: false, message: '您没有访问仓库管理系统的权限，请联系管理员' });
       }
+      warehousePermission = perm.role; // 'viewer' | 'admin'
     } catch (e) {
       console.warn('[Auth] platform_permissions 查询失败，跳过权限检查:', e.message);
     }
+  } else {
+    warehousePermission = 'admin'; // 全局 admin 拥有完整权限
   }
 
   req.session.user = {
@@ -53,6 +69,7 @@ router.post('/login', (req, res) => {
       username: user.username,
       displayName: user.username,
       role: user.role,
+      warehousePermission, // 前端用于判断读写权限
     },
   });
 });
@@ -77,6 +94,10 @@ router.get('/me', (req, res) => {
     return res.status(401).json({ success: false, message: '用户不存在' });
   }
 
+  const warehousePermission = freshUser.role === 'admin'
+    ? 'admin'
+    : getWarehousePermission(freshUser.id);
+
   req.session.user = {
     ...req.session.user,
     id: freshUser.id,
@@ -85,7 +106,13 @@ router.get('/me', (req, res) => {
     role: freshUser.role,
   };
 
-  res.json({ success: true, user: req.session.user });
+  res.json({
+    success: true,
+    user: {
+      ...req.session.user,
+      warehousePermission,
+    },
+  });
 });
 
 module.exports = router;

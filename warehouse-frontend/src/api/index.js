@@ -6,17 +6,23 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
 })
+
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
     if (error.response?.status === 401) {
-      window.location.href = '/login'
+      // 如果 URL 中有 sso_token，说明 SSO 登录正在进行，不要跳转到 /login
+      const hasSsoToken = new URLSearchParams(window.location.search).has('sso_token')
+      if (!hasSsoToken) {
+        window.location.href = '/login'
+      }
       return Promise.reject(new Error('未登录'))
     }
     const message = error.response?.data?.message || error.message || '请求失败'
     return Promise.reject(new Error(message))
   }
 )
+
 export const layoutApi = {
   list: () => api.get('/layouts'),
   getActive: () => api.get('/layouts/active'),
@@ -26,6 +32,7 @@ export const layoutApi = {
   activate: (id) => api.patch(`/layouts/${id}/activate`),
   delete: (id) => api.delete(`/layouts/${id}`),
 }
+
 export const locationApi = {
   list: (params) => api.get('/locations', { params }),
   scan: (token) => api.get(`/locations/scan/${token}`),
@@ -38,6 +45,7 @@ export const locationApi = {
   updateThreshold: (id, threshold) => api.patch(`/locations/${id}/threshold`, { threshold }),
   transfer: (id, data) => api.post(`/locations/${id}/transfer`, data),
 }
+
 export const pickingApi = {
   listTasks: (params) => api.get('/picking/tasks', { params }),
   getTask: (id) => api.get(`/picking/tasks/${id}`),
@@ -47,13 +55,16 @@ export const pickingApi = {
   getShopifyOrders: () => api.get('/picking/shopify-orders'),
   inventoryCheck: (variantIds) => api.get('/picking/inventory-check', { params: { shopify_variant_ids: variantIds.join(',') } }),
   deleteTask: (id) => api.delete(`/picking/tasks/${id}`),
+  getExhibitions: () => api.get('/picking/exhibitions'),
 }
+
 export const productApi = {
   search: (search, limit) => api.get('/products', { params: { search, limit } }),
   getVariant: (variantId) => api.get(`/products/variant/${variantId}`),
   getExhibitions: () => api.get('/products/exhibitions'),
   getInboundShipments: () => api.get('/products/inbound-shipments'),
 }
+
 export const replenishmentApi = {
   getPendingCount: () => api.get('/replenishment/pending-count'),
   listTasks: () => api.get('/replenishment/tasks'),
@@ -66,6 +77,7 @@ export const replenishmentApi = {
   deleteBinding: (bindingId) => api.delete(`/replenishment/bindings/${bindingId}`),
   listInboundShipments: () => api.get('/replenishment/inbound-shipments'),
 }
+
 export const healthApi = {
   check: () => api.get('/health'),
 }
