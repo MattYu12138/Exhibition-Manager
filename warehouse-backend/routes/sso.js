@@ -4,10 +4,8 @@
  */
 const express = require('express');
 const router = express.Router();
-
 const PLATFORM_BACKEND_URL = process.env.PLATFORM_BACKEND_URL || 'http://localhost:3000';
 const SSO_SECRET = process.env.SSO_SECRET || 'lummi-sso-secret-2026';
-
 /**
  * POST /api/sso/login
  * Body: { token }
@@ -35,16 +33,22 @@ router.post('/login', async (req, res) => {
       username: data.user.username,
       role: data.user.role,
     };
-    res.json({
-      success: true,
-      user: req.session.user,
+    // 确保 session 写入数据库后再发送响应，避免后续请求找不到 session
+    req.session.save((err) => {
+      if (err) {
+        console.error('[SSO] session 保存失败:', err.message);
+        return res.status(500).json({ success: false, message: 'session 保存失败' });
+      }
+      res.json({
+        success: true,
+        user: req.session.user,
+      });
     });
   } catch (err) {
     console.error('[SSO] 验证失败:', err.message);
     res.status(500).json({ success: false, message: 'SSO 服务连接失败' });
   }
 });
-
 /**
  * POST /api/sso/return-token
  * 已登录用户请求一个返回 platform 的一次性 SSO token
@@ -70,5 +74,4 @@ router.post('/return-token', async (req, res) => {
     res.status(500).json({ success: false, message: 'SSO 服务连接失败' });
   }
 });
-
 module.exports = router;

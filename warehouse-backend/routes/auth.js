@@ -6,7 +6,6 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const { db } = require('../db');
-
 // ─── 辅助函数：获取用户的 warehouse-manager 权限 ──────────────
 function getWarehousePermission(userId) {
   try {
@@ -18,25 +17,21 @@ function getWarehousePermission(userId) {
     return null;
   }
 }
-
 // ─── 登录 ─────────────────────────────────────────────────────
 router.post('/login', (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
     return res.status(400).json({ success: false, message: '请填写用户名和密码' });
   }
-
   // 统一使用 exhibition 的 users 表
   const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
   if (!user) {
     return res.status(401).json({ success: false, message: '用户名或密码错误' });
   }
-
   const valid = bcrypt.compareSync(password, user.password_hash);
   if (!valid) {
     return res.status(401).json({ success: false, message: '用户名或密码错误' });
   }
-
   // 权限检查：非管理员必须拥有 warehouse-manager 的读权限才能登录
   let warehousePermission = null;
   if (user.role !== 'admin') {
@@ -54,50 +49,50 @@ router.post('/login', (req, res) => {
   } else {
     warehousePermission = 'admin'; // 全局 admin 拥有完整权限
   }
-
   req.session.user = {
     id: user.id,
     username: user.username,
     displayName: user.username,
     role: user.role,
   };
-
-  res.json({
-    success: true,
-    user: {
-      id: user.id,
-      username: user.username,
-      displayName: user.username,
-      role: user.role,
-      warehousePermission, // 前端用于判断读写权限
-    },
+  // 确保 session 写入数据库后再发送响应，避免后续请求找不到 session
+  req.session.save((err) => {
+    if (err) {
+      console.error('[Auth] session 保存失败:', err.message);
+      return res.status(500).json({ success: false, message: 'session 保存失败' });
+    }
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        displayName: user.username,
+        role: user.role,
+        warehousePermission, // 前端用于判断读写权限
+      },
+    });
   });
 });
-
 // ─── 登出 ─────────────────────────────────────────────────────
 router.post('/logout', (req, res) => {
   req.session.destroy(() => {
     res.json({ success: true });
   });
 });
-
 // ─── 获取当前登录用户 ─────────────────────────────────────────
 router.get('/me', (req, res) => {
   if (!req.session.user) {
     return res.status(401).json({ success: false, message: '未登录' });
   }
-
   // 从 DB 重新查询用户最新角色，避免 session 缓存过时
   const freshUser = db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(req.session.user.id);
   if (!freshUser) {
     req.session.destroy(() => {});
     return res.status(401).json({ success: false, message: '用户不存在' });
   }
-
   const warehousePermission = freshUser.role === 'admin'
     ? 'admin'
     : getWarehousePermission(freshUser.id);
-
   req.session.user = {
     ...req.session.user,
     id: freshUser.id,
@@ -105,7 +100,6 @@ router.get('/me', (req, res) => {
     displayName: freshUser.username,
     role: freshUser.role,
   };
-
   res.json({
     success: true,
     user: {
@@ -114,5 +108,4 @@ router.get('/me', (req, res) => {
     },
   });
 });
-
 module.exports = router;
