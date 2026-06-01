@@ -43,6 +43,7 @@ export const locationApi = {
   setThreshold: (id, data) => api.patch(`/locations/${id}/threshold`, data),
   getHistory: (id) => api.get(`/locations/${id}/history`),
   scan: (token) => api.get(`/locations/scan/${token}`),
+  getAlerts: () => api.get("/locations/alerts"),
 }
 
 export const layoutApi = {
