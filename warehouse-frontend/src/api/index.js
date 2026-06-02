@@ -1,4 +1,5 @@
 import axios from 'axios'
+import router from '@/router'
 
 const api = axios.create({
   baseURL: '/api',
@@ -13,8 +14,11 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       // 如果 URL 中有 sso_token，说明 SSO 登录正在进行，不要跳转到 /login
       const hasSsoToken = new URLSearchParams(window.location.search).has('sso_token')
-      if (!hasSsoToken) {
-        window.location.href = '/login'
+      // 如果已经在登录页，也不要重复跳转
+      const isOnLoginPage = window.location.pathname === '/login'
+      if (!hasSsoToken && !isOnLoginPage) {
+        // 使用 router.push 而非 window.location.href，避免页面重载循环
+        router.push({ name: 'Login' }).catch(() => {})
       }
       return Promise.reject(new Error('未登录'))
     }
@@ -23,27 +27,33 @@ api.interceptors.response.use(
   }
 )
 
+export default api
+
+export const locationApi = {
+  list: (params) => api.get('/locations', { params }),
+  get: (id) => api.get(`/locations/${id}`),
+  create: (data) => api.post('/locations', data),
+  update: (id, data) => api.patch(`/locations/${id}`, data),
+  delete: (id) => api.delete(`/locations/${id}`),
+  getInventory: (id) => api.get(`/locations/${id}/inventory`),
+  addInventory: (id, data) => api.post(`/locations/${id}/inventory`, data),
+  updateInventory: (id, itemId, data) => api.patch(`/locations/${id}/inventory/${itemId}`, data),
+  removeInventory: (id, itemId) => api.delete(`/locations/${id}/inventory/${itemId}`),
+  transferInventory: (id, data) => api.post(`/locations/${id}/transfer`, data),
+  setThreshold: (id, data) => api.patch(`/locations/${id}/threshold`, data),
+  getHistory: (id) => api.get(`/locations/${id}/history`),
+  scan: (token) => api.get(`/locations/scan/${token}`),
+  getAlerts: () => api.get("/locations/alerts"),
+}
+
 export const layoutApi = {
   list: () => api.get('/layouts'),
   getActive: () => api.get('/layouts/active'),
   get: (id) => api.get(`/layouts/${id}`),
   create: (data) => api.post('/layouts', data),
   update: (id, data) => api.put(`/layouts/${id}`, data),
-  activate: (id) => api.patch(`/layouts/${id}/activate`),
+  activate: (id) => api.post(`/layouts/${id}/activate`),
   delete: (id) => api.delete(`/layouts/${id}`),
-}
-
-export const locationApi = {
-  list: (params) => api.get('/locations', { params }),
-  scan: (token) => api.get(`/locations/scan/${token}`),
-  get: (id) => api.get(`/locations/${id}`),
-  getQrCode: (id) => api.get(`/locations/${id}/qrcode`),
-  addInventory: (id, data) => api.post(`/locations/${id}/inventory`, data),
-  adjustInventory: (id, invId, data) => api.patch(`/locations/${id}/inventory/${invId}`, data),
-  deleteInventory: (id, invId) => api.delete(`/locations/${id}/inventory/${invId}`),
-  getAlerts: () => api.get('/locations/alerts'),
-  updateThreshold: (id, threshold) => api.patch(`/locations/${id}/threshold`, { threshold }),
-  transfer: (id, data) => api.post(`/locations/${id}/transfer`, data),
 }
 
 export const pickingApi = {

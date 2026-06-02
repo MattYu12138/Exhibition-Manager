@@ -50,7 +50,7 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { replenishmentApi } from '@/api/index.js'
@@ -67,12 +67,22 @@ const isHiddenNavPage = computed(() =>
 
 const pendingReplenishCount = ref(0)
 
-onMounted(async () => {
-  try {
-    const res = await replenishmentApi.getPendingCount()
-    pendingReplenishCount.value = res.data?.count || 0
-  } catch {}
-})
+// 监听登录状态变化，登录成功后再请求补货数量
+// 避免 SSO 登录过程中（session 尚未建立）就发起 API 请求导致 401
+watch(
+  () => authStore.isLoggedIn,
+  async (loggedIn) => {
+    if (loggedIn) {
+      try {
+        const res = await replenishmentApi.getPendingCount()
+        pendingReplenishCount.value = res.data?.count || 0
+      } catch {}
+    } else {
+      pendingReplenishCount.value = 0
+    }
+  },
+  { immediate: true }
+)
 
 async function backToPlatform() {
   try {
