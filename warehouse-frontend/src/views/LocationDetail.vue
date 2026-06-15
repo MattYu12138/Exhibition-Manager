@@ -366,12 +366,39 @@ async function deleteInventory(row) {
 
 function printQrCode() {
   if (!qrCodeUrl.value) return
+  // 构建库存货物行 HTML
+  const invRows = inventory.value.map(item => {
+    const typeLabel = { retail_display: '上架', retail_storage: '备库', exhibition: '展会' }[item.stock_type] || item.stock_type
+    const name = [item.product_title, item.variant_title].filter(Boolean).join(' · ')
+    return `<div class="inv-row"><div class="inv-name">${name}</div><div class="inv-meta">SKU: ${item.sku || '—'} &nbsp;|&nbsp; ${typeLabel} × ${item.quantity}</div></div>`
+  }).join('')
   const win = window.open('', '_blank')
-  win.document.write(`<html><head><title>货位 ${location.value?.code} 二维码</title>
-    <style>body{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:sans-serif;}
-    img{width:240px;height:240px;}h2{margin:16px 0 4px;font-size:24px;}p{color:#666;font-size:14px;}</style></head>
-    <body><img src="${qrCodeUrl.value}"/><h2>${location.value?.code}</h2><p>${location.value?.shelf_code||''}</p>
-    <script>window.onload=()=>window.print()<\/script></body></html>`)
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>货位 ${location.value?.code}</title>
+<style>
+@page { size: 46mm 150mm; margin: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { width: 46mm; height: 150mm; font-family: Arial, 'PingFang SC', sans-serif; overflow: hidden; background: #fff; }
+.label-wrap { width: 46mm; height: 150mm; display: flex; flex-direction: column; padding: 2mm; }
+.qr-section { display: flex; justify-content: center; align-items: center; padding: 2mm 0 1mm; }
+.qr-section img { width: 38mm; height: 38mm; }
+.code-section { text-align: center; padding: 1mm 0 1.5mm; border-bottom: 0.5pt solid #ccc; margin-bottom: 1.5mm; }
+.code { font-size: 13pt; font-weight: bold; letter-spacing: 1px; color: #1a1a2e; }
+.shelf { font-size: 6.5pt; color: #666; margin-top: 0.5mm; }
+.inv-section { flex: 1; overflow: hidden; }
+.inv-title { font-size: 5.5pt; color: #999; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 1mm; }
+.inv-row { margin-bottom: 1.5mm; padding-bottom: 1.5mm; border-bottom: 0.3pt solid #eee; }
+.inv-row:last-child { border-bottom: none; margin-bottom: 0; }
+.inv-name { font-size: 6.5pt; font-weight: 600; color: #222; line-height: 1.3; }
+.inv-meta { font-size: 5.5pt; color: #888; margin-top: 0.3mm; }
+.no-inv { font-size: 6.5pt; color: #bbb; text-align: center; padding: 3mm 0; }
+</style></head>
+<body><div class="label-wrap">
+  <div class="qr-section"><img src="${qrCodeUrl.value}" /></div>
+  <div class="code-section"><div class="code">${location.value?.code || ''}</div><div class="shelf">${location.value?.shelf_code || ''}</div></div>
+  <div class="inv-section">${invRows ? '<div class="inv-title">库存货物</div>' + invRows : '<div class="no-inv">暂无库存</div>'}</div>
+</div>
+<script>window.onload = function(){ window.print(); }<\/script>
+</body></html>`)
   win.document.close()
 }
 
