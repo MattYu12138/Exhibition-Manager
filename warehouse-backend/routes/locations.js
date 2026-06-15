@@ -167,7 +167,7 @@ router.get('/:id', requireLogin, (req, res) => {
       LEFT JOIN product_variants pv ON pv.shopify_variant_id = wm.shopify_variant_id
       LEFT JOIN products p ON p.id = pv.product_id
       WHERE wm.location_id = ?
-      ORDER BY wm.created_at DESC
+      ORDER BY wm.operated_at DESC
       LIMIT 20
     `).all(location.id);
 

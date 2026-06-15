@@ -1,13 +1,11 @@
 import axios from 'axios'
 import router from '@/router'
-
 const api = axios.create({
   baseURL: '/api',
   timeout: 30000,
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
 })
-
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
@@ -26,9 +24,7 @@ api.interceptors.response.use(
     return Promise.reject(new Error(message))
   }
 )
-
 export default api
-
 export const locationApi = {
   list: (params) => api.get('/locations', { params }),
   get: (id) => api.get(`/locations/${id}`),
@@ -38,14 +34,18 @@ export const locationApi = {
   getInventory: (id) => api.get(`/locations/${id}/inventory`),
   addInventory: (id, data) => api.post(`/locations/${id}/inventory`, data),
   updateInventory: (id, itemId, data) => api.patch(`/locations/${id}/inventory/${itemId}`, data),
+  adjustInventory: (id, itemId, data) => api.patch(`/locations/${id}/inventory/${itemId}`, data),
   removeInventory: (id, itemId) => api.delete(`/locations/${id}/inventory/${itemId}`),
+  deleteInventory: (id, itemId) => api.delete(`/locations/${id}/inventory/${itemId}`),
   transferInventory: (id, data) => api.post(`/locations/${id}/transfer`, data),
+  transfer: (id, data) => api.post(`/locations/${id}/transfer`, data),
   setThreshold: (id, data) => api.patch(`/locations/${id}/threshold`, data),
+  updateThreshold: (id, value) => api.patch(`/locations/${id}/threshold`, { low_stock_threshold: value }),
+  getQrCode: (id) => api.get(`/locations/${id}/qrcode`),
   getHistory: (id) => api.get(`/locations/${id}/history`),
   scan: (token) => api.get(`/locations/scan/${token}`),
   getAlerts: () => api.get("/locations/alerts"),
 }
-
 export const layoutApi = {
   list: () => api.get('/layouts'),
   getActive: () => api.get('/layouts/active'),
@@ -55,7 +55,6 @@ export const layoutApi = {
   activate: (id) => api.post(`/layouts/${id}/activate`),
   delete: (id) => api.delete(`/layouts/${id}`),
 }
-
 export const pickingApi = {
   listTasks: (params) => api.get('/picking/tasks', { params }),
   getTask: (id) => api.get(`/picking/tasks/${id}`),
@@ -67,14 +66,12 @@ export const pickingApi = {
   deleteTask: (id) => api.delete(`/picking/tasks/${id}`),
   getExhibitions: () => api.get('/picking/exhibitions'),
 }
-
 export const productApi = {
   search: (search, limit) => api.get('/products', { params: { search, limit } }),
   getVariant: (variantId) => api.get(`/products/variant/${variantId}`),
   getExhibitions: () => api.get('/products/exhibitions'),
   getInboundShipments: () => api.get('/products/inbound-shipments'),
 }
-
 export const replenishmentApi = {
   getPendingCount: () => api.get('/replenishment/pending-count'),
   listTasks: () => api.get('/replenishment/tasks'),
@@ -87,7 +84,6 @@ export const replenishmentApi = {
   deleteBinding: (bindingId) => api.delete(`/replenishment/bindings/${bindingId}`),
   listInboundShipments: () => api.get('/replenishment/inbound-shipments'),
 }
-
 export const healthApi = {
   check: () => api.get('/health'),
 }
