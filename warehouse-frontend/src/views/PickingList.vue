@@ -76,7 +76,7 @@
               <div v-for="order in shopifyOrders" :key="order.id"
                 class="order-item"
                 :class="{ selected: selectedOrderId === order.id }"
-                @click="selectedOrderId = order.id"
+                @click="selectedOrderId = order.id; selectedOrder = order"
               >
                 <div class="order-left">
                   <div class="order-name">{{ order.name }}</div>
@@ -141,6 +141,7 @@ const ordersLoading = ref(false)
 const shopifyOrders = ref([])
 const exhibitions = ref([])
 const selectedOrderId = ref(null)
+const selectedOrder = ref(null)
 const selectedExhibitionId = ref(null)
 
 function statusType(s) {
@@ -183,7 +184,17 @@ async function createTask() {
     let res
     if (createTab.value === 'order') {
       if (!selectedOrderId.value) { ElMessage.warning('请选择订单'); return }
-      res = await pickingApi.createFromOrder({ shopify_order_id: selectedOrderId.value })
+      const order = shopifyOrders.value.find(o => o.id === selectedOrderId.value)
+      if (!order || !order.line_items || order.line_items.length === 0) {
+        ElMessage.warning('所选订单没有商品行项目')
+        return
+      }
+      res = await pickingApi.createFromOrder({
+        shopify_order_id: order.id,
+        shopify_order_name: order.name,
+        customer_name: order.customer_name,
+        line_items: order.line_items,
+      })
     } else {
       if (!selectedExhibitionId.value) { ElMessage.warning('请选择展会'); return }
       res = await pickingApi.createFromExhibition({ exhibition_id: selectedExhibitionId.value })
