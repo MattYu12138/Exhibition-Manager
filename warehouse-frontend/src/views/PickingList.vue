@@ -83,7 +83,7 @@
                   <div class="order-customer">{{ order.customer_name }}</div>
                 </div>
                 <div class="order-right">
-                  <div class="order-items">{{ order.line_items_count }} 件</div>
+                  <div class="order-items">{{ order.line_items.reduce((s, i) => s + i.quantity, 0) }} 件</div>
                   <div class="order-date">{{ formatDate(order.created_at) }}</div>
                 </div>
                 <el-icon v-if="selectedOrderId === order.id" class="check-icon" color="#409EFF"><Check /></el-icon>
