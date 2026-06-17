@@ -51,8 +51,9 @@ export const shopifyApi = {
 // ==================== Square ====================
 export const squareApi = {
   getCatalog: () => api.get('/square/catalog'),
-  syncBefore: (exhibitionId) =>
-    api.post('/square/sync', { exhibition_id: exhibitionId, sync_type: 'before' }),
+  getSyncStatus: (exhibitionId) => api.get(`/square/sync-status/${exhibitionId}`),
+  syncBefore: (exhibitionId, force = false) =>
+    api.post('/square/sync', { exhibition_id: exhibitionId, sync_type: 'before', force }),
   syncAfter: (exhibitionId) =>
     api.post('/square/sync', { exhibition_id: exhibitionId, sync_type: 'after' }),
   updateRemaining: (exhibitionId) =>

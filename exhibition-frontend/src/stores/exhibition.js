@@ -283,10 +283,10 @@ export const useExhibitionStore = defineStore('exhibition', () => {
   }
 
   // ==================== Square 同步 ====================
-  async function syncBeforeExhibition(exhibitionId) {
+  async function syncBeforeExhibition(exhibitionId, force = false) {
     loading.value = true
     try {
-      const res = await squareApi.syncBefore(exhibitionId)
+      const res = await squareApi.syncBefore(exhibitionId, force)
       // 不再自动显示成功提示，由调用方根据 unmatched 情况决定
       return res
     } catch (err) {

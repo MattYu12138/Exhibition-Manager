@@ -17,14 +17,16 @@ router.get('/catalog', async (req, res) => {
 
 /**
  * 同步展会商品到 Square 库存
- * Body: { exhibition_id, sync_type: 'before' | 'after' }
+ * Body: { exhibition_id, sync_type: 'before' | 'after', force?: boolean }
  *
  * ── before（出发前）──
- *   1. 一次性拉取 Square 目录（带 TTL 缓存）
- *   2. 批量匹配所有商品的 Square 变体（纯内存操作）
- *   3. 批量获取所有匹配变体的当前库存（1 次 API）
- *   4. 并发写入所有商品的库存调整（Promise.all）
- *   5. 未匹配商品收集到 unmatched 数组一并返回
+ *   1. 检查是否已同步（防重复），已同步则返回 already_synced（除非 force=true）
+ *   2. 一次性拉取 Square 目录（带 TTL 缓存）
+ *   3. 批量匹配所有商品的 Square 变体（纯内存操作）
+ *   4. 批量获取所有匹配变体的当前库存（1 次 API）
+ *   5. 并发写入所有商品的库存调整（Promise.all）
+ *   6. 未匹配商品收集到 unmatched 数组一并返回
+ *   7. 同步完成后记录 exhibitions.square_synced_at
  *
  * ── after（展会结束后）──
  *   1. 一次性拉取 Square 目录（带 TTL 缓存）
@@ -41,9 +43,24 @@ router.get('/catalog', async (req, res) => {
  */
 router.post('/sync', async (req, res) => {
   try {
-    const { exhibition_id, sync_type } = req.body;
+    const { exhibition_id, sync_type, force } = req.body;
     if (!exhibition_id || !sync_type) {
       return res.status(400).json({ success: false, message: '缺少必要参数' });
+    }
+
+    // ─────────────────────────────────────────────
+    // 防重复同步：before 同步只允许执行一次（除非 force=true）
+    // ─────────────────────────────────────────────
+    if (sync_type === 'before' && !force) {
+      const exhibition = db.prepare('SELECT square_synced_at FROM exhibitions WHERE id = ?').get(exhibition_id);
+      if (exhibition && exhibition.square_synced_at) {
+        return res.status(409).json({
+          success: false,
+          already_synced: true,
+          synced_at: exhibition.square_synced_at,
+          message: `该展会已于 ${exhibition.square_synced_at} 同步过 Square，如需重新同步请使用强制同步。`,
+        });
+      }
     }
 
     // 获取展会商品清单（通过 VIEW 获取 sku/gtin/product_title/variant_title 等商品信息）
@@ -55,7 +72,7 @@ router.post('/sync', async (req, res) => {
     // ─────────────────────────────────────────────
     // 优化 1：只拉取一次 Square 目录（TTL 缓存命中时 0 次 API）
     // ─────────────────────────────────────────────
-    console.log(`[sync] 开始同步，共 ${items.length} 件商品，sync_type=${sync_type}`);
+    console.log(`[sync] 开始同步，共 ${items.length} 件商品，sync_type=${sync_type}，force=${!!force}`);
     const catalog = await squareService.getAllCatalogItems();
 
     // ─────────────────────────────────────────────
@@ -163,9 +180,6 @@ router.post('/sync', async (req, res) => {
           await squareService.setInventoryQuantity(match.variationId, newTotalQty);
 
           // 记录快照
-          // square_quantity_before = newTotalQty（Square 同步后实际总量）
-          // 展会后计算：sold = square_quantity_before - square_quantity_after
-          //             remaining = planned_quantity - sold
           try {
             const existing = db.prepare(
               'SELECT id FROM inventory_snapshots WHERE exhibition_id = ? AND shopify_variant_id = ?'
@@ -204,15 +218,21 @@ router.post('/sync', async (req, res) => {
         })
       );
 
+      // ─────────────────────────────────────────────
+      // 同步完成后：记录 exhibitions.square_synced_at（防重复锁）
+      // ─────────────────────────────────────────────
+      try {
+        db.prepare(
+          'UPDATE exhibitions SET square_synced_at = CURRENT_TIMESTAMP WHERE id = ?'
+        ).run(exhibition_id);
+        console.log(`[sync] 已记录 exhibitions.square_synced_at for ${exhibition_id}`);
+      } catch (dbErr) {
+        console.warn('[sync] 更新 square_synced_at 失败:', dbErr.message);
+      }
+
     } else if (sync_type === 'after') {
       // ═══════════════════════════════════════════
       // 展会结束后：读取 Square 当前剩余量，计算卖出量
-      // 库存已通过 batchGetInventoryCounts 批量获取，无需再次请求
-      //
-      // 计算逻辑：
-      //   square_quantity_after = Square 当前实际剩余（展会结束后）
-      //   sold_quantity = square_quantity_before（展会前同步后总量）- square_quantity_after（展会后剩余）
-      //   remaining_quantity = planned_quantity（带走数量）- sold_quantity（卖出量）
       // ═══════════════════════════════════════════
       for (const { item, match } of matched) {
         const squareRemaining = inventoryCounts[match.variationId] ?? 0;
@@ -221,7 +241,6 @@ router.post('/sync', async (req, res) => {
           'SELECT * FROM inventory_snapshots WHERE exhibition_id = ? AND shopify_variant_id = ?'
         ).get(exhibition_id, item.shopify_variant_id);
 
-        // square_quantity_before = 展会前同步后 Square 实际总量
         const qtyBefore = snapshot ? snapshot.square_quantity_before : item.planned_quantity;
         const soldQty = Math.max(0, qtyBefore - squareRemaining);
         const remainingQty = Math.max(0, item.planned_quantity - soldQty);
@@ -289,7 +308,6 @@ router.post('/create-items', async (req, res) => {
 
     for (const [groupName, groupItems] of Object.entries(groups)) {
       try {
-        // 为该商品组的每个 variant 生成唯一 clientId
         const ts = Date.now();
         const variationsPayload = groupItems.map((item, idx) => ({
           variantName: item.variantName || 'Default',
@@ -297,17 +315,14 @@ router.post('/create-items', async (req, res) => {
           gtin: item.gtin || '',
           priceCents: item.priceCents || 0,
           clientId: `#variation-${ts}-${idx}`,
-          // 保留对应关系
           _item: item,
         }));
 
-        // 1. 在 Square 创建商品（所有 variant 合并为一个 ITEM）
         const { itemId, variationResults } = await squareService.createCatalogItem(
           { name: groupName, description: groupItems[0].description || '' },
           variationsPayload
         );
 
-        // 2. 逐个处理库存写入和快照
         for (let i = 0; i < groupItems.length; i++) {
           const item = groupItems[i];
           const variationId = variationResults[i]?.variationId;
@@ -324,12 +339,10 @@ router.post('/create-items', async (req, res) => {
             continue;
           }
 
-          // 写入库存
           if (plannedQty > 0) {
             await squareService.setInventoryQuantity(variationId, plannedQty);
           }
 
-          // 快照
           try {
             const existing = db.prepare(
               'SELECT id FROM inventory_snapshots WHERE exhibition_id = ? AND shopify_variant_id = ?'
@@ -364,7 +377,6 @@ router.post('/create-items', async (req, res) => {
           });
         }
       } catch (groupErr) {
-        // 整个商品组创建失败，所有 variant 标记为 error
         for (const item of groupItems) {
           results.push({
             shopify_variant_id: item.shopify_variant_id,
@@ -379,6 +391,17 @@ router.post('/create-items', async (req, res) => {
 
     const successCount = results.filter((r) => r.status === 'created').length;
     const failCount = results.filter((r) => r.status === 'error').length;
+
+    // 创建商品成功后也记录同步时间
+    if (successCount > 0) {
+      try {
+        db.prepare(
+          'UPDATE exhibitions SET square_synced_at = CURRENT_TIMESTAMP WHERE id = ?'
+        ).run(exhibition_id);
+      } catch (dbErr) {
+        console.warn('[create-items] 更新 square_synced_at 失败:', dbErr.message);
+      }
+    }
 
     res.json({
       success: true,
@@ -396,7 +419,6 @@ router.post('/create-items', async (req, res) => {
  */
 router.get('/snapshots/:exhibition_id', (req, res) => {
   try {
-    // JOIN exhibition_items_view to get product_title/variant_title from product_variants
     const snapshots = db.prepare(
       `SELECT s.*, v.product_title, v.variant_title, v.planned_quantity as item_planned_qty
        FROM inventory_snapshots s
@@ -406,6 +428,30 @@ router.get('/snapshots/:exhibition_id', (req, res) => {
        WHERE s.exhibition_id = ?`
     ).all(req.params.exhibition_id);
     res.json({ success: true, data: snapshots });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/**
+ * 获取展会的 Square 同步状态
+ * GET /api/square/sync-status/:exhibition_id
+ */
+router.get('/sync-status/:exhibition_id', (req, res) => {
+  try {
+    const exhibition = db.prepare(
+      'SELECT id, name, square_synced_at FROM exhibitions WHERE id = ?'
+    ).get(req.params.exhibition_id);
+    if (!exhibition) {
+      return res.status(404).json({ success: false, message: '展会不存在' });
+    }
+    res.json({
+      success: true,
+      exhibition_id: exhibition.id,
+      exhibition_name: exhibition.name,
+      synced: !!exhibition.square_synced_at,
+      synced_at: exhibition.square_synced_at || null,
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

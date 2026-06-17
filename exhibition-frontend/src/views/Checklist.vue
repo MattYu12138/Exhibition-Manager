@@ -63,24 +63,35 @@
               >{{ $t('checklist.syncPending', { done: store.checkedCount, total: store.totalItems }) }}</el-tag>
             </div>
           </div>
-          <el-tooltip
-            :content="store.checkProgress < 100 ? $t('checklist.syncTooltip', { n: store.totalItems - store.checkedCount }) : ''"
-            :disabled="store.checkProgress === 100"
-            placement="top"
-          >
-            <span>
-              <el-button
-                type="primary"
-                size="large"
-                :loading="syncing"
-                :disabled="store.checkProgress < 100"
-                @click="syncToSquare"
-              >
-                <el-icon><Upload /></el-icon>
-                {{ $t('checklist.syncBtn') }}
-              </el-button>
-            </span>
-          </el-tooltip>
+          <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <!-- 已同步标签 -->
+            <el-tag v-if="squareSynced" type="success" size="large" style="font-size: 13px; padding: 0 12px; height: 36px; line-height: 36px;">
+              <el-icon style="margin-right: 4px;"><CircleCheck /></el-icon>
+              已同步 Square
+              <span v-if="squareSyncedAt" style="margin-left: 6px; font-size: 11px; opacity: 0.8;">
+                {{ new Date(squareSyncedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) }}
+              </span>
+            </el-tag>
+            <!-- 同步按钮 -->
+            <el-tooltip
+              :content="store.checkProgress < 100 ? $t('checklist.syncTooltip', { n: store.totalItems - store.checkedCount }) : ''"
+              :disabled="store.checkProgress === 100"
+              placement="top"
+            >
+              <span>
+                <el-button
+                  :type="squareSynced ? 'warning' : 'primary'"
+                  size="large"
+                  :loading="syncing"
+                  :disabled="store.checkProgress < 100"
+                  @click="syncToSquare"
+                >
+                  <el-icon><Upload /></el-icon>
+                  {{ squareSynced ? '重新同步' : $t('checklist.syncBtn') }}
+                </el-button>
+              </span>
+            </el-tooltip>
+          </div>
         </div>
       </el-card>
     </div>
@@ -418,6 +429,10 @@ const store = useExhibitionStore()
 const id = route.params.id
 const syncing = ref(false)
 
+// Square 同步状态
+const squareSynced = ref(false)
+const squareSyncedAt = ref(null)
+
 // 搜索
 const searchQuery = ref('')
 
@@ -554,9 +569,31 @@ async function syncToSquare() {
     return
   }
 
+  // 已同步过，弹窗确认是否强制重新同步
+  if (squareSynced.value) {
+    try {
+      await ElMessageBox.confirm(
+        `该展会已于 ${squareSyncedAt.value ? new Date(squareSyncedAt.value).toLocaleString('zh-CN') : '之前'} 同步过 Square。\n重新同步会在 Square 原有库存基础上再次累加带走数量，可能导致库存重复。\n\n确定要强制重新同步吗？`,
+        '⚠️ 已同步过，是否强制重新同步？',
+        {
+          type: 'warning',
+          confirmButtonText: '强制重新同步',
+          cancelButtonText: '取消',
+          confirmButtonClass: 'el-button--danger',
+        }
+      )
+    } catch {
+      return // 用户取消
+    }
+  }
+
   syncing.value = true
   try {
-    const result = await store.syncBeforeExhibition(id)
+    const result = await store.syncBeforeExhibition(id, squareSynced.value)
+
+    // 同步成功后更新本地状态
+    squareSynced.value = true
+    squareSyncedAt.value = new Date().toISOString()
 
     if (result?.unmatched && result.unmatched.length > 0) {
       unmatchedItems.value = result.unmatched.map((item) => ({
@@ -641,7 +678,19 @@ watch(() => store.groupedItems, (items) => {
   if (items.length) initLocalQty()
 }, { immediate: true })
 
-onMounted(() => store.loadExhibition(id))
+onMounted(async () => {
+  await store.loadExhibition(id)
+  // 检查是否已同步到 Square
+  try {
+    const res = await squareApi.getSyncStatus(id)
+    if (res?.synced) {
+      squareSynced.value = true
+      squareSyncedAt.value = res.synced_at
+    }
+  } catch (e) {
+    // 忽略状态检查失败
+  }
+})
 </script>
 
 <style scoped>
