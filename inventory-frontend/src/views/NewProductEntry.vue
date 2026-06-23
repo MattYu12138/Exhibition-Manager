@@ -4,20 +4,20 @@
     <div class="entry-header">
       <button class="back-btn" @click="$emit('close')">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-        返回
+        {{ t('newProduct.back') }}
       </button>
-      <h2 class="entry-title">录入新商品</h2>
+      <h2 class="entry-title">{{ t('newProduct.title') }}</h2>
     </div>
 
     <!-- Stepper -->
     <div class="stepper">
-      <div v-for="(step, idx) in steps" :key="idx" class="step" :class="{ active: currentStep === idx, done: currentStep > idx }">
+      <div v-for="(step, idx) in stepsLabels" :key="idx" class="step" :class="{ active: currentStep === idx, done: currentStep > idx }">
         <div class="step-circle">
           <svg v-if="currentStep > idx" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
           <span v-else>{{ idx + 1 }}</span>
         </div>
         <span class="step-label">{{ step }}</span>
-        <div v-if="idx < steps.length - 1" class="step-line" :class="{ filled: currentStep > idx }"></div>
+        <div v-if="idx < stepsLabels.length - 1" class="step-line" :class="{ filled: currentStep > idx }"></div>
       </div>
     </div>
 
@@ -25,8 +25,8 @@
     <transition name="slide-fade" mode="out-in">
       <div v-if="currentStep === 0" key="step0" class="step-content">
         <div class="step-desc">
-          <h3>选择此次需要填写的字段</h3>
-          <p>必填字段已自动选中且不可取消，可根据需要勾选其他字段。</p>
+          <h3>{{ t('newProduct.selectFieldsTitle') }}</h3>
+          <p>{{ t('newProduct.selectFieldsDesc') }}</p>
         </div>
         <div class="field-categories">
           <div v-for="cat in fieldCategories" :key="cat.name" class="field-category">
@@ -36,23 +36,24 @@
                 v-for="field in cat.fields"
                 :key="field.key"
                 class="field-chip"
-                :class="{ selected: selectedFields.includes(field.key), required: field.required, disabled: field.required }"
+                :class="{ selected: selectedFields.includes(field.key), required: field.required, disabled: field.required || field.autoGenerate }"
               >
                 <input
                   type="checkbox"
                   :checked="selectedFields.includes(field.key)"
-                  :disabled="field.required"
+                  :disabled="field.required || field.autoGenerate"
                   @change="toggleField(field.key)"
                 />
                 <span class="chip-text">{{ field.label }}</span>
-                <span v-if="field.required" class="chip-badge">必填</span>
+                <span v-if="field.required" class="chip-badge">{{ t('newProduct.required') }}</span>
+                <span v-if="field.autoGenerate" class="chip-badge chip-auto">Auto</span>
               </label>
             </div>
           </div>
         </div>
         <div class="step-actions">
           <button class="btn-primary" @click="goToStep(1)" :disabled="selectedFields.length === 0">
-            下一步：填写数据
+            {{ t('newProduct.nextFillData') }}
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
         </div>
@@ -63,20 +64,20 @@
     <transition name="slide-fade" mode="out-in">
       <div v-if="currentStep === 1" key="step1" class="step-content">
         <div class="step-desc">
-          <h3>填写商品数据</h3>
-          <p>每行代表一个商品变体（同一商品的多个变体共享 Title、Vendor 等信息）。</p>
+          <h3>{{ t('newProduct.fillDataTitle') }}</h3>
+          <p>{{ t('newProduct.fillDataDesc') }}</p>
         </div>
         <!-- Add Column Button -->
         <div class="table-toolbar">
           <button class="btn-outline btn-sm" @click="showAddColumnDialog = true">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            添加列
+            {{ t('newProduct.addColumn') }}
           </button>
           <button class="btn-outline btn-sm" @click="addRow">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            添加行
+            {{ t('newProduct.addRow') }}
           </button>
-          <span class="row-count">共 {{ rows.length }} 行</span>
+          <span class="row-count">{{ rows.length }} {{ t('newProduct.rowCount') }}</span>
         </div>
         <!-- Data Table -->
         <div class="table-wrapper">
@@ -86,17 +87,26 @@
                 <th class="row-num">#</th>
                 <th v-for="col in activeColumns" :key="col.key" class="col-header">
                   <span>{{ col.label }}</span>
-                  <button v-if="!col.required" class="col-remove" @click="removeColumn(col.key)" title="移除此列">×</button>
+                  <span v-if="col.autoGenerate" class="handle-hint">{{ t('newProduct.handleAutoGenerated') }}</span>
+                  <button v-if="!col.required && !col.autoGenerate" class="col-remove" @click="removeColumn(col.key)" title="×">×</button>
                 </th>
-                <th class="row-actions">操作</th>
+                <th class="row-actions">{{ locale === 'zh' ? '操作' : 'Actions' }}</th>
               </tr>
             </thead>
             <transition-group name="row-fade" tag="tbody">
               <tr v-for="(row, rIdx) in rows" :key="row._id">
                 <td class="row-num">{{ rIdx + 1 }}</td>
                 <td v-for="col in activeColumns" :key="col.key" class="cell" :class="{ 'cell-error': row._errors && row._errors[col.key] }">
-                  <select v-if="col.type === 'select'" v-model="row[col.key]" class="cell-input">
-                    <option value="">-- 选择 --</option>
+                  <!-- Handle is auto-generated from Title, shown as readonly -->
+                  <input
+                    v-if="col.autoGenerate"
+                    :value="generateHandle(row['Title'])"
+                    class="cell-input cell-readonly"
+                    readonly
+                    :placeholder="t('newProduct.handleAutoGenerated')"
+                  />
+                  <select v-else-if="col.type === 'select'" v-model="row[col.key]" class="cell-input">
+                    <option value="">-- --</option>
                     <option v-for="opt in col.options" :key="opt" :value="opt">{{ opt }}</option>
                   </select>
                   <textarea v-else-if="col.type === 'textarea'" v-model="row[col.key]" class="cell-input cell-textarea" rows="2"></textarea>
@@ -104,10 +114,10 @@
                   <span v-if="row._errors && row._errors[col.key]" class="cell-error-tip">{{ row._errors[col.key] }}</span>
                 </td>
                 <td class="row-actions">
-                  <button class="btn-icon btn-danger" @click="removeRow(rIdx)" title="删除行">
+                  <button class="btn-icon btn-danger" @click="removeRow(rIdx)" :title="t('newProduct.deleteRow')">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                   </button>
-                  <button class="btn-icon" @click="duplicateRow(rIdx)" title="复制行">
+                  <button class="btn-icon" @click="duplicateRow(rIdx)" :title="t('newProduct.duplicateRow')">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                   </button>
                 </td>
@@ -116,9 +126,9 @@
           </table>
         </div>
         <div class="step-actions">
-          <button class="btn-secondary" @click="goToStep(0)">上一步</button>
+          <button class="btn-secondary" @click="goToStep(0)">{{ t('newProduct.prevStep') }}</button>
           <button class="btn-primary" @click="goToStep(2)" :disabled="rows.length === 0">
-            下一步：验证数据
+            {{ t('newProduct.nextValidate') }}
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
         </div>
@@ -129,40 +139,38 @@
     <transition name="slide-fade" mode="out-in">
       <div v-if="currentStep === 2" key="step2" class="step-content">
         <div class="step-desc">
-          <h3>数据验证</h3>
-          <p>检查所有数据是否符合 Shopify 商品导入格式要求。</p>
+          <h3>{{ t('newProduct.validateTitle') }}</h3>
+          <p>{{ t('newProduct.validateDesc') }}</p>
         </div>
         <div v-if="validating" class="validate-loading">
           <div class="spinner"></div>
-          <span>正在验证数据...</span>
+          <span>{{ t('newProduct.validating') }}</span>
         </div>
         <div v-else-if="validationResult" class="validate-result">
           <div v-if="validationResult.valid" class="validate-success">
             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-            <h4>验证通过</h4>
+            <h4>{{ t('newProduct.validationPassed') }}</h4>
             <p>{{ validationResult.message }}</p>
             <div class="validate-summary">
-              <span>共 <strong>{{ productCount }}</strong> 个商品</span>
-              <span>共 <strong>{{ rows.length }}</strong> 个变体</span>
+              <span><strong>{{ productCount }}</strong> {{ t('newProduct.products') }}</span>
+              <span><strong>{{ rows.length }}</strong> {{ t('newProduct.variants') }}</span>
             </div>
           </div>
           <div v-else class="validate-errors">
             <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-            <h4>验证失败</h4>
-            <p>发现 {{ validationResult.errors.length }} 个问题，请返回修正：</p>
+            <h4>{{ t('newProduct.validationFailed') }}</h4>
+            <p>{{ validationResult.errors.length }} {{ t('newProduct.errors') }}</p>
             <ul class="error-list">
               <li v-for="(err, i) in validationResult.errors" :key="i">
-                <strong>第 {{ err.row }} 行</strong>
-                <span v-if="err.variant">（变体 {{ err.variant }}）</span>
-                — {{ err.field }}: {{ err.message }}
+                <strong>Row {{ err.row }}</strong> — {{ err.field }}: {{ err.message }}
               </li>
             </ul>
           </div>
         </div>
         <div class="step-actions">
-          <button class="btn-secondary" @click="goToStep(1)">返回修改</button>
+          <button class="btn-secondary" @click="goToStep(1)">{{ t('newProduct.backToEdit') }}</button>
           <button class="btn-primary" @click="goToStep(3)" :disabled="!validationResult || !validationResult.valid">
-            下一步：导出/上传
+            {{ t('newProduct.nextExport') }}
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
         </div>
@@ -173,23 +181,23 @@
     <transition name="slide-fade" mode="out-in">
       <div v-if="currentStep === 3" key="step3" class="step-content">
         <div class="step-desc">
-          <h3>导出或上传到 Shopify</h3>
-          <p>选择导出 CSV 文件手动上传，或直接通过 API 添加到 Shopify。</p>
+          <h3>{{ t('newProduct.exportTitle') }}</h3>
+          <p>{{ t('newProduct.exportDesc') }}</p>
         </div>
         <div class="export-options">
           <div class="export-card" @click="exportCSV">
             <div class="export-icon">
               <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             </div>
-            <h4>导出 CSV</h4>
-            <p>生成 Shopify 标准格式 CSV 文件，可手动上传到 Shopify 后台。</p>
+            <h4>{{ t('newProduct.exportCSV') }}</h4>
+            <p>{{ t('newProduct.exportCSVDesc') }}</p>
           </div>
           <div class="export-card" :class="{ uploading }" @click="uploadToShopify">
             <div class="export-icon">
               <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             </div>
-            <h4>{{ uploading ? '正在上传...' : '添加到 Shopify' }}</h4>
-            <p>直接通过 Shopify API 创建商品（状态默认为 Draft）。</p>
+            <h4>{{ uploading ? t('newProduct.uploading') : t('newProduct.addToShopify') }}</h4>
+            <p>{{ t('newProduct.addToShopifyDesc') }}</p>
             <div v-if="uploading" class="upload-progress">
               <div class="progress-bar"><div class="progress-fill" :style="{ width: uploadProgress + '%' }"></div></div>
               <span>{{ uploadProgress }}%</span>
@@ -199,17 +207,17 @@
         <!-- Upload Result -->
         <div v-if="uploadResult" class="upload-result">
           <div class="result-summary" :class="uploadResult.summary.failed > 0 ? 'partial' : 'success'">
-            <span>创建成功: <strong>{{ uploadResult.summary.created }}</strong></span>
-            <span v-if="uploadResult.summary.failed > 0">失败: <strong>{{ uploadResult.summary.failed }}</strong></span>
+            <span>{{ t('newProduct.uploadSuccess') }}: <strong>{{ uploadResult.summary.created }}</strong></span>
+            <span v-if="uploadResult.summary.failed > 0">{{ t('newProduct.uploadFailed') }}: <strong>{{ uploadResult.summary.failed }}</strong></span>
           </div>
           <div v-for="(r, i) in uploadResult.data" :key="i" class="result-item" :class="r.status">
             <span class="result-title">{{ r.title }}</span>
-            <span class="result-status">{{ r.status === 'created' ? '✓ 已创建' : '✗ ' + r.message }}</span>
+            <span class="result-status">{{ r.status === 'created' ? '✓' : '✗ ' + r.message }}</span>
           </div>
         </div>
         <div class="step-actions">
-          <button class="btn-secondary" @click="goToStep(2)">上一步</button>
-          <button class="btn-primary" @click="$emit('close')">完成</button>
+          <button class="btn-secondary" @click="goToStep(2)">{{ t('newProduct.prevStep') }}</button>
+          <button class="btn-primary" @click="$emit('close')">{{ t('newProduct.finish') }}</button>
         </div>
       </div>
     </transition>
@@ -218,8 +226,8 @@
     <transition name="fade">
       <div v-if="showAddColumnDialog" class="dialog-overlay" @click.self="showAddColumnDialog = false">
         <div class="dialog-box">
-          <h3>添加列</h3>
-          <p>选择要添加到表格中的字段：</p>
+          <h3>{{ t('newProduct.addColumnTitle') }}</h3>
+          <p>{{ t('newProduct.addColumnDesc') }}</p>
           <div class="dialog-fields">
             <label
               v-for="field in availableFieldsToAdd"
@@ -232,7 +240,7 @@
             </label>
           </div>
           <div class="dialog-actions">
-            <button class="btn-secondary" @click="showAddColumnDialog = false">关闭</button>
+            <button class="btn-secondary" @click="showAddColumnDialog = false">×</button>
           </div>
         </div>
       </div>
@@ -241,72 +249,90 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive, nextTick } from 'vue'
+import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import axios from 'axios'
 
+const { t, locale } = useI18n()
 const emit = defineEmits(['close'])
 
 const api = axios.create({ baseURL: '/api', withCredentials: true })
 
+// ─── Handle generation: Title → lowercase, spaces/special → hyphens ───
+function generateHandle(title) {
+  if (!title) return ''
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-')
+}
+
 // ─── All available fields based on Shopify CSV format ───
 const allFields = [
   // Product level
-  { key: 'Handle', label: 'Handle', category: '基本信息', required: false, type: 'text', placeholder: 'product-handle' },
-  { key: 'Title', label: 'Title', category: '基本信息', required: true, type: 'text', placeholder: '商品标题' },
-  { key: 'Body (HTML)', label: 'Body (HTML)', category: '基本信息', required: false, type: 'textarea', placeholder: '商品描述（HTML）' },
-  { key: 'Vendor', label: 'Vendor', category: '基本信息', required: false, type: 'text', placeholder: '供应商' },
-  { key: 'Product Category', label: 'Product Category', category: '基本信息', required: false, type: 'text', placeholder: '商品分类' },
-  { key: 'Type', label: 'Type', category: '基本信息', required: false, type: 'text', placeholder: '商品类型' },
-  { key: 'Tags', label: 'Tags', category: '基本信息', required: false, type: 'text', placeholder: '标签，逗号分隔' },
-  { key: 'Published', label: 'Published', category: '基本信息', required: false, type: 'select', options: ['true', 'false'] },
-  { key: 'Status', label: 'Status', category: '基本信息', required: false, type: 'select', options: ['active', 'draft', 'archived'] },
+  { key: 'Handle', label: 'Handle', category: '基本信息 / Basic', required: false, autoGenerate: true, type: 'text', placeholder: 'auto-generated' },
+  { key: 'Title', label: 'Title', category: '基本信息 / Basic', required: true, type: 'text', placeholder: 'Product title' },
+  { key: 'Body (HTML)', label: 'Body (HTML)', category: '基本信息 / Basic', required: false, type: 'textarea', placeholder: 'Description (HTML)' },
+  { key: 'Vendor', label: 'Vendor', category: '基本信息 / Basic', required: false, type: 'text', placeholder: 'Vendor' },
+  { key: 'Product Category', label: 'Product Category', category: '基本信息 / Basic', required: false, type: 'text', placeholder: 'Category' },
+  { key: 'Type', label: 'Type', category: '基本信息 / Basic', required: false, type: 'text', placeholder: 'Product type' },
+  { key: 'Tags', label: 'Tags', category: '基本信息 / Basic', required: false, type: 'text', placeholder: 'tag1, tag2, ...' },
+  { key: 'Published', label: 'Published', category: '基本信息 / Basic', required: false, type: 'select', options: ['true', 'false'] },
+  { key: 'Status', label: 'Status', category: '基本信息 / Basic', required: false, type: 'select', options: ['active', 'draft', 'archived'] },
   // Options
-  { key: 'Option1 Name', label: 'Option1 Name', category: '选项', required: false, type: 'text', placeholder: 'Size' },
-  { key: 'Option1 Value', label: 'Option1 Value', category: '选项', required: false, type: 'text', placeholder: 'S / M / L' },
-  { key: 'Option2 Name', label: 'Option2 Name', category: '选项', required: false, type: 'text', placeholder: 'Color' },
-  { key: 'Option2 Value', label: 'Option2 Value', category: '选项', required: false, type: 'text', placeholder: 'Red / Blue' },
-  { key: 'Option3 Name', label: 'Option3 Name', category: '选项', required: false, type: 'text', placeholder: 'Material' },
-  { key: 'Option3 Value', label: 'Option3 Value', category: '选项', required: false, type: 'text', placeholder: 'Cotton' },
+  { key: 'Option1 Name', label: 'Option1 Name', category: '选项 / Options', required: false, type: 'text', placeholder: 'Size' },
+  { key: 'Option1 Value', label: 'Option1 Value', category: '选项 / Options', required: false, type: 'text', placeholder: 'S / M / L' },
+  { key: 'Option2 Name', label: 'Option2 Name', category: '选项 / Options', required: false, type: 'text', placeholder: 'Color' },
+  { key: 'Option2 Value', label: 'Option2 Value', category: '选项 / Options', required: false, type: 'text', placeholder: 'Red / Blue' },
+  { key: 'Option3 Name', label: 'Option3 Name', category: '选项 / Options', required: false, type: 'text', placeholder: 'Material' },
+  { key: 'Option3 Value', label: 'Option3 Value', category: '选项 / Options', required: false, type: 'text', placeholder: 'Cotton' },
   // Variant
-  { key: 'Variant SKU', label: 'Variant SKU', category: '变体', required: true, type: 'text', placeholder: 'SKU 编码' },
-  { key: 'Variant Grams', label: 'Variant Grams', category: '变体', required: false, type: 'number', placeholder: '重量(g)' },
-  { key: 'Variant Inventory Tracker', label: 'Variant Inventory Tracker', category: '变体', required: false, type: 'select', options: ['shopify', ''] },
-  { key: 'Variant Inventory Qty', label: 'Variant Inventory Qty', category: '变体', required: false, type: 'number', placeholder: '库存数量' },
-  { key: 'Variant Inventory Policy', label: 'Variant Inventory Policy', category: '变体', required: false, type: 'select', options: ['deny', 'continue'] },
-  { key: 'Variant Fulfillment Service', label: 'Variant Fulfillment Service', category: '变体', required: false, type: 'select', options: ['manual'] },
-  { key: 'Variant Price', label: 'Variant Price', category: '变体', required: true, type: 'number', placeholder: '价格' },
-  { key: 'Variant Compare At Price', label: 'Variant Compare At Price', category: '变体', required: false, type: 'number', placeholder: '对比价格' },
-  { key: 'Variant Requires Shipping', label: 'Variant Requires Shipping', category: '变体', required: false, type: 'select', options: ['true', 'false'] },
-  { key: 'Variant Taxable', label: 'Variant Taxable', category: '变体', required: false, type: 'select', options: ['true', 'false'] },
-  { key: 'Variant Barcode', label: 'Variant Barcode', category: '变体', required: false, type: 'text', placeholder: 'GTIN/EAN/UPC' },
-  { key: 'Variant Weight Unit', label: 'Variant Weight Unit', category: '变体', required: false, type: 'select', options: ['g', 'kg', 'lb', 'oz'] },
-  { key: 'Cost per item', label: 'Cost per item', category: '变体', required: false, type: 'number', placeholder: '成本' },
+  { key: 'Variant SKU', label: 'Variant SKU', category: '变体 / Variant', required: true, type: 'text', placeholder: 'SKU' },
+  { key: 'Variant Grams', label: 'Variant Grams', category: '变体 / Variant', required: false, type: 'number', placeholder: 'Weight (g)' },
+  { key: 'Variant Inventory Tracker', label: 'Variant Inventory Tracker', category: '变体 / Variant', required: false, type: 'select', options: ['shopify', ''] },
+  { key: 'Variant Inventory Qty', label: 'Variant Inventory Qty', category: '变体 / Variant', required: false, type: 'number', placeholder: 'Qty' },
+  { key: 'Variant Inventory Policy', label: 'Variant Inventory Policy', category: '变体 / Variant', required: false, type: 'select', options: ['deny', 'continue'] },
+  { key: 'Variant Fulfillment Service', label: 'Variant Fulfillment Service', category: '变体 / Variant', required: false, type: 'select', options: ['manual'] },
+  { key: 'Variant Price', label: 'Variant Price', category: '变体 / Variant', required: true, type: 'number', placeholder: 'Price' },
+  { key: 'Variant Compare At Price', label: 'Variant Compare At Price', category: '变体 / Variant', required: false, type: 'number', placeholder: 'Compare price' },
+  { key: 'Variant Requires Shipping', label: 'Variant Requires Shipping', category: '变体 / Variant', required: false, type: 'select', options: ['true', 'false'] },
+  { key: 'Variant Taxable', label: 'Variant Taxable', category: '变体 / Variant', required: false, type: 'select', options: ['true', 'false'] },
+  { key: 'Variant Barcode', label: 'Variant Barcode', category: '变体 / Variant', required: false, type: 'text', placeholder: 'GTIN/EAN/UPC' },
+  { key: 'Variant Weight Unit', label: 'Variant Weight Unit', category: '变体 / Variant', required: false, type: 'select', options: ['g', 'kg', 'lb', 'oz'] },
+  { key: 'Cost per item', label: 'Cost per item', category: '变体 / Variant', required: false, type: 'number', placeholder: 'Cost' },
   // Image
-  { key: 'Image Src', label: 'Image Src', category: '图片', required: false, type: 'text', placeholder: 'https://...' },
-  { key: 'Image Position', label: 'Image Position', category: '图片', required: false, type: 'number', placeholder: '1' },
-  { key: 'Image Alt Text', label: 'Image Alt Text', category: '图片', required: false, type: 'text', placeholder: '图片描述' },
+  { key: 'Image Src', label: 'Image Src', category: '图片 / Image', required: false, type: 'text', placeholder: 'https://...' },
+  { key: 'Image Position', label: 'Image Position', category: '图片 / Image', required: false, type: 'number', placeholder: '1' },
+  { key: 'Image Alt Text', label: 'Image Alt Text', category: '图片 / Image', required: false, type: 'text', placeholder: 'Alt text' },
   // SEO
-  { key: 'SEO Title', label: 'SEO Title', category: 'SEO', required: false, type: 'text', placeholder: 'SEO 标题' },
-  { key: 'SEO Description', label: 'SEO Description', category: 'SEO', required: false, type: 'textarea', placeholder: 'SEO 描述' },
+  { key: 'SEO Title', label: 'SEO Title', category: 'SEO', required: false, type: 'text', placeholder: 'SEO Title' },
+  { key: 'SEO Description', label: 'SEO Description', category: 'SEO', required: false, type: 'textarea', placeholder: 'SEO Description' },
   // Metafields
-  { key: 'Wholesale AUD (excl GST) (product.metafields.custom.retail_aud)', label: 'Wholesale AUD', category: 'Metafields', required: false, type: 'number', placeholder: '批发价 AUD' },
-  { key: 'Retail EUR (product.metafields.custom.retail_eur)', label: 'Retail EUR', category: 'Metafields', required: false, type: 'number', placeholder: '零售价 EUR' },
-  { key: 'Retail GBP (product.metafields.custom.retail_gbp)', label: 'Retail GBP', category: 'Metafields', required: false, type: 'number', placeholder: '零售价 GBP' },
-  { key: 'Retail NZD (product.metafields.custom.retail_nzd)', label: 'Retail NZD', category: 'Metafields', required: false, type: 'number', placeholder: '零售价 NZD' },
-  { key: 'Retail SGD (product.metafields.custom.retail_sgd)', label: 'Retail SGD', category: 'Metafields', required: false, type: 'number', placeholder: '零售价 SGD' },
-  { key: 'Retail USD (product.metafields.custom.retail_usd)', label: 'Retail USD', category: 'Metafields', required: false, type: 'number', placeholder: '零售价 USD' },
+  { key: 'Wholesale AUD (excl GST) (product.metafields.custom.retail_aud)', label: 'Wholesale AUD', category: 'Metafields', required: false, type: 'number', placeholder: 'AUD' },
+  { key: 'Retail EUR (product.metafields.custom.retail_eur)', label: 'Retail EUR', category: 'Metafields', required: false, type: 'number', placeholder: 'EUR' },
+  { key: 'Retail GBP (product.metafields.custom.retail_gbp)', label: 'Retail GBP', category: 'Metafields', required: false, type: 'number', placeholder: 'GBP' },
+  { key: 'Retail NZD (product.metafields.custom.retail_nzd)', label: 'Retail NZD', category: 'Metafields', required: false, type: 'number', placeholder: 'NZD' },
+  { key: 'Retail SGD (product.metafields.custom.retail_sgd)', label: 'Retail SGD', category: 'Metafields', required: false, type: 'number', placeholder: 'SGD' },
+  { key: 'Retail USD (product.metafields.custom.retail_usd)', label: 'Retail USD', category: 'Metafields', required: false, type: 'number', placeholder: 'USD' },
   // Markets
-  { key: 'Included / Australia', label: 'Included / Australia', category: '市场', required: false, type: 'select', options: ['true', 'false'] },
-  { key: 'Price / Australia', label: 'Price / Australia', category: '市场', required: false, type: 'number', placeholder: '' },
-  { key: 'Compare At Price / Australia', label: 'Compare At Price / Australia', category: '市场', required: false, type: 'number', placeholder: '' },
+  { key: 'Included / Australia', label: 'Included / Australia', category: '市场 / Market', required: false, type: 'select', options: ['true', 'false'] },
+  { key: 'Price / Australia', label: 'Price / Australia', category: '市场 / Market', required: false, type: 'number', placeholder: '' },
+  { key: 'Compare At Price / Australia', label: 'Compare At Price / Australia', category: '市场 / Market', required: false, type: 'number', placeholder: '' },
 ]
 
 // ─── Steps ───
-const steps = ['选择字段', '填写数据', '数据验证', '导出/上传']
+const stepsLabels = computed(() => [
+  t('newProduct.stepSelectFields'),
+  t('newProduct.stepFillData'),
+  t('newProduct.stepValidate'),
+  t('newProduct.stepExport')
+])
 const currentStep = ref(0)
 
 // ─── Step 1: Field Selection ───
-const selectedFields = ref(allFields.filter(f => f.required).map(f => f.key))
+// Handle is always included (auto-generated), plus required fields
+const selectedFields = ref(['Handle', ...allFields.filter(f => f.required).map(f => f.key)])
 
 const fieldCategories = computed(() => {
   const cats = {}
@@ -318,6 +344,8 @@ const fieldCategories = computed(() => {
 })
 
 function toggleField(key) {
+  const field = allFields.find(f => f.key === key)
+  if (field && (field.required || field.autoGenerate)) return
   const idx = selectedFields.value.indexOf(key)
   if (idx >= 0) selectedFields.value.splice(idx, 1)
   else selectedFields.value.push(key)
@@ -359,13 +387,14 @@ function duplicateRow(idx) {
 function addColumn(key) {
   if (!selectedFields.value.includes(key)) {
     selectedFields.value.push(key)
-    // 给已有行添加该字段
     rows.value.forEach(row => { if (!(key in row)) row[key] = '' })
   }
   showAddColumnDialog.value = false
 }
 
 function removeColumn(key) {
+  const field = allFields.find(f => f.key === key)
+  if (field && (field.required || field.autoGenerate)) return
   const idx = selectedFields.value.indexOf(key)
   if (idx >= 0) selectedFields.value.splice(idx, 1)
 }
@@ -383,27 +412,28 @@ async function validateData() {
   validating.value = true
   validationResult.value = null
 
-  // Client-side validation
   const errors = []
   const skus = new Set()
 
   rows.value.forEach((row, idx) => {
     row._errors = {}
+    // Auto-generate Handle from Title
+    row['Handle'] = generateHandle(row['Title'])
 
     // Title required
     if (selectedFields.value.includes('Title') && (!row['Title'] || !row['Title'].trim())) {
-      errors.push({ row: idx + 1, field: 'Title', message: '商品标题不能为空' })
-      row._errors['Title'] = '必填'
+      errors.push({ row: idx + 1, field: 'Title', message: locale.value === 'zh' ? '商品标题不能为空' : 'Title is required' })
+      row._errors['Title'] = locale.value === 'zh' ? '必填' : 'Required'
     }
 
     // SKU required and unique
     if (selectedFields.value.includes('Variant SKU')) {
       if (!row['Variant SKU'] || !row['Variant SKU'].trim()) {
-        errors.push({ row: idx + 1, field: 'Variant SKU', message: 'SKU 不能为空' })
-        row._errors['Variant SKU'] = '必填'
+        errors.push({ row: idx + 1, field: 'Variant SKU', message: locale.value === 'zh' ? 'SKU 不能为空' : 'SKU is required' })
+        row._errors['Variant SKU'] = locale.value === 'zh' ? '必填' : 'Required'
       } else if (skus.has(row['Variant SKU'].trim())) {
-        errors.push({ row: idx + 1, field: 'Variant SKU', message: `SKU "${row['Variant SKU']}" 重复` })
-        row._errors['Variant SKU'] = 'SKU 重复'
+        errors.push({ row: idx + 1, field: 'Variant SKU', message: `SKU "${row['Variant SKU']}" ${locale.value === 'zh' ? '重复' : 'duplicated'}` })
+        row._errors['Variant SKU'] = locale.value === 'zh' ? 'SKU 重复' : 'Duplicated'
       } else {
         skus.add(row['Variant SKU'].trim())
       }
@@ -412,30 +442,33 @@ async function validateData() {
     // Price must be number
     if (selectedFields.value.includes('Variant Price') && row['Variant Price']) {
       if (isNaN(Number(row['Variant Price']))) {
-        errors.push({ row: idx + 1, field: 'Variant Price', message: '价格必须为数字' })
-        row._errors['Variant Price'] = '必须为数字'
+        errors.push({ row: idx + 1, field: 'Variant Price', message: locale.value === 'zh' ? '价格必须为数字' : 'Must be a number' })
+        row._errors['Variant Price'] = locale.value === 'zh' ? '必须为数字' : 'Must be number'
       }
     }
 
     // Compare at price
     if (row['Variant Compare At Price'] && isNaN(Number(row['Variant Compare At Price']))) {
-      errors.push({ row: idx + 1, field: 'Variant Compare At Price', message: '对比价格必须为数字' })
-      row._errors['Variant Compare At Price'] = '必须为数字'
+      errors.push({ row: idx + 1, field: 'Variant Compare At Price', message: locale.value === 'zh' ? '对比价格必须为数字' : 'Must be a number' })
+      row._errors['Variant Compare At Price'] = locale.value === 'zh' ? '必须为数字' : 'Must be number'
     }
 
     // Grams
     if (row['Variant Grams'] && isNaN(Number(row['Variant Grams']))) {
-      errors.push({ row: idx + 1, field: 'Variant Grams', message: '重量必须为数字' })
-      row._errors['Variant Grams'] = '必须为数字'
+      errors.push({ row: idx + 1, field: 'Variant Grams', message: locale.value === 'zh' ? '重量必须为数字' : 'Must be a number' })
+      row._errors['Variant Grams'] = locale.value === 'zh' ? '必须为数字' : 'Must be number'
     }
   })
 
-  await new Promise(r => setTimeout(r, 600)) // Simulate processing
+  await new Promise(r => setTimeout(r, 600))
 
   if (errors.length > 0) {
     validationResult.value = { valid: false, errors }
   } else {
-    validationResult.value = { valid: true, message: `${productCount.value} 个商品、${rows.value.length} 个变体数据验证通过，可以导出或上传。` }
+    const msg = locale.value === 'zh'
+      ? `${productCount.value} 个商品、${rows.value.length} 个变体数据验证通过。`
+      : `${productCount.value} product(s), ${rows.value.length} variant(s) validated.`
+    validationResult.value = { valid: true, message: msg }
   }
 
   validating.value = false
@@ -447,14 +480,17 @@ const uploadProgress = ref(0)
 const uploadResult = ref(null)
 
 function exportCSV() {
-  // Build CSV with all Shopify columns
+  // Auto-fill Handle from Title
+  rows.value.forEach(row => {
+    row['Handle'] = generateHandle(row['Title'])
+  })
+
   const allCsvHeaders = allFields.map(f => f.key)
   const headerLine = allCsvHeaders.join(',')
 
   const csvRows = rows.value.map(row => {
     return allCsvHeaders.map(key => {
       const val = row[key] || ''
-      // Escape CSV value
       if (val.includes(',') || val.includes('"') || val.includes('\n')) {
         return `"${val.replace(/"/g, '""')}"`
       }
@@ -478,6 +514,11 @@ async function uploadToShopify() {
   uploadProgress.value = 0
   uploadResult.value = null
 
+  // Auto-fill Handle from Title
+  rows.value.forEach(row => {
+    row['Handle'] = generateHandle(row['Title'])
+  })
+
   // Group rows by Title into products
   const productMap = {}
   rows.value.forEach(row => {
@@ -485,6 +526,7 @@ async function uploadToShopify() {
     if (!productMap[title]) {
       productMap[title] = {
         title,
+        handle: generateHandle(title),
         body_html: row['Body (HTML)'] || '',
         vendor: row['Vendor'] || '',
         product_type: row['Type'] || '',
@@ -525,7 +567,6 @@ async function uploadToShopify() {
 
   const products = Object.values(productMap)
 
-  // Simulate progress
   const progressInterval = setInterval(() => {
     if (uploadProgress.value < 90) uploadProgress.value += 10
   }, 500)
@@ -536,7 +577,7 @@ async function uploadToShopify() {
     uploadProgress.value = 100
   } catch (err) {
     uploadResult.value = {
-      data: [{ title: '上传失败', status: 'error', message: err.response?.data?.message || err.message }],
+      data: [{ title: locale.value === 'zh' ? '上传失败' : 'Upload failed', status: 'error', message: err.response?.data?.message || err.message }],
       summary: { created: 0, failed: products.length, total: products.length },
     }
     uploadProgress.value = 100
@@ -549,7 +590,6 @@ async function uploadToShopify() {
 // ─── Navigation ───
 function goToStep(step) {
   if (step === 1 && rows.value.length === 0) {
-    // Initialize with one empty row
     addRow()
   }
   if (step === 2) {
@@ -660,6 +700,7 @@ function goToStep(step) {
 .field-chip.disabled { cursor: not-allowed; opacity: 0.8; }
 .field-chip input { display: none; }
 .chip-badge { font-size: 10px; background: #f59e0b; color: white; padding: 1px 5px; border-radius: 8px; }
+.chip-auto { background: #6366f1; }
 
 /* Table */
 .table-toolbar {
@@ -695,6 +736,13 @@ function goToStep(step) {
   z-index: 1;
 }
 .col-header { position: relative; }
+.handle-hint {
+  display: block;
+  font-size: 10px;
+  color: #9ca3af;
+  font-weight: 400;
+  font-style: italic;
+}
 .col-remove {
   position: absolute;
   top: 2px;
@@ -726,6 +774,7 @@ function goToStep(step) {
   transition: border-color 0.2s;
 }
 .cell-input:focus { border-color: #9333ea; outline: none; }
+.cell-readonly { background: #f9fafb; color: #6b7280; cursor: not-allowed; }
 .cell-textarea { resize: vertical; min-height: 40px; }
 .cell-error-tip {
   position: absolute;

@@ -74,7 +74,7 @@
             @click="activeTab = 'new-product'"
             :class="activeTab === 'new-product' ? 'border-b-2 border-purple-600 text-purple-700 font-semibold' : 'text-gray-500 hover:text-gray-700'"
             class="px-5 py-3 text-sm transition-colors"
-          >录入新商品</button>
+          >{{ t('inventory.tabNewProduct') }}</button>
         </div>
       </div>
     </div>
