@@ -29,7 +29,7 @@ router.get('/tasks', requireLogin, (req, res) => {
   try {
     const tasks = db.prepare(`
       SELECT t.*,
-        s.reference_no, s.supplier_name, s.expected_arrival,
+        s.ref_no AS reference_no, s.factory AS supplier_name, s.received_at AS expected_arrival,
         COUNT(l.id) AS total_lines,
         SUM(CASE WHEN l.status = 'pending' THEN 1 ELSE 0 END) AS pending_lines,
         SUM(CASE WHEN l.status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed_lines
@@ -50,7 +50,7 @@ router.get('/tasks', requireLogin, (req, res) => {
 router.get('/tasks/:taskId', requireLogin, (req, res) => {
   try {
     const task = db.prepare(`
-      SELECT t.*, s.reference_no, s.supplier_name, s.expected_arrival
+      SELECT t.*, s.ref_no AS reference_no, s.factory AS supplier_name, s.received_at AS expected_arrival
       FROM warehouse_replenishment_tasks t
       LEFT JOIN inbound_shipments s ON s.id = t.inbound_shipment_id
       WHERE t.id = ?

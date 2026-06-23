@@ -70,12 +70,18 @@
             :class="activeTab === 'inbound' ? 'border-b-2 border-purple-600 text-purple-700 font-semibold' : 'text-gray-500 hover:text-gray-700'"
             class="px-5 py-3 text-sm transition-colors"
           >{{ t('inventory.tabInbound') }}</button>
+          <button
+            @click="activeTab = 'new-product'"
+            :class="activeTab === 'new-product' ? 'border-b-2 border-purple-600 text-purple-700 font-semibold' : 'text-gray-500 hover:text-gray-700'"
+            class="px-5 py-3 text-sm transition-colors"
+          >录入新商品</button>
         </div>
       </div>
     </div>
     <main class="max-w-7xl mx-auto px-4 py-6">
       <!-- Factory Inbound Tab -->
       <InboundView v-if="activeTab === 'inbound'" />
+      <NewProductEntry v-if="activeTab === 'new-product'" @close="activeTab = 'inventory'" />
       <!-- Inventory Tab -->
       <template v-if="activeTab === 'inventory'">
       <!-- Last Sync Info -->
@@ -1241,6 +1247,7 @@ import axios from 'axios'
 import shopifyLogoUrl from '../assets/shopify-logo.png'
 import squareLogoUrl from '../assets/square-logo.png'
 import InboundView from './InboundView.vue'
+import NewProductEntry from './NewProductEntry.vue'
 
 const { t, locale } = useI18n()
 
