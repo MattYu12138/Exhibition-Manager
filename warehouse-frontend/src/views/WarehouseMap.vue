@@ -565,8 +565,18 @@ async function openLocationPanel(region) {
   showPanel.value = true
   locationsLoading.value = true
   try {
-    const res = await locationApi.list({ module_id: region.id, layout_id: activeLayoutId.value })
-    panelLocations.value = res.data || []
+    const prefix = (region.code || '').toUpperCase()
+    const res = await locationApi.list({ layout_id: activeLayoutId.value })
+    const allLocs = res.data || []
+    // 只显示该货架前缀的货位（如 A 货架只显示 A-01~A-17，不显示 B-01 等）
+    if (prefix) {
+      panelLocations.value = allLocs.filter(loc => {
+        const locPrefix = loc.code.split('-')[0].toUpperCase()
+        return locPrefix === prefix
+      })
+    } else {
+      panelLocations.value = allLocs
+    }
   } finally {
     locationsLoading.value = false
   }
