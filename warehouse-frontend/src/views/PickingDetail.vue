@@ -264,15 +264,9 @@ function statusLabel(s) {
   return { pending: '待处理', in_progress: '进行中', completed: '已完成', cancelled: '已取消' }[s] || s
 }
 
-// 点击货物行
+// 点击货物行（不管状态，都只做选中/取消选中）
 function handleLineClick(line) {
-  if (line.status === 'picked') {
-    // 已拣货的点击：弹窗确认是否取消
-    confirmUnpick(line)
-  } else {
-    // 未拣货的点击：选中并在地图高亮
-    activeLine.value = activeLine.value?.id === line.id ? null : line
-  }
+  activeLine.value = activeLine.value?.id === line.id ? null : line
 }
 
 function selectLine(line) {
@@ -288,8 +282,13 @@ function focusCell(cell) {
   if (line) activeLine.value = line
 }
 
-// 确认取消拣货
+// 确认取消拣货（必须经过弹窗确认）
 async function confirmUnpick(line) {
+  // 前端状态检查：如果尚未拣货，直接提示无需取消
+  if (line.status !== 'picked') {
+    ElMessage.warning('该行尚未拣货，无需取消')
+    return
+  }
   try {
     await ElMessageBox.confirm(
       `确认取消「${line.product_title} - ${line.variant_title}」的拣货？\n库存将回滚到原货位。`,
@@ -329,7 +328,8 @@ async function handleCheckChange(line, picked) {
       ElMessage.error(err.response?.data?.message || err.message)
     }
   } else {
-    // 取消勾选 = 取消拣货
+    // 取消勾选 = 取消拣货（必须经过弹窗确认）
+    // 先阻止 checkbox 立即变化（Vue 响应式会自动恢复）
     confirmUnpick(line)
   }
 }
