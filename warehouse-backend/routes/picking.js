@@ -275,6 +275,71 @@ router.patch('/tasks/:id/lines/:lineId/pick', requireStaff, (req, res) => {
   }
 });
 
+// ── PATCH /api/picking/tasks/:id/lines/:lineId/unpick  取消拣货（回滚库存） ────
+router.patch('/tasks/:id/lines/:lineId/unpick', requireStaff, (req, res) => {
+  try {
+    const line = db.prepare(`
+      SELECT wpl.*, wpt.task_type, wpt.exhibition_id
+      FROM warehouse_pick_lines wpl
+      JOIN warehouse_pick_tasks wpt ON wpt.id = wpl.task_id
+      WHERE wpl.id = ? AND wpl.task_id = ?
+    `).get(req.params.lineId, req.params.id);
+    if (!line) return res.status(404).json({ success: false, message: '拣货行不存在' });
+    if (line.status === 'pending') return res.status(400).json({ success: false, message: '该行尚未拣货，无需取消' });
+
+    const qtyToRestore = line.picked_qty;
+    if (qtyToRestore <= 0) return res.status(400).json({ success: false, message: '没有可回滚的数量' });
+
+    db.transaction(() => {
+      // 回滚库存：将扣减的数量加回指定货位
+      if (line.location_id) {
+        const stockType = line.task_type === 'exhibition' ? 'exhibition' : 'retail';
+        const inv = db.prepare(`
+          SELECT * FROM warehouse_inventory
+          WHERE location_id = ? AND shopify_variant_id = ? AND stock_type = ?
+            ${line.exhibition_id ? 'AND exhibition_id = ?' : 'AND exhibition_id IS NULL'}
+          LIMIT 1
+        `).get(...[line.location_id, line.shopify_variant_id, stockType, ...(line.exhibition_id ? [line.exhibition_id] : [])]);
+
+        if (inv) {
+          const qtyBefore = inv.quantity;
+          const qtyAfter = qtyBefore + qtyToRestore;
+          db.prepare('UPDATE warehouse_inventory SET quantity = ?, updated_at = datetime(\'now\') WHERE id = ?').run(qtyAfter, inv.id);
+          const movId = nextMovementId();
+          db.prepare(`
+            INSERT INTO warehouse_movements
+              (id, inventory_id, location_id, shopify_variant_id, stock_type,
+               movement_type, quantity_delta, quantity_before, quantity_after,
+               reference_type, reference_id, operated_by)
+            VALUES (?, ?, ?, ?, ?, 'inbound', ?, ?, ?, 'pick_unpick', ?, ?)
+          `).run(movId, inv.id, line.location_id, line.shopify_variant_id, stockType, qtyToRestore, qtyBefore, qtyAfter, req.params.id, req.session.user.id);
+        }
+      }
+
+      // 重置拣货行状态
+      db.prepare(`
+        UPDATE warehouse_pick_lines
+        SET picked_qty = 0, status = 'pending', picked_by = NULL, picked_at = NULL, note = NULL
+        WHERE id = ?
+      `).run(line.id);
+
+      // 更新任务状态
+      const allLines = db.prepare('SELECT status FROM warehouse_pick_lines WHERE task_id = ?').all(req.params.id);
+      const anyPicked = allLines.some(l => l.id !== line.id && (l.status === 'picked' || l.status === 'partial'));
+      if (anyPicked) {
+        db.prepare('UPDATE warehouse_pick_tasks SET status = \'in_progress\', updated_at = datetime(\'now\') WHERE id = ?').run(req.params.id);
+      } else {
+        db.prepare('UPDATE warehouse_pick_tasks SET status = \'pending\', updated_at = datetime(\'now\'), completed_at = NULL WHERE id = ?').run(req.params.id);
+      }
+    })();
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[picking] unpick line:', err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ── GET /api/picking/exhibitions  获取展会列表（供创建备货任务选择） ──────────
 router.get('/exhibitions', requireLogin, (req, res) => {
   try {

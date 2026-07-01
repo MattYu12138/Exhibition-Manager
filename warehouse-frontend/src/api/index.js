@@ -61,6 +61,7 @@ export const pickingApi = {
   createFromOrder: (data) => api.post('/picking/tasks/from-order', data),
   createFromExhibition: (data) => api.post('/picking/tasks/from-exhibition', data),
   pickLine: (taskId, lineId, data) => api.patch(`/picking/tasks/${taskId}/lines/${lineId}/pick`, data),
+  unpickLine: (taskId, lineId) => api.patch(`/picking/tasks/${taskId}/lines/${lineId}/unpick`),
   getShopifyOrders: () => api.get('/picking/shopify-orders'),
   inventoryCheck: (variantIds) => api.get('/picking/inventory-check', { params: { shopify_variant_ids: variantIds.join(',') } }),
   deleteTask: (id) => api.delete(`/picking/tasks/${id}`),
