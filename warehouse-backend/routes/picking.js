@@ -64,6 +64,33 @@ router.get('/tasks/:id', requireLogin, (req, res) => {
       ORDER BY wl.zone, wl.row_no, wl.col_no
     `).all(task.id);
 
+    // 动态补充 location_id：如果拣货行没有货位，尝试从最新库存中匹配
+    for (const line of lines) {
+      if (!line.location_id && line.status !== 'picked') {
+        const bestLoc = db.prepare(`
+          SELECT wi.location_id, wl.code AS location_code, wl.grid_x, wl.grid_y,
+                 wl.zone, wl.row_no, wl.col_no
+          FROM warehouse_inventory wi
+          JOIN warehouse_locations wl ON wl.id = wi.location_id
+          WHERE wi.shopify_variant_id = ? AND wi.quantity > 0
+          ORDER BY wi.received_at ASC
+          LIMIT 1
+        `).get(line.shopify_variant_id);
+        if (bestLoc) {
+          line.location_id = bestLoc.location_id;
+          line.location_code = bestLoc.location_code;
+          line.grid_x = bestLoc.grid_x;
+          line.grid_y = bestLoc.grid_y;
+          line.zone = bestLoc.zone;
+          line.row_no = bestLoc.row_no;
+          line.col_no = bestLoc.col_no;
+          // 同时更新数据库，下次不需要再查
+          db.prepare('UPDATE warehouse_pick_lines SET location_id = ?, location_code = ? WHERE id = ?')
+            .run(bestLoc.location_id, bestLoc.location_code, line.id);
+        }
+      }
+    }
+
     // 获取活跃布局（用于地图渲染）
     const layout = db.prepare('SELECT * FROM warehouse_layouts WHERE is_active = 1 LIMIT 1').get();
     let locations = [];

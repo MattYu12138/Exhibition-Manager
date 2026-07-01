@@ -229,21 +229,21 @@ const sortedLines = computed(() => {
 // 当前选中行的 cellKey（用于地图高亮"选中"状态）
 const activeCellKey = computed(() => {
   if (!activeLine.value || activeLine.value.grid_x == null || activeLine.value.grid_y == null) return null
-  return `${activeLine.value.grid_y},${activeLine.value.grid_x}`
+  return `${activeLine.value.grid_x},${activeLine.value.grid_y}`
 })
 
 // 拣货目标的 cell key 集合
 const targetCellKeys = computed(() => {
   const set = new Set()
   lines.value.filter(l => l.status !== 'picked' && l.grid_x != null && l.grid_y != null).forEach(l => {
-    set.add(`${l.grid_y},${l.grid_x}`)
+    set.add(`${l.grid_x},${l.grid_y}`)
   })
   return set
 })
 const doneCellKeys = computed(() => {
   const set = new Set()
   lines.value.filter(l => l.status === 'picked' && l.grid_x != null && l.grid_y != null).forEach(l => {
-    set.add(`${l.grid_y},${l.grid_x}`)
+    set.add(`${l.grid_x},${l.grid_y}`)
   })
   return set
 })
@@ -282,7 +282,7 @@ function selectLine(line) {
 function focusCell(cell) {
   const line = lines.value.find(l =>
     l.grid_x != null && l.grid_y != null &&
-    `${l.grid_y},${l.grid_x}` === cell.cellKey &&
+    `${l.grid_x},${l.grid_y}` === cell.cellKey &&
     l.status !== 'picked'
   )
   if (line) activeLine.value = line
