@@ -35,7 +35,17 @@
 
     <!-- SVG 地图画布 -->
     <div class="map-canvas-wrapper" v-loading="loading">
-      <div v-if="layout && regions.length > 0" class="svg-scroll-wrap">
+      <!-- 缩放控件 -->
+      <div v-if="layout && regions.length > 0" class="zoom-toolbar">
+        <el-button-group size="small">
+          <el-button @click="zoomIn">+</el-button>
+          <el-button @click="zoomOut">-</el-button>
+          <el-button @click="resetZoom">⊡</el-button>
+        </el-button-group>
+        <span class="zoom-label">{{ Math.round(scale * 100) }}%</span>
+      </div>
+      <div v-if="layout && regions.length > 0" class="map-viewport" ref="mapViewport" @wheel.prevent="handleWheel">
+        <div class="map-transform" :style="{ transform: `scale(${scale})`, transformOrigin: 'top center' }">
         <svg
           class="map-svg"
           :width="svgWidth"
@@ -116,6 +126,7 @@
             </template>
           </g>
         </svg>
+        </div>
       </div>
 
       <el-empty v-if="!loading && (!layout || regions.length === 0)" description="暂无仓库布局，请先在构建器中创建" :image-size="80">
@@ -282,7 +293,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { layoutApi, locationApi } from '@/api/index.js'
@@ -321,6 +332,27 @@ const layouts = ref([])
 const activeLayoutId = ref(null)
 const layout = ref(null)
 const loading = ref(false)
+
+// ── 缩放相关 ──────────────────────────────────────────────────────────────────
+const mapViewport = ref(null)
+const scale = ref(1)
+
+function zoomIn() { scale.value = Math.min(scale.value + 0.15, 3) }
+function zoomOut() { scale.value = Math.max(scale.value - 0.15, 0.3) }
+function resetZoom() { fitMapToViewport() }
+function handleWheel(e) {
+  if (e.deltaY < 0) zoomIn()
+  else zoomOut()
+}
+function fitMapToViewport() {
+  if (!layout.value || !mapViewport.value) return
+  const vp = mapViewport.value
+  const mapW = (layout.value.grid_cols || 20) * CELL_SIZE
+  const mapH = (layout.value.grid_rows || 15) * CELL_SIZE
+  const scaleX = vp.clientWidth / mapW
+  const scaleY = vp.clientHeight / mapH
+  scale.value = Math.min(scaleX, scaleY, 1) * 0.92
+}
 
 const showPanel = ref(false)
 const panelRegion = ref(null)
@@ -513,6 +545,9 @@ async function loadLayout() {
     const stockMap = {}
     locs.forEach(l => { if (l.total_qty > 0) stockMap[l.code] = true })
     locationStockMap.value = stockMap
+    // 加载完成后自适应缩放
+    await nextTick()
+    setTimeout(fitMapToViewport, 100)
   } finally {
     loading.value = false
   }
@@ -672,10 +707,28 @@ onMounted(loadLayouts)
   border-radius: 12px;
   padding: 24px;
   box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-  overflow: auto;
-  min-height: 300px;
+  min-height: 400px;
+  display: flex;
+  flex-direction: column;
 }
-.svg-scroll-wrap { overflow: auto; border-radius: 8px; }
+.zoom-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.zoom-label { font-size: 12px; color: #909399; min-width: 40px; }
+.map-viewport {
+  flex: 1;
+  overflow: auto;
+  border-radius: 8px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+.map-transform {
+  transition: transform 0.2s ease;
+}
 .map-svg { display: block; border-radius: 8px; }
 .region-shape { transition: filter 0.15s; }
 .region-shape.clickable { cursor: pointer; }
