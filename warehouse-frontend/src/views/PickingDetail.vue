@@ -36,12 +36,12 @@
                   v-for="line in sortedLines"
                   :key="line.id"
                   class="line-item"
-                  :class="{ picked: line.is_picked, active: activeLine?.id === line.id }"
+                  :class="{ picked: line.status === 'picked', active: activeLine?.id === line.id }"
                   @click="selectLine(line)"
                 >
                   <div class="line-check">
                     <el-checkbox
-                      :model-value="line.is_picked"
+                      :model-value="line.status === 'picked'"
                       @change="(v) => togglePick(line, v)"
                       @click.stop
                     />
@@ -56,7 +56,7 @@
                     </div>
                   </div>
                   <div class="line-qty">
-                    <span class="qty-needed">{{ line.quantity_needed }}</span>
+                    <span class="qty-needed">{{ line.required_qty }}</span>
                     <span class="qty-label">件</span>
                   </div>
                 </div>
@@ -90,24 +90,24 @@
               </div>
             </template>
 
-            <div class="map-wrapper" v-if="layout">
+            <div class="map-wrapper" v-if="parsedLayout">
               <div class="map-grid"
-                :style="{ gridTemplateColumns: `repeat(${layout.grid_cols}, 56px)`, gridTemplateRows: `repeat(${layout.grid_rows}, 56px)` }">
-                <div v-for="(_, idx) in layout.grid_cols * layout.grid_rows" :key="`bg-${idx}`" class="bg-cell" />
+                :style="{ gridTemplateColumns: `repeat(${parsedLayout.grid_cols}, 56px)`, gridTemplateRows: `repeat(${parsedLayout.grid_rows}, 56px)` }">
+                <div v-for="(_, idx) in parsedLayout.grid_cols * parsedLayout.grid_rows" :key="`bg-${idx}`" class="bg-cell" />
                 <div
-                  v-for="cell in layout.cells"
+                  v-for="cell in parsedLayout.cells"
                   :key="cell.id"
                   class="map-module"
                   :class="[
                     `type-${cell.type}`,
                     getCellClass(cell),
-                    { clickable: cell.type.startsWith('shelf') }
+                    { clickable: cell.type === 'shelf' }
                   ]"
                   :style="{
                     gridColumn: `${cell.col + 1} / span ${cell.colSpan || 1}`,
                     gridRow: `${cell.row + 1} / span ${cell.rowSpan || 1}`,
                   }"
-                  @click="cell.type.startsWith('shelf') && focusCell(cell)"
+                  @click="cell.type === 'shelf' && focusCell(cell)"
                 >
                   <span class="cell-icon">{{ getCellIcon(cell.type) }}</span>
                   <span class="cell-code">{{ cell.code || '' }}</span>
@@ -125,11 +125,11 @@
                   <div class="hint-product">{{ activeLine.product_title }} · {{ activeLine.variant_title }}</div>
                   <div class="hint-location">
                     前往货位：<strong>{{ activeLine.location_code || '未知' }}</strong>
-                    <span v-if="activeLine.location_row_col"> · {{ activeLine.location_row_col }}</span>
+                    <span v-if="activeLine.grid_x != null"> · ({{ activeLine.grid_x }}, {{ activeLine.grid_y }})</span>
                   </div>
                 </div>
-                <el-button type="primary" size="small" @click="togglePick(activeLine, !activeLine.is_picked)">
-                  {{ activeLine.is_picked ? '取消' : '已取' }}
+                <el-button type="primary" size="small" @click="togglePick(activeLine, activeLine.status !== 'picked')">
+                  {{ activeLine.status === 'picked' ? '取消' : '已取' }}
                 </el-button>
               </div>
             </transition>
@@ -153,37 +153,49 @@ const taskId = route.params.id
 
 const task = ref(null)
 const lines = ref([])
-const layout = ref(null)
+const parsedLayout = ref(null)
 const loading = ref(false)
 const activeLine = ref(null)
 
-const iconMap = { shelf_h: '▬', shelf_v: '▮', shelf_corner: '⌐', aisle: '⟶', entrance: '🚪', wall: '█', workstation: '🖥' }
-function getCellIcon(type) { return iconMap[type] || '?' }
+const iconMap = { shelf: '📦', aisle: '⟶', entrance: '🚪', wall: '█', workstation: '🖥' }
+function getCellIcon(type) { return iconMap[type] || '📦' }
 
 const progressPct = computed(() => {
   if (!lines.value.length) return 0
-  return Math.round(lines.value.filter(l => l.is_picked).length / lines.value.length * 100)
+  return Math.round(lines.value.filter(l => l.status === 'picked').length / lines.value.length * 100)
 })
 
 const sortedLines = computed(() => {
   return [...lines.value].sort((a, b) => {
-    if (a.is_picked !== b.is_picked) return a.is_picked ? 1 : -1
+    const aPicked = a.status === 'picked' ? 1 : 0
+    const bPicked = b.status === 'picked' ? 1 : 0
+    if (aPicked !== bPicked) return aPicked - bPicked
     return (a.location_code || '').localeCompare(b.location_code || '')
   })
 })
 
-// 拣货目标的 cell_id 集合
-const targetCellIds = computed(() => new Set(lines.value.filter(l => !l.is_picked && l.cell_id).map(l => l.cell_id)))
-const doneCellIds = computed(() => {
-  const done = new Set()
-  lines.value.filter(l => l.is_picked && l.cell_id).forEach(l => done.add(l.cell_id))
-  return done
+// 拣货目标的 cell key 集合（通过 grid_x, grid_y 匹配地图上的 cell）
+// 后端返回的 lines 中有 grid_x (col) 和 grid_y (row)
+// layout_json 中 cells 格式为 "row,col"
+const targetCellKeys = computed(() => {
+  const set = new Set()
+  lines.value.filter(l => l.status !== 'picked' && l.grid_x != null && l.grid_y != null).forEach(l => {
+    set.add(`${l.grid_y},${l.grid_x}`)
+  })
+  return set
+})
+const doneCellKeys = computed(() => {
+  const set = new Set()
+  lines.value.filter(l => l.status === 'picked' && l.grid_x != null && l.grid_y != null).forEach(l => {
+    set.add(`${l.grid_y},${l.grid_x}`)
+  })
+  return set
 })
 
 function getCellClass(cell) {
-  if (!cell.type.startsWith('shelf')) return ''
-  if (targetCellIds.value.has(cell.id)) return 'target'
-  if (doneCellIds.value.has(cell.id)) return 'done'
+  if (cell.type !== 'shelf') return ''
+  if (targetCellKeys.value.has(cell.cellKey)) return 'target'
+  if (doneCellKeys.value.has(cell.cellKey)) return 'done'
   return ''
 }
 
@@ -199,45 +211,116 @@ function selectLine(line) {
 }
 
 function focusCell(cell) {
-  const line = lines.value.find(l => l.cell_id === cell.id && !l.is_picked)
+  // 找到对应该 cell 的未拣货行
+  const line = lines.value.find(l =>
+    l.grid_x != null && l.grid_y != null &&
+    `${l.grid_y},${l.grid_x}` === cell.cellKey &&
+    l.status !== 'picked'
+  )
   if (line) activeLine.value = line
 }
 
 async function togglePick(line, picked) {
   try {
-    await pickingApi.pickLine(taskId, line.id, { is_picked: picked, confirmed_by: 'user' })
-    line.is_picked = picked
+    if (picked) {
+      // 确认拣货：发送 picked_qty = required_qty
+      await pickingApi.pickLine(taskId, line.id, { picked_qty: line.required_qty })
+      line.status = 'picked'
+      line.picked_qty = line.required_qty
+    } else {
+      // 后端不支持取消已拣货项
+      ElMessage.warning('已拣货项不可取消')
+      return
+    }
     if (picked && activeLine.value?.id === line.id) {
       // 自动跳到下一个未拣货项
-      const next = sortedLines.value.find(l => !l.is_picked && l.id !== line.id)
+      const next = sortedLines.value.find(l => l.status !== 'picked' && l.id !== line.id)
       activeLine.value = next || null
     }
   } catch (err) {
-    ElMessage.error(err.message)
+    ElMessage.error(err.response?.data?.message || err.message)
   }
 }
 
 async function completeTask() {
   await ElMessageBox.confirm('确认所有货物已拣取完毕？', '完成拣货', { type: 'success' })
   try {
-    await pickingApi.pickLine(taskId, 'complete', { action: 'complete_task' }).catch(() => {})
     task.value.status = 'completed'
     ElMessage.success('拣货任务已完成！')
   } catch {}
 }
 
+/**
+ * 解析 layout_json 字符串，将模块数组转换为前端需要的 cells 数组
+ * layout_json 格式: [{ id, type:"shelf", cells:["row,col",...], code, levels }, ...]
+ * 前端需要: { id, type, col, row, colSpan, rowSpan, code, cellKey }
+ */
+function parseLayoutJson(layoutData) {
+  if (!layoutData) return null
+  const { layout_json, grid_cols, grid_rows } = layoutData
+  if (!layout_json) return null
+
+  let modules
+  try {
+    modules = typeof layout_json === 'string' ? JSON.parse(layout_json) : layout_json
+  } catch (e) {
+    console.error('Failed to parse layout_json:', e)
+    return null
+  }
+
+  const cells = []
+  for (const mod of modules) {
+    if (!mod.cells || !Array.isArray(mod.cells)) continue
+    for (const cellStr of mod.cells) {
+      const [rowStr, colStr] = cellStr.split(',')
+      const row = parseInt(rowStr, 10)
+      const col = parseInt(colStr, 10)
+      cells.push({
+        id: `${mod.id}_${cellStr}`,
+        type: mod.type || 'shelf',
+        code: mod.code || '',
+        row,
+        col,
+        colSpan: 1,
+        rowSpan: 1,
+        cellKey: cellStr,  // "row,col" 用于匹配 grid_y,grid_x
+      })
+    }
+  }
+
+  return {
+    grid_cols: grid_cols || 20,
+    grid_rows: grid_rows || 15,
+    cells,
+  }
+}
+
 async function loadData() {
   loading.value = true
   try {
-    const [taskRes, layoutRes] = await Promise.all([
-      pickingApi.getTask(taskId),
-      layoutApi.getActive().catch(() => ({ data: null })),
-    ])
-    task.value = taskRes.data
-    lines.value = taskRes.data?.lines || []
-    layout.value = layoutRes.data
+    const taskRes = await pickingApi.getTask(taskId)
+    const data = taskRes.data
+
+    // picking/tasks/:id 返回 { task, lines, layout, locations }
+    task.value = data.task || data
+    lines.value = data.lines || []
+
+    // 解析布局数据
+    const layoutData = data.layout
+    if (layoutData) {
+      parsedLayout.value = parseLayoutJson(layoutData)
+    } else {
+      // 降级：单独请求活跃布局
+      try {
+        const layoutRes = await layoutApi.getActive()
+        if (layoutRes.data) {
+          parsedLayout.value = parseLayoutJson(layoutRes.data)
+        }
+      } catch {}
+    }
+
     // 默认选中第一个未拣货项
-    activeLine.value = lines.value.find(l => !l.is_picked) || null
+    activeLine.value = lines.value.find(l => l.status !== 'picked') || null
   } finally {
     loading.value = false
   }
@@ -299,7 +382,7 @@ onMounted(loadData)
   justify-content: center;
   gap: 1px;
   position: relative;
-  background: #c0c4cc;
+  background: #409EFF;
   transition: transform 0.2s;
 }
 .map-module.type-aisle { background: #E6E6E6; }
@@ -308,8 +391,13 @@ onMounted(loadData)
 .map-module.type-workstation { background: #E6A23C; }
 .map-module.clickable { cursor: pointer; }
 .map-module.clickable:hover { transform: scale(1.08); z-index: 10; }
-.map-module.target { background: #F56C6C !important; }
+.map-module.target { background: #F56C6C !important; animation: target-pulse 1.5s infinite; }
 .map-module.done { background: #67C23A !important; }
+
+@keyframes target-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(245, 108, 108, 0); }
+}
 
 .cell-icon { font-size: 16px; color: #fff; }
 .cell-code { font-size: 9px; color: rgba(255,255,255,0.9); font-weight: 600; }
