@@ -12,8 +12,15 @@
       <div class="bar-content">
         <div class="bar-info">
           <el-tag type="info" size="large">{{ t('replenishment.totalItems', { n: items.length }) }}</el-tag>
-          <el-tag v-if="needsCount > 0" type="danger" size="large">{{ t('replenishment.needsReplenishment', { n: needsCount }) }}</el-tag>
-          <el-tag v-else type="success" size="large">{{ t('replenishment.allSufficient') }}</el-tag>
+          <el-tag v-if="priorityCount > 0" type="danger" size="large">
+            {{ priorityCount }} {{ t('replenishment.statusPriority') }}
+          </el-tag>
+          <el-tag v-if="needsCount > 0" type="warning" size="large">
+            {{ t('replenishment.needsReplenishment', { n: needsCount }) }}
+          </el-tag>
+          <el-tag v-if="needsCount === 0 && priorityCount === 0" type="success" size="large">
+            {{ t('replenishment.allSufficient') }}
+          </el-tag>
         </div>
         <div class="bar-actions">
           <el-button type="primary" @click="fetchData" :loading="loading">
@@ -32,7 +39,7 @@
 
     <!-- 桌面端表格 -->
     <el-card v-loading="loading" class="desktop-table">
-      <el-table :data="items" stripe style="width: 100%">
+      <el-table :data="items" stripe style="width: 100%" :row-class-name="tableRowClass">
         <el-table-column width="50" align="center">
           <template #header>
             <el-checkbox
@@ -43,14 +50,14 @@
           </template>
           <template #default="{ row }">
             <el-checkbox
-              v-if="row.needs_replenishment"
+              v-if="row.status === 'need' || row.status === 'priority'"
               v-model="row._selected"
               @change="updateSelection"
             />
           </template>
         </el-table-column>
 
-        <el-table-column :label="t('replenishment.colProduct')" min-width="220">
+        <el-table-column :label="t('replenishment.colProduct')" min-width="200">
           <template #default="{ row }">
             <div class="product-cell">
               <el-image
@@ -67,38 +74,35 @@
           </template>
         </el-table-column>
 
-        <el-table-column :label="t('replenishment.colRack')" width="90" align="center">
+        <el-table-column :label="t('replenishment.colRack')" width="80" align="center">
           <template #default="{ row }">
             <span class="qty-badge rack">{{ row.rack_quantity }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column :label="t('replenishment.colSquareQty')" width="110" align="center">
+        <el-table-column :label="t('replenishment.colStorage')" width="80" align="center">
           <template #default="{ row }">
-            <span
-              class="qty-badge"
-              :class="row.current_square_qty !== null && row.current_square_qty < row.rack_quantity ? 'danger' : 'ok'"
-            >
-              {{ row.current_square_qty ?? t('replenishment.notSynced') }}
-            </span>
+            <span class="qty-badge storage">{{ row.storage }}</span>
           </template>
         </el-table-column>
 
         <el-table-column :label="t('replenishment.colSold')" width="80" align="center">
           <template #default="{ row }">
-            <span class="sold-num">{{ row.sold }}</span>
+            <span class="sold-num" :class="{ 'sold-high': row.sold >= row.rack_quantity }">{{ row.sold }}</span>
           </template>
         </el-table-column>
 
-        <el-table-column :label="t('replenishment.colStockRemaining')" width="90" align="center">
+        <el-table-column :label="t('replenishment.colStockRemaining')" width="100" align="center">
           <template #default="{ row }">
-            <span :class="row.stock_quantity <= 0 ? 'text-danger' : ''">{{ row.stock_quantity }}</span>
+            <span :class="row.storage_left <= 0 ? 'text-danger' : ''">{{ row.storage_left }}</span>
           </template>
         </el-table-column>
 
         <el-table-column :label="t('replenishment.colStatus')" width="120" align="center">
           <template #default="{ row }">
-            <el-tag v-if="row.needs_replenishment" type="danger" size="small">{{ t('replenishment.statusNeed') }}</el-tag>
+            <el-tag v-if="row.status === 'priority'" type="danger" size="small">{{ t('replenishment.statusPriority') }}</el-tag>
+            <el-tag v-else-if="row.status === 'need'" type="warning" size="small">{{ t('replenishment.statusNeed') }}</el-tag>
+            <el-tag v-else-if="row.status === 'storage_empty'" type="info" size="small">{{ t('replenishment.statusEmpty') }}</el-tag>
             <el-tag v-else type="success" size="small">{{ t('replenishment.statusOk') }}</el-tag>
           </template>
         </el-table-column>
@@ -106,14 +110,14 @@
         <el-table-column :label="t('replenishment.colReplenishQty')" width="120" align="center">
           <template #default="{ row }">
             <el-input-number
-              v-if="row.needs_replenishment && row._selected"
+              v-if="(row.status === 'need' || row.status === 'priority') && row._selected"
               v-model="row._replenishQty"
               :min="1"
-              :max="Math.max(1, row.stock_quantity)"
+              :max="Math.max(1, row.storage_left)"
               size="small"
               controls-position="right"
             />
-            <span v-else-if="row.needs_replenishment" class="text-muted">-</span>
+            <span v-else-if="row.status === 'need' || row.status === 'priority'" class="text-muted">-</span>
           </template>
         </el-table-column>
       </el-table>
@@ -125,11 +129,11 @@
         v-for="item in items"
         :key="item.shopify_variant_id"
         class="mobile-card"
-        :class="{ 'needs-replenish': item.needs_replenishment }"
+        :class="mobileCardClass(item)"
       >
         <div class="mobile-card-header">
           <el-checkbox
-            v-if="item.needs_replenishment"
+            v-if="item.status === 'need' || item.status === 'priority'"
             v-model="item._selected"
             @change="updateSelection"
           />
@@ -144,11 +148,11 @@
             <div class="product-variant">{{ item.variant_title }}</div>
           </div>
           <el-tag
-            :type="item.needs_replenishment ? 'danger' : 'success'"
+            :type="statusTagType(item.status)"
             size="small"
             class="mobile-status-tag"
           >
-            {{ item.needs_replenishment ? t('replenishment.statusNeed') : t('replenishment.statusOk') }}
+            {{ statusText(item.status) }}
           </el-tag>
         </div>
         <div class="mobile-card-body">
@@ -157,29 +161,24 @@
             <span class="qty-badge rack">{{ item.rack_quantity }}</span>
           </div>
           <div class="mobile-stat">
-            <span class="stat-label">{{ t('replenishment.colSquareQty') }}</span>
-            <span
-              class="qty-badge"
-              :class="item.current_square_qty !== null && item.current_square_qty < item.rack_quantity ? 'danger' : 'ok'"
-            >
-              {{ item.current_square_qty ?? t('replenishment.notSynced') }}
-            </span>
+            <span class="stat-label">{{ t('replenishment.colStorage') }}</span>
+            <span class="qty-badge storage">{{ item.storage }}</span>
           </div>
           <div class="mobile-stat">
             <span class="stat-label">{{ t('replenishment.colSold') }}</span>
-            <span class="sold-num">{{ item.sold }}</span>
+            <span class="sold-num" :class="{ 'sold-high': item.sold >= item.rack_quantity }">{{ item.sold }}</span>
           </div>
           <div class="mobile-stat">
             <span class="stat-label">{{ t('replenishment.colStockRemaining') }}</span>
-            <span :class="item.stock_quantity <= 0 ? 'text-danger' : ''">{{ item.stock_quantity }}</span>
+            <span :class="item.storage_left <= 0 ? 'text-danger' : ''">{{ item.storage_left }}</span>
           </div>
         </div>
-        <div v-if="item.needs_replenishment && item._selected" class="mobile-card-footer">
+        <div v-if="(item.status === 'need' || item.status === 'priority') && item._selected" class="mobile-card-footer">
           <span class="stat-label">{{ t('replenishment.colReplenishQty') }}</span>
           <el-input-number
             v-model="item._replenishQty"
             :min="1"
-            :max="Math.max(1, item.stock_quantity)"
+            :max="Math.max(1, item.storage_left)"
             size="small"
             controls-position="right"
           />
@@ -195,7 +194,9 @@
       </template>
       <!-- 桌面端日志表格 -->
       <el-table :data="logs" stripe size="small" class="desktop-table">
-        <el-table-column :label="t('replenishment.logTime')" prop="created_at" width="170" />
+        <el-table-column :label="t('replenishment.logTime')" width="170">
+          <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+        </el-table-column>
         <el-table-column :label="t('replenishment.colProduct')" min-width="200">
           <template #default="{ row }">
             {{ row.product_title }} - {{ row.variant_title }}
@@ -204,7 +205,12 @@
         <el-table-column :label="t('replenishment.logQty')" prop="replenish_qty" width="90" align="center" />
         <el-table-column :label="t('replenishment.logReplenishedTotal')" width="120" align="center">
           <template #default="{ row }">
-            {{ row.rack_qty_before }} → {{ row.rack_qty_after }}
+            {{ row.replenished_total_before }} → {{ row.replenished_total_after }}
+          </template>
+        </el-table-column>
+        <el-table-column label="Storage Left" width="100" align="center">
+          <template #default="{ row }">
+            <span :class="row.storage_left <= 0 ? 'text-danger' : ''">{{ row.storage_left }}</span>
           </template>
         </el-table-column>
       </el-table>
@@ -213,7 +219,7 @@
         <div v-for="log in logs" :key="log.id" class="mobile-log-item">
           <div class="log-product">{{ log.product_title }} - {{ log.variant_title }}</div>
           <div class="log-meta">
-            <span>{{ log.created_at }}</span>
+            <span>{{ formatTime(log.created_at) }}</span>
             <el-tag size="small" type="warning">+{{ log.replenish_qty }}</el-tag>
           </div>
         </div>
@@ -237,14 +243,48 @@ const loading = ref(false)
 const items = ref([])
 const logs = ref([])
 
-const needsCount = computed(() => items.value.filter(i => i.needs_replenishment).length)
+const needsCount = computed(() => items.value.filter(i => i.status === 'need' || i.status === 'priority').length)
+const priorityCount = computed(() => items.value.filter(i => i.status === 'priority').length)
 const selectedItems = computed(() => items.value.filter(i => i._selected))
 const selectAll = ref(false)
 const isIndeterminate = ref(false)
 
+function statusText(status) {
+  switch (status) {
+    case 'priority': return t('replenishment.statusPriority')
+    case 'need': return t('replenishment.statusNeed')
+    case 'storage_empty': return t('replenishment.statusEmpty')
+    default: return t('replenishment.statusOk')
+  }
+}
+
+function statusTagType(status) {
+  switch (status) {
+    case 'priority': return 'danger'
+    case 'need': return 'warning'
+    case 'storage_empty': return 'info'
+    default: return 'success'
+  }
+}
+
+function tableRowClass({ row }) {
+  if (row.status === 'priority') return 'row-priority'
+  if (row.status === 'need') return 'row-need'
+  if (row.status === 'storage_empty') return 'row-empty'
+  return ''
+}
+
+function mobileCardClass(item) {
+  return {
+    'card-priority': item.status === 'priority',
+    'card-need': item.status === 'need',
+    'card-empty': item.status === 'storage_empty',
+  }
+}
+
 function handleSelectAll(val) {
   items.value.forEach(item => {
-    if (item.needs_replenishment) {
+    if (item.status === 'need' || item.status === 'priority') {
       item._selected = val
     }
   })
@@ -252,10 +292,10 @@ function handleSelectAll(val) {
 }
 
 function updateSelection() {
-  const needItems = items.value.filter(i => i.needs_replenishment)
-  const checkedCount = needItems.filter(i => i._selected).length
-  selectAll.value = checkedCount === needItems.length && needItems.length > 0
-  isIndeterminate.value = checkedCount > 0 && checkedCount < needItems.length
+  const replenishableItems = items.value.filter(i => i.status === 'need' || i.status === 'priority')
+  const checkedCount = replenishableItems.filter(i => i._selected).length
+  selectAll.value = checkedCount === replenishableItems.length && replenishableItems.length > 0
+  isIndeterminate.value = checkedCount > 0 && checkedCount < replenishableItems.length
 }
 
 async function fetchData() {
@@ -268,12 +308,13 @@ async function fetchData() {
     const data = checkRes.data || []
     items.value = data.map(item => ({
       ...item,
-      _selected: false,
+      _selected: item.status === 'priority', // 优先补货默认选中
       _replenishQty: item.suggested_qty || 3,
     }))
     logs.value = logRes.data || []
+    updateSelection()
   } catch (err) {
-    ElMessage.error(t('replenishment.fetchFailed') + ': ' + (err.response?.data?.message || err.message))
+    ElMessage.error(t('replenishment.fetchFailed') + ': ' + (err.message || ''))
   } finally {
     loading.value = false
   }
@@ -283,16 +324,21 @@ async function confirmReplenishment() {
   const toReplenish = selectedItems.value.map(item => ({
     shopify_variant_id: item.shopify_variant_id,
     replenish_qty: item._replenishQty || 3,
+    current_square_qty: null, // 让后端自行查询当前 Square 数量
   }))
 
   try {
     await ElMessageBox.confirm(
       t('replenishment.confirmMsg', { n: toReplenish.length }),
       t('replenishment.confirmTitle'),
-      { confirmButtonText: t('replenishment.confirmOk'), cancelButtonText: t('replenishment.confirmCancel'), type: 'warning' }
+      {
+        confirmButtonText: t('replenishment.confirmOk'),
+        cancelButtonText: t('replenishment.confirmCancel'),
+        type: 'warning',
+      }
     )
   } catch {
-    return
+    return // 用户取消
   }
 
   try {
@@ -304,8 +350,14 @@ async function confirmReplenishment() {
       ElMessage.error(res.message || t('replenishment.failed'))
     }
   } catch (err) {
-    ElMessage.error(t('replenishment.failed') + ': ' + (err.response?.data?.message || err.message))
+    ElMessage.error(t('replenishment.failed') + ': ' + (err.message || ''))
   }
+}
+
+function formatTime(ts) {
+  if (!ts) return '-'
+  const d = new Date(ts)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 onMounted(fetchData)
@@ -315,25 +367,31 @@ onMounted(fetchData)
 .replenishment-page { padding: 0; }
 .page-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .page-title { font-size: 20px; font-weight: 700; margin: 0; }
-
 .action-bar { margin-bottom: 16px; }
 .bar-content { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
 .bar-info { display: flex; gap: 8px; flex-wrap: wrap; }
 .bar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
+/* 商品单元格 */
 .product-cell { display: flex; align-items: center; gap: 10px; }
 .product-title { font-weight: 500; font-size: 14px; }
 .product-variant { font-size: 12px; color: #909399; }
 
+/* 数量标签 */
 .qty-badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-weight: 600; font-size: 13px; }
 .qty-badge.rack { background: #ecf5ff; color: #409eff; }
-.qty-badge.ok { background: #f0f9eb; color: #67c23a; }
-.qty-badge.danger { background: #fef0f0; color: #f56c6c; }
-
+.qty-badge.storage { background: #f4f4f5; color: #606266; }
 .sold-num { font-weight: 600; color: #e6a23c; }
+.sold-num.sold-high { color: #f56c6c; }
 .text-danger { color: #f56c6c; font-weight: 600; }
 .text-muted { color: #c0c4cc; }
 
+/* 表格行高亮 */
+:deep(.row-priority) { background-color: #fef0f0 !important; }
+:deep(.row-need) { background-color: #fdf6ec !important; }
+:deep(.row-empty) { background-color: #f4f4f5 !important; opacity: 0.7; }
+
+/* 日志 */
 .log-card { margin-top: 16px; }
 
 /* 移动端卡片列表默认隐藏 */
@@ -348,9 +406,18 @@ onMounted(fetchData)
   border: 1px solid #ebeef5;
   transition: all 0.2s;
 }
-.mobile-card.needs-replenish {
+.mobile-card.card-priority {
   border-color: #f56c6c;
-  background: #fff5f5;
+  background: #fef0f0;
+}
+.mobile-card.card-need {
+  border-color: #e6a23c;
+  background: #fdf6ec;
+}
+.mobile-card.card-empty {
+  border-color: #dcdfe6;
+  background: #f4f4f5;
+  opacity: 0.7;
 }
 .mobile-card-header {
   display: flex;
@@ -422,14 +489,11 @@ onMounted(fetchData)
   .bar-content { flex-direction: column; align-items: flex-start; }
   .bar-actions { width: 100%; }
   .bar-actions .el-button { flex: 1; }
-
   /* 桌面表格隐藏，移动卡片显示 */
   .desktop-table { display: none !important; }
   .mobile-list { display: block; }
-
   .log-card :deep(.el-card__body) { padding: 12px; }
 }
-
 @media (min-width: 769px) {
   .mobile-list { display: none !important; }
   .desktop-table { display: block; }

@@ -606,8 +606,21 @@ async function syncToSquare() {
       }))
       unmatchedDialogVisible.value = true
     } else {
-      ElMessage.success(t('checklist.syncSuccess'))
-      router.push(`/exhibitions/${id}`)
+      // 同步成功，提示是否跳转到展中补货
+      try {
+        await ElMessageBox.confirm(
+          t('checklist.goReplenishment'),
+          t('checklist.syncSuccess'),
+          {
+            confirmButtonText: t('checklist.goReplenishmentBtn'),
+            cancelButtonText: t('checklist.stayHere'),
+            type: 'success',
+          }
+        )
+        router.push(`/exhibitions/${id}/replenishment`)
+      } catch {
+        router.push(`/exhibitions/${id}`)
+      }
     }
   } catch (err) {
     ElMessage.error(t('checklist.syncFailed', { msg: err.message }))
@@ -666,7 +679,21 @@ async function confirmAddToSquare() {
     }
 
     unmatchedDialogVisible.value = false
-    router.push(`/exhibitions/${id}`)
+    // 提示是否跳转到展中补货
+    try {
+      await ElMessageBox.confirm(
+        t('checklist.goReplenishment'),
+        t('checklist.syncSuccess'),
+        {
+          confirmButtonText: t('checklist.goReplenishmentBtn'),
+          cancelButtonText: t('checklist.stayHere'),
+          type: 'success',
+        }
+      )
+      router.push(`/exhibitions/${id}/replenishment`)
+    } catch {
+      router.push(`/exhibitions/${id}`)
+    }
   } catch (err) {
     ElMessage.error(t('unmatchedDialog.addFailed', { msg: err.message || '' }))
   } finally {
