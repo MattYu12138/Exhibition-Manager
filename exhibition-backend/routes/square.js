@@ -501,7 +501,7 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
       const currentSquareQty = variationId ? (inventoryCounts[variationId] ?? null) : null;
       const lastSyncedQty = item.last_synced_quantity;
       const rackQty = item.rack_quantity || 0;
-      const stockQty = item.stock_quantity || 0;
+      const stockQty = Math.max(0, (item.stock_quantity || 0) - (item.replenished_qty || 0));
 
       // 计算已售出量
       const sold = (lastSyncedQty !== null && currentSquareQty !== null)
@@ -580,13 +580,12 @@ router.post('/replenishment-confirm', (req, res) => {
 
     const updateStmt = db.prepare(`
       UPDATE exhibition_items
-      SET rack_quantity = rack_quantity + ?,
-          stock_quantity = MAX(0, stock_quantity - ?)
+      SET replenished_qty = COALESCE(replenished_qty, 0) + ?
       WHERE exhibition_id = ? AND shopify_variant_id = ?
     `);
 
     const getStmt = db.prepare(`
-      SELECT rack_quantity, stock_quantity FROM exhibition_items
+      SELECT rack_quantity, stock_quantity, COALESCE(replenished_qty, 0) AS replenished_qty FROM exhibition_items
       WHERE exhibition_id = ? AND shopify_variant_id = ?
     `);
 
@@ -606,7 +605,7 @@ router.post('/replenishment-confirm', (req, res) => {
         if (!before) continue;
 
         // 更新
-        updateStmt.run(qty, qty, exhibition_id, shopify_variant_id);
+        updateStmt.run(qty, exhibition_id, shopify_variant_id);
 
         // 获取更新后的值
         const after = getStmt.get(exhibition_id, shopify_variant_id);
@@ -614,15 +613,15 @@ router.post('/replenishment-confirm', (req, res) => {
         // 记录日志
         logStmt.run(
           exhibition_id, shopify_variant_id, qty,
-          before.rack_quantity, after.rack_quantity,
+          before.replenished_qty, after.replenished_qty,
           before.stock_quantity, after.stock_quantity
         );
 
         results.push({
           shopify_variant_id,
           replenish_qty: qty,
-          rack_qty_before: before.rack_quantity,
-          rack_qty_after: after.rack_quantity,
+          rack_qty_before: before.replenished_qty,
+          rack_qty_after: after.replenished_qty,
           stock_qty_before: before.stock_quantity,
           stock_qty_after: after.stock_quantity,
         });
