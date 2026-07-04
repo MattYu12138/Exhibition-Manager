@@ -61,6 +61,11 @@ export const squareApi = {
   getSnapshots: (exhibitionId) => api.get(`/square/snapshots/${exhibitionId}`),
   createItems: (exhibitionId, items) =>
     api.post('/square/create-items', { exhibition_id: exhibitionId, items }),
+  // 展中补货
+  replenishmentCheck: (exhibitionId) => api.get(`/square/replenishment-check/${exhibitionId}`),
+  replenishmentConfirm: (exhibitionId, items) =>
+    api.post('/square/replenishment-confirm', { exhibition_id: exhibitionId, items }),
+  replenishmentLog: (exhibitionId) => api.get(`/square/replenishment-log/${exhibitionId}`),
 }
 // ==================== 健康检查 ====================
 export const healthApi = {

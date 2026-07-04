@@ -457,4 +457,208 @@ router.get('/sync-status/:exhibition_id', (req, res) => {
   }
 });
 
+/**
+ * 展中补货检查 - 拉取 Square 实时库存，对比 rack_quantity 判断是否需要补货
+ * GET /api/square/replenishment-check/:exhibition_id
+ */
+router.get('/replenishment-check/:exhibition_id', async (req, res) => {
+  try {
+    const { exhibition_id } = req.params;
+
+    // 1. 获取展会商品（含 rack_quantity, stock_quantity, last_synced_quantity）
+    const items = db.prepare(`
+      SELECT ei.*, pv.variant_title, pv.sku, pv.gtin, pv.image_url, p.title AS product_title
+      FROM exhibition_items ei
+      LEFT JOIN product_variants pv ON pv.shopify_variant_id = ei.shopify_variant_id
+      LEFT JOIN products p ON p.id = pv.product_id
+      WHERE ei.exhibition_id = ?
+    `).all(exhibition_id);
+
+    if (items.length === 0) {
+      return res.json({ success: true, data: [], message: '该展会没有商品' });
+    }
+
+    // 2. 获取 inventory_snapshots 中的 square_catalog_variation_id
+    const snapshots = db.prepare(
+      'SELECT shopify_variant_id, square_catalog_variation_id FROM inventory_snapshots WHERE exhibition_id = ?'
+    ).all(exhibition_id);
+    const snapshotMap = {};
+    snapshots.forEach(s => { snapshotMap[s.shopify_variant_id] = s.square_catalog_variation_id; });
+
+    // 3. 批量获取 Square 实时库存
+    const variationIds = snapshots
+      .filter(s => s.square_catalog_variation_id)
+      .map(s => s.square_catalog_variation_id);
+
+    let inventoryCounts = {};
+    if (variationIds.length > 0) {
+      inventoryCounts = await squareService.batchGetInventoryCounts(variationIds);
+    }
+
+    // 4. 计算每个商品的补货状态
+    const result = items.map(item => {
+      const variationId = snapshotMap[item.shopify_variant_id];
+      const currentSquareQty = variationId ? (inventoryCounts[variationId] ?? null) : null;
+      const lastSyncedQty = item.last_synced_quantity;
+      const rackQty = item.rack_quantity || 0;
+      const stockQty = item.stock_quantity || 0;
+
+      // 计算已售出量
+      const sold = (lastSyncedQty !== null && currentSquareQty !== null)
+        ? Math.max(0, lastSyncedQty - currentSquareQty)
+        : 0;
+
+      // 判断是否需要补货：当前 Square 库存 < rack_quantity
+      const needsReplenishment = currentSquareQty !== null && currentSquareQty < rackQty;
+
+      // 建议补货数量：默认3件，但不超过备货量
+      const suggestedQty = needsReplenishment ? Math.min(3, stockQty) : 0;
+
+      return {
+        id: item.id,
+        shopify_variant_id: item.shopify_variant_id,
+        product_title: item.product_title,
+        variant_title: item.variant_title,
+        sku: item.sku,
+        image_url: item.image_url,
+        rack_quantity: rackQty,
+        stock_quantity: stockQty,
+        last_synced_quantity: lastSyncedQty,
+        current_square_qty: currentSquareQty,
+        sold,
+        needs_replenishment: needsReplenishment,
+        suggested_qty: suggestedQty,
+        square_variation_id: variationId || null,
+      };
+    });
+
+    // 按需要补货的排在前面
+    result.sort((a, b) => (b.needs_replenishment ? 1 : 0) - (a.needs_replenishment ? 1 : 0));
+
+    const needCount = result.filter(r => r.needs_replenishment).length;
+    res.json({
+      success: true,
+      data: result,
+      summary: {
+        total: result.length,
+        needs_replenishment: needCount,
+        all_good: needCount === 0,
+      },
+    });
+  } catch (err) {
+    console.error('[replenishment-check] 错误:', err.message);
+    res.status(500).json({ success: false, message: '补货检查失败: ' + err.message });
+  }
+});
+
+/**
+ * 确认补货 - 更新 rack_quantity 和 stock_quantity，记录补货日志
+ * POST /api/square/replenishment-confirm
+ * Body: { exhibition_id, items: [{ shopify_variant_id, replenish_qty }] }
+ */
+router.post('/replenishment-confirm', (req, res) => {
+  try {
+    const { exhibition_id, items } = req.body;
+    if (!exhibition_id || !items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ success: false, message: '参数不完整' });
+    }
+
+    // 确保 replenishment_log 表存在
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS replenishment_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        exhibition_id TEXT NOT NULL,
+        shopify_variant_id TEXT NOT NULL,
+        replenish_qty INTEGER NOT NULL,
+        rack_qty_before INTEGER,
+        rack_qty_after INTEGER,
+        stock_qty_before INTEGER,
+        stock_qty_after INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run();
+
+    const updateStmt = db.prepare(`
+      UPDATE exhibition_items
+      SET rack_quantity = rack_quantity + ?,
+          stock_quantity = MAX(0, stock_quantity - ?)
+      WHERE exhibition_id = ? AND shopify_variant_id = ?
+    `);
+
+    const getStmt = db.prepare(`
+      SELECT rack_quantity, stock_quantity FROM exhibition_items
+      WHERE exhibition_id = ? AND shopify_variant_id = ?
+    `);
+
+    const logStmt = db.prepare(`
+      INSERT INTO replenishment_log (exhibition_id, shopify_variant_id, replenish_qty, rack_qty_before, rack_qty_after, stock_qty_before, stock_qty_after)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const results = [];
+    const transaction = db.transaction(() => {
+      for (const { shopify_variant_id, replenish_qty } of items) {
+        const qty = parseInt(replenish_qty) || 3;
+        if (qty <= 0) continue;
+
+        // 获取当前值
+        const before = getStmt.get(exhibition_id, shopify_variant_id);
+        if (!before) continue;
+
+        // 更新
+        updateStmt.run(qty, qty, exhibition_id, shopify_variant_id);
+
+        // 获取更新后的值
+        const after = getStmt.get(exhibition_id, shopify_variant_id);
+
+        // 记录日志
+        logStmt.run(
+          exhibition_id, shopify_variant_id, qty,
+          before.rack_quantity, after.rack_quantity,
+          before.stock_quantity, after.stock_quantity
+        );
+
+        results.push({
+          shopify_variant_id,
+          replenish_qty: qty,
+          rack_qty_before: before.rack_quantity,
+          rack_qty_after: after.rack_quantity,
+          stock_qty_before: before.stock_quantity,
+          stock_qty_after: after.stock_quantity,
+        });
+      }
+    });
+
+    transaction();
+
+    res.json({
+      success: true,
+      data: results,
+      message: `成功补货 ${results.length} 个商品`,
+    });
+  } catch (err) {
+    console.error('[replenishment-confirm] 错误:', err.message);
+    res.status(500).json({ success: false, message: '补货确认失败: ' + err.message });
+  }
+});
+
+/**
+ * 获取补货历史记录
+ * GET /api/square/replenishment-log/:exhibition_id
+ */
+router.get('/replenishment-log/:exhibition_id', (req, res) => {
+  try {
+    const logs = db.prepare(`
+      SELECT rl.*, pv.variant_title, p.title AS product_title
+      FROM replenishment_log rl
+      LEFT JOIN product_variants pv ON pv.shopify_variant_id = rl.shopify_variant_id
+      LEFT JOIN products p ON p.id = pv.product_id
+      WHERE rl.exhibition_id = ?
+      ORDER BY rl.created_at DESC
+    `).all(req.params.exhibition_id);
+    res.json({ success: true, data: logs });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
 module.exports = router;

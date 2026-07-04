@@ -48,13 +48,14 @@
         <el-steps :active="workflowStep" align-center finish-status="success">
           <el-step :title="t('exhibitionDetail.step1Title')" :description="t('exhibitionDetail.step1Desc')" />
           <el-step :title="t('exhibitionDetail.step2Title')" :description="t('exhibitionDetail.step2Desc')" />
+          <el-step :title="t('exhibitionDetail.step3Title')" :description="t('exhibitionDetail.step3Desc')" />
           <el-step :title="t('exhibitionDetail.step4Title')" :description="t('exhibitionDetail.step4Desc')" />
         </el-steps>
       </el-card>
 
       <!-- 功能入口卡片 -->
       <el-row :gutter="16" class="action-row">
-        <el-col :xs="24" :sm="12" :md="8">
+        <el-col :xs="24" :sm="12" :md="6">
           <el-card class="action-card" shadow="hover" @click="$router.push(`/exhibitions/${id}/select-products`)">
             <div class="action-icon step1"><el-icon size="32"><ShoppingCart /></el-icon></div>
             <div class="action-label">{{ t('exhibitionDetail.step1Title') }}</div>
@@ -62,7 +63,7 @@
             <el-tag size="small" type="info">{{ t('exhibitionDetail.step1Label') }}</el-tag>
           </el-card>
         </el-col>
-        <el-col :xs="24" :sm="12" :md="8">
+        <el-col :xs="24" :sm="12" :md="6">
           <el-card class="action-card" shadow="hover" @click="$router.push(`/exhibitions/${id}/checklist`)">
             <div class="action-icon step2"><el-icon size="32"><Finished /></el-icon></div>
             <div class="action-label">{{ t('exhibitionDetail.step2Title') }}</div>
@@ -70,12 +71,20 @@
             <el-tag size="small" type="warning">{{ t('exhibitionDetail.step2Label') }}</el-tag>
           </el-card>
         </el-col>
-        <el-col :xs="24" :sm="12" :md="8">
+        <el-col :xs="24" :sm="12" :md="6">
+          <el-card class="action-card" shadow="hover" @click="$router.push(`/exhibitions/${id}/replenishment`)">
+            <div class="action-icon step3"><el-icon size="32"><Refresh /></el-icon></div>
+            <div class="action-label">{{ t('exhibitionDetail.step3Title') }}</div>
+            <div class="action-desc">{{ t('exhibitionDetail.step3Desc') }}</div>
+            <el-tag size="small" type="danger">{{ t('exhibitionDetail.step3Label') }}</el-tag>
+          </el-card>
+        </el-col>
+        <el-col :xs="24" :sm="12" :md="6">
           <el-card class="action-card" shadow="hover" @click="$router.push(`/exhibitions/${id}/inventory`)">
             <div class="action-icon step4"><el-icon size="32"><DataAnalysis /></el-icon></div>
             <div class="action-label">{{ t('exhibitionDetail.step4Title') }}</div>
             <div class="action-desc">{{ t('exhibitionDetail.step4Desc') }}</div>
-            <el-tag size="small" type="success">{{ t('exhibitionDetail.step3Label') }}</el-tag>
+            <el-tag size="small" type="success">{{ t('exhibitionDetail.step4Label') }}</el-tag>
           </el-card>
         </el-col>
       </el-row>
@@ -146,11 +155,12 @@ const store = useExhibitionStore()
 const id = route.params.id
 const currentStatus = ref('preparing')
 
-// 根据展会状态计算当前步骤：0=准备中, 1=已选品/清点, 2=已完成
+// 根据展会状态计算当前步骤：0=准备中, 1=已选品, 2=已清点, 3=补货中, 4=已完成
 const workflowStep = computed(() => {
   const exhibition = store.currentExhibition
   if (!exhibition) return 0
-  if (exhibition.status === 'completed') return 3
+  if (exhibition.status === 'completed') return 4
+  if (exhibition.status === 'active') return 2
   const items = exhibition.items || []
   if (items.length === 0) return 0
   const allChecked = items.every((i) => i.checked)

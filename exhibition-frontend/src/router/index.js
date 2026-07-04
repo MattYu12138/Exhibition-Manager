@@ -44,6 +44,12 @@ const routes = [
     meta: { title: '清点清单' },
   },
   {
+    path: '/exhibitions/:id/replenishment',
+    name: 'ReplenishmentCheck',
+    component: () => import('@/views/ReplenishmentCheck.vue'),
+    meta: { title: '展中补货' },
+  },
+  {
     path: '/exhibitions/:id/inventory',
     name: 'InventoryResult',
     component: () => import('@/views/InventoryResult.vue'),
