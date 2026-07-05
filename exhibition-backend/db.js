@@ -223,6 +223,38 @@ migrateTableIdToText('exhibition_items', 'EI', 12, null);
 migrateTableIdToText('inventory_snapshots', 'IS', 8, null);
 
 // 迁移：为已有数据库添加新字段（若字段已存在则忽略）
+// 创建 product_categories 表（若不存在）
+db.exec(`
+  CREATE TABLE IF NOT EXISTS product_categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    keyword TEXT NOT NULL,
+    sort_order INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`);
+// 初始化预设分类（若表为空）
+const catCount = db.prepare('SELECT COUNT(*) as cnt FROM product_categories').get();
+if (catCount.cnt === 0) {
+  const defaultCategories = [
+    { name: 'Growsuit', keyword: 'Growsuit', sort_order: 1 },
+    { name: 'Short Sleeve Bodysuit', keyword: 'Short Sleeve Bodysuit', sort_order: 2 },
+    { name: 'Long Sleeve Bodysuit', keyword: 'Long Sleeve Bodysuit', sort_order: 3 },
+    { name: 'Romper', keyword: 'Romper', sort_order: 4 },
+    { name: 'Singlet', keyword: 'Singlet', sort_order: 5 },
+    { name: 'Toddler Dress', keyword: 'Toddler Dress', sort_order: 6 },
+    { name: 'Muslin Dress', keyword: 'Muslin Dress', sort_order: 7 },
+    { name: 'Cot Sheet', keyword: 'Cot Sheet', sort_order: 8 },
+    { name: 'Bassinet Sheet', keyword: 'Bassinet Sheet', sort_order: 9 },
+    { name: 'Swaddle Wrap', keyword: 'Swaddle Wrap', sort_order: 10 },
+  ];
+  const insertCat = db.prepare('INSERT INTO product_categories (name, keyword, sort_order) VALUES (?, ?, ?)');
+  for (const cat of defaultCategories) {
+    insertCat.run(cat.name, cat.keyword, cat.sort_order);
+  }
+  console.log('[DB] product_categories 预设分类已初始化');
+}
+
 const migrations = [
   'ALTER TABLE exhibition_items ADD COLUMN last_synced_quantity INTEGER DEFAULT NULL',
   'ALTER TABLE exhibition_items ADD COLUMN rack_quantity INTEGER DEFAULT 5',

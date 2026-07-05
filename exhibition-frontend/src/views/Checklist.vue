@@ -146,6 +146,22 @@
       </el-input>
     </div>
 
+    <!-- 分类筛选 -->
+    <div v-if="store.groupedItems.length" class="category-filter-bar">
+      <el-tag
+        :class="['cat-tag', selectedCategory === '' ? 'cat-active' : '']"
+        @click="selectedCategory = ''"
+        size="large"
+      >{{ $t('checklist.catAll') }}</el-tag>
+      <el-tag
+        v-for="cat in categories"
+        :key="cat.id"
+        :class="['cat-tag', selectedCategory === cat.keyword ? 'cat-active' : '']"
+        @click="toggleCategory(cat.keyword)"
+        size="large"
+      >{{ cat.name }}</el-tag>
+    </div>
+
     <!-- Product groups -->
     <div v-loading="store.loading" class="product-groups">
       <el-empty
@@ -419,7 +435,7 @@ import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useExhibitionStore } from '@/stores/exhibition'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { exhibitionApi, squareApi } from '@/api'
+import { exhibitionApi, squareApi, categoriesApi } from '@/api'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -436,6 +452,14 @@ const squareSyncedAt = ref(null)
 // 搜索
 const searchQuery = ref('')
 
+// 分类筛选
+const categories = ref([])
+const selectedCategory = ref('')
+
+function toggleCategory(keyword) {
+  selectedCategory.value = selectedCategory.value === keyword ? '' : keyword
+}
+
 // 标签页：'unchecked' | 'checked'，默认显示未清点
 const activeTab = ref('unchecked')
 
@@ -448,11 +472,19 @@ function handleSearch() {
  * 每个关键词都必须命中商品标题或任意变体的 SKU / GTIN / 变体名
  */
 const filteredGroups = computed(() => {
+  let list = store.groupedItems
+  // 分类筛选
+  if (selectedCategory.value) {
+    const cat = selectedCategory.value.toLowerCase()
+    list = list.filter((group) =>
+      (group.product_title || '').toLowerCase().includes(cat)
+    )
+  }
+  // 关键词搜索
   const query = searchQuery.value.trim().toLowerCase()
-  if (!query) return store.groupedItems
-
+  if (!query) return list
   const keywords = query.split(/\s+/).filter(Boolean)
-  return store.groupedItems.filter((group) => {
+  return list.filter((group) => {
     const target = [
       group.product_title,
       ...group.variants.map((v) => [v.variant_title, v.sku, v.gtin].filter(Boolean).join(' ')),
@@ -717,6 +749,13 @@ onMounted(async () => {
   } catch (e) {
     // 忽略状态检查失败
   }
+  // 加载分类
+  try {
+    const catRes = await categoriesApi.getAll()
+    categories.value = catRes.data || []
+  } catch (e) {
+    // 忽略分类加载失败
+  }
 })
 </script>
 
@@ -885,4 +924,34 @@ onMounted(async () => {
 .sync-info { flex: 1; }
 .sync-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 700; margin-bottom: 6px; color: #303133; }
 .sync-desc { font-size: 13px; color: #606266; display: flex; align-items: center; flex-wrap: wrap; }
+
+/* 分类筛选 */
+.category-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid #ebeef5;
+}
+.cat-tag {
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+  background: #f4f4f5;
+  color: #606266;
+  border-color: #dcdfe6;
+}
+.cat-tag:hover {
+  background: #ecf5ff;
+  color: #409eff;
+  border-color: #b3d8ff;
+}
+.cat-tag.cat-active {
+  background: #409eff;
+  color: #fff;
+  border-color: #409eff;
+}
 </style>

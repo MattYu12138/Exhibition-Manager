@@ -11,7 +11,7 @@
     <el-card class="action-bar">
       <div class="bar-content">
         <div class="bar-info">
-          <el-tag type="info" size="large">{{ t('replenishment.totalItems', { n: items.length }) }}</el-tag>
+          <el-tag type="info" size="large">{{ t('replenishment.totalItems', { n: allItems.length }) }}</el-tag>
           <el-tag v-if="priorityCount > 0" type="danger" size="large">
             {{ priorityCount }} {{ t('replenishment.statusPriority') }}
           </el-tag>
@@ -37,9 +37,35 @@
       </div>
     </el-card>
 
+    <!-- 搜索 + 分类筛选 -->
+    <el-card class="filter-bar">
+      <el-input
+        v-model="searchKeyword"
+        :placeholder="t('replenishment.searchPlaceholder')"
+        clearable
+        class="search-input"
+      >
+        <template #prefix><el-icon><Search /></el-icon></template>
+      </el-input>
+      <div class="category-tags">
+        <el-tag
+          :class="['cat-tag', selectedCategory === '' ? 'cat-active' : '']"
+          @click="selectedCategory = ''"
+          size="large"
+        >{{ t('replenishment.catAll') }}</el-tag>
+        <el-tag
+          v-for="cat in categories"
+          :key="cat.id"
+          :class="['cat-tag', selectedCategory === cat.keyword ? 'cat-active' : '']"
+          @click="toggleCategory(cat.keyword)"
+          size="large"
+        >{{ cat.name }}</el-tag>
+      </div>
+    </el-card>
+
     <!-- 桌面端表格 -->
     <el-card v-loading="loading" class="desktop-table">
-      <el-table :data="items" stripe style="width: 100%" :row-class-name="tableRowClass">
+      <el-table :data="filteredItems" stripe style="width: 100%" :row-class-name="tableRowClass">
         <el-table-column width="50" align="center">
           <template #header>
             <el-checkbox
@@ -126,7 +152,7 @@
     <!-- 移动端卡片列表 -->
     <div v-loading="loading" class="mobile-list">
       <div
-        v-for="item in items"
+        v-for="item in filteredItems"
         :key="item.shopify_variant_id"
         class="mobile-card"
         :class="mobileCardClass(item)"
@@ -136,6 +162,7 @@
             v-if="item.status === 'need' || item.status === 'priority'"
             v-model="item._selected"
             @change="updateSelection"
+            class="mobile-checkbox"
           />
           <el-image
             v-if="item.image_url"
@@ -184,7 +211,7 @@
           />
         </div>
       </div>
-      <el-empty v-if="!loading && items.length === 0" :description="t('replenishment.noData')" />
+      <el-empty v-if="!loading && filteredItems.length === 0" :description="t('replenishment.noData')" />
     </div>
 
     <!-- 补货历史 -->
@@ -233,21 +260,46 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { squareApi } from '@/api'
+import { squareApi, categoriesApi } from '@/api'
 
 const { t } = useI18n()
 const route = useRoute()
 const exhibitionId = route.params.id
 
 const loading = ref(false)
-const items = ref([])
+const allItems = ref([])
 const logs = ref([])
+const categories = ref([])
+const selectedCategory = ref('')
+const searchKeyword = ref('')
 
-const needsCount = computed(() => items.value.filter(i => i.status === 'need' || i.status === 'priority').length)
-const priorityCount = computed(() => items.value.filter(i => i.status === 'priority').length)
-const selectedItems = computed(() => items.value.filter(i => i._selected))
+const needsCount = computed(() => allItems.value.filter(i => i.status === 'need' || i.status === 'priority').length)
+const priorityCount = computed(() => allItems.value.filter(i => i.status === 'priority').length)
+const selectedItems = computed(() => allItems.value.filter(i => i._selected))
 const selectAll = ref(false)
 const isIndeterminate = ref(false)
+
+// 过滤后的商品列表（搜索 + 分类）
+const filteredItems = computed(() => {
+  let list = allItems.value
+  if (selectedCategory.value) {
+    list = list.filter(i =>
+      (i.product_title || '').toLowerCase().includes(selectedCategory.value.toLowerCase())
+    )
+  }
+  if (searchKeyword.value.trim()) {
+    const kw = searchKeyword.value.trim().toLowerCase()
+    list = list.filter(i =>
+      (i.product_title || '').toLowerCase().includes(kw) ||
+      (i.variant_title || '').toLowerCase().includes(kw)
+    )
+  }
+  return list
+})
+
+function toggleCategory(keyword) {
+  selectedCategory.value = selectedCategory.value === keyword ? '' : keyword
+}
 
 function statusText(status) {
   switch (status) {
@@ -283,7 +335,7 @@ function mobileCardClass(item) {
 }
 
 function handleSelectAll(val) {
-  items.value.forEach(item => {
+  allItems.value.forEach(item => {
     if (item.status === 'need' || item.status === 'priority') {
       item._selected = val
     }
@@ -292,7 +344,7 @@ function handleSelectAll(val) {
 }
 
 function updateSelection() {
-  const replenishableItems = items.value.filter(i => i.status === 'need' || i.status === 'priority')
+  const replenishableItems = allItems.value.filter(i => i.status === 'need' || i.status === 'priority')
   const checkedCount = replenishableItems.filter(i => i._selected).length
   selectAll.value = checkedCount === replenishableItems.length && replenishableItems.length > 0
   isIndeterminate.value = checkedCount > 0 && checkedCount < replenishableItems.length
@@ -301,17 +353,19 @@ function updateSelection() {
 async function fetchData() {
   loading.value = true
   try {
-    const [checkRes, logRes] = await Promise.all([
+    const [checkRes, logRes, catRes] = await Promise.all([
       squareApi.replenishmentCheck(exhibitionId),
       squareApi.replenishmentLog(exhibitionId).catch(() => ({ data: [] })),
+      categoriesApi.getAll().catch(() => ({ data: [] })),
     ])
     const data = checkRes.data || []
-    items.value = data.map(item => ({
+    allItems.value = data.map(item => ({
       ...item,
-      _selected: item.status === 'priority', // 优先补货默认选中
+      _selected: item.status === 'priority',
       _replenishQty: item.suggested_qty || 3,
     }))
     logs.value = logRes.data || []
+    categories.value = catRes.data || []
     updateSelection()
   } catch (err) {
     ElMessage.error(t('replenishment.fetchFailed') + ': ' + (err.message || ''))
@@ -324,7 +378,7 @@ async function confirmReplenishment() {
   const toReplenish = selectedItems.value.map(item => ({
     shopify_variant_id: item.shopify_variant_id,
     replenish_qty: item._replenishQty || 3,
-    current_square_qty: null, // 让后端自行查询当前 Square 数量
+    current_square_qty: null,
   }))
 
   try {
@@ -338,7 +392,7 @@ async function confirmReplenishment() {
       }
     )
   } catch {
-    return // 用户取消
+    return
   }
 
   try {
@@ -367,10 +421,38 @@ onMounted(fetchData)
 .replenishment-page { padding: 0; }
 .page-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .page-title { font-size: 20px; font-weight: 700; margin: 0; }
-.action-bar { margin-bottom: 16px; }
+.action-bar { margin-bottom: 12px; }
 .bar-content { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
 .bar-info { display: flex; gap: 8px; flex-wrap: wrap; }
 .bar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* 搜索 + 分类筛选 */
+.filter-bar { margin-bottom: 16px; }
+.filter-bar :deep(.el-card__body) { padding: 14px 16px; }
+.search-input { margin-bottom: 12px; }
+.category-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.cat-tag {
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+  background: #f4f4f5;
+  color: #606266;
+  border-color: #dcdfe6;
+}
+.cat-tag:hover {
+  background: #ecf5ff;
+  color: #409eff;
+  border-color: #b3d8ff;
+}
+.cat-tag.cat-active {
+  background: #409eff;
+  color: #fff;
+  border-color: #409eff;
+}
 
 /* 商品单元格 */
 .product-cell { display: flex; align-items: center; gap: 10px; }
@@ -421,8 +503,12 @@ onMounted(fetchData)
 }
 .mobile-card-header {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: flex-start;
+  gap: 8px;
+}
+.mobile-checkbox {
+  flex-shrink: 0;
+  margin-top: 2px;
 }
 .mobile-img {
   width: 44px;
@@ -436,16 +522,19 @@ onMounted(fetchData)
 }
 .mobile-product-info .product-title {
   font-size: 13px;
-  line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-weight: 500;
+  line-height: 1.4;
+  word-break: break-word;
+  white-space: normal;
 }
 .mobile-product-info .product-variant {
   font-size: 11px;
+  color: #909399;
+  margin-top: 2px;
 }
 .mobile-status-tag {
   flex-shrink: 0;
+  align-self: flex-start;
 }
 .mobile-card-body {
   display: grid;

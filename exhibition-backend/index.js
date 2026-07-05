@@ -13,6 +13,7 @@ const usersRouter = require('./routes/users');
 const ssoRouter = require('./routes/sso');
 const dbadminRouter = require('./routes/dbadmin');
 const analyticsRouter = require('./routes/analytics');
+const categoriesRouter = require('./routes/categories');
 const { requireLogin, requireStaff } = require('./middleware/auth');
 
 const app = express();
@@ -91,6 +92,7 @@ app.use('/api/analytics', analyticsRouter);
 app.use('/api/exhibitions', requireLogin, exhibitionsRouter);
 app.use('/api/shopify', requireLogin, shopifyRouter);
 app.use('/api/square', requireLogin, squareRouter);
+app.use('/api/categories', requireLogin, categoriesRouter);
 
 // 原 Shopify OAuth 路由（保留兼容）
 app.use('/', authRouter);

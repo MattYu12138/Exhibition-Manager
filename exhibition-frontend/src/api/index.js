@@ -71,6 +71,13 @@ export const squareApi = {
 export const healthApi = {
   check: () => api.get('/health'),
 }
+// ==================== 分类管理 ====================
+export const categoriesApi = {
+  getAll: () => api.get('/categories'),
+  create: (data) => api.post('/categories', data),
+  update: (id, data) => api.put(`/categories/${id}`, data),
+  delete: (id) => api.delete(`/categories/${id}`),
+}
 // ==================== 图表分析 ====================
 export const analyticsApi = {
   overview: () => api.get('/analytics/overview'),

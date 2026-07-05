@@ -259,6 +259,7 @@ export default {
     tabCheckedEmpty: 'No checked items yet',
     tabHangerEmpty: 'All items are on hanger!',
     tabStorageEmpty: 'All items are storage-ready!',
+    catAll: 'All',
   },
 
   // Inventory Result
@@ -281,6 +282,7 @@ export default {
     colSquareSynced: 'Square Synced Total',
     colSquareRemaining: 'Square Post-Show',
     searchPlaceholder: 'Search product or variant...',
+    catAll: 'All',
     searchResult: '{n} result(s) found',
     colSold: 'Sold',
     colRemaining: 'Should Remain (To Count)',
@@ -342,6 +344,16 @@ export default {
     deleteFailed: 'Delete failed',
     noData: 'Please provide data',
     forbidden: 'Access to this table is not allowed',
+    categoryTitle: 'Product Category Filters',
+    categoryAdd: 'Add Category',
+    categoryEdit: 'Edit Category',
+    categoryEmpty: 'No categories yet. Add one to enable filtering.',
+    categoryName: 'Display Name',
+    categoryNamePlaceholder: 'e.g. Short Sleeve Bodysuit',
+    categoryKeyword: 'Filter Keyword',
+    categoryKeywordPlaceholder: 'e.g. Short Sleeve Bodysuit',
+    categoryKeywordHint: 'Products whose title contains this keyword will be shown when this category is selected.',
+    categorySortOrder: 'Sort Order',
   },
 
   // Unmatched Items Dialog

@@ -11,6 +11,64 @@
       </div>
     </div>
 
+    <!-- 分类管理面板 -->
+    <el-card class="category-card">
+      <template #header>
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <span style="font-weight:700;font-size:15px;"><el-icon style="margin-right:6px;vertical-align:middle;"><Menu /></el-icon>{{ t('dbAdmin.categoryTitle') }}</span>
+          <el-button type="primary" size="small" @click="openCatDialog()"><el-icon><Plus /></el-icon> {{ t('dbAdmin.categoryAdd') }}</el-button>
+        </div>
+      </template>
+      <div class="cat-list">
+        <div v-if="catLoading" style="color:#999;font-size:13px;">{{ t('dbAdmin.loading') }}</div>
+        <el-empty v-else-if="!catLoading && categories.length === 0" :description="t('dbAdmin.categoryEmpty')" style="padding:20px 0" />
+        <div v-for="cat in categories" :key="cat.id" class="cat-item">
+          <span class="cat-name">{{ cat.name }}</span>
+          <span class="cat-keyword">{{ cat.keyword }}</span>
+          <div class="cat-actions">
+            <el-button link type="primary" size="small" @click="openCatDialog(cat)">{{ t('dbAdmin.actionEdit') }}</el-button>
+            <el-popconfirm
+              :title="t('dbAdmin.deleteConfirm')"
+              :confirm-button-text="t('dbAdmin.deleteConfirmOk')"
+              :cancel-button-text="t('dbAdmin.deleteConfirmCancel')"
+              confirm-button-type="danger"
+              @confirm="deleteCat(cat.id)"
+            >
+              <template #reference>
+                <el-button link type="danger" size="small">{{ t('dbAdmin.actionDelete') }}</el-button>
+              </template>
+            </el-popconfirm>
+          </div>
+        </div>
+      </div>
+    </el-card>
+
+    <!-- 分类新增/编辑对话框 -->
+    <el-dialog
+      v-model="catDialogVisible"
+      :title="catEditing ? t('dbAdmin.categoryEdit') : t('dbAdmin.categoryAdd')"
+      width="400px"
+      :close-on-click-modal="false"
+      destroy-on-close
+    >
+      <el-form :model="catForm" label-position="top" size="small">
+        <el-form-item :label="t('dbAdmin.categoryName')" required>
+          <el-input v-model="catForm.name" :placeholder="t('dbAdmin.categoryNamePlaceholder')" clearable />
+        </el-form-item>
+        <el-form-item :label="t('dbAdmin.categoryKeyword')" required>
+          <el-input v-model="catForm.keyword" :placeholder="t('dbAdmin.categoryKeywordPlaceholder')" clearable />
+          <div style="font-size:12px;color:#909399;margin-top:4px;">{{ t('dbAdmin.categoryKeywordHint') }}</div>
+        </el-form-item>
+        <el-form-item :label="t('dbAdmin.categorySortOrder')">
+          <el-input-number v-model="catForm.sort_order" :min="0" :max="999" style="width:100%" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="catDialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="catSubmitting" @click="submitCat">{{ t('common.save') }}</el-button>
+      </template>
+    </el-dialog>
+
     <div class="db-layout">
       <!-- 左侧：表列表 -->
       <div class="table-sidebar">
@@ -196,7 +254,8 @@ import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
-import { DataBoard, Grid, Search, Refresh, Plus, Loading } from '@element-plus/icons-vue'
+import { DataBoard, Grid, Search, Refresh, Plus, Loading, Menu } from '@element-plus/icons-vue'
+import { categoriesApi } from '@/api'
 
 const { t } = useI18n()
 
@@ -357,7 +416,70 @@ function getColWidth(col) {
   return 120
 }
 
-onMounted(loadTables)
+// ─── 分类管理 ────────────────────────────────────────────────────
+const categories = ref([])
+const catLoading = ref(false)
+const catDialogVisible = ref(false)
+const catEditing = ref(null) // null=新增, object=编辑
+const catForm = ref({ name: '', keyword: '', sort_order: 0 })
+const catSubmitting = ref(false)
+
+async function loadCategories() {
+  catLoading.value = true
+  try {
+    const res = await categoriesApi.getAll()
+    categories.value = res.data || []
+  } catch (e) {
+    ElMessage.error('分类加载失败: ' + (e.message || ''))
+  } finally {
+    catLoading.value = false
+  }
+}
+
+function openCatDialog(cat = null) {
+  catEditing.value = cat
+  catForm.value = cat
+    ? { name: cat.name, keyword: cat.keyword, sort_order: cat.sort_order || 0 }
+    : { name: '', keyword: '', sort_order: 0 }
+  catDialogVisible.value = true
+}
+
+async function submitCat() {
+  if (!catForm.value.name || !catForm.value.keyword) {
+    ElMessage.warning('名称和关键词不能为空')
+    return
+  }
+  catSubmitting.value = true
+  try {
+    if (catEditing.value) {
+      await categoriesApi.update(catEditing.value.id, catForm.value)
+      ElMessage.success('已更新')
+    } else {
+      await categoriesApi.create(catForm.value)
+      ElMessage.success('已添加')
+    }
+    catDialogVisible.value = false
+    await loadCategories()
+  } catch (e) {
+    ElMessage.error('操作失败: ' + (e.response?.data?.message || e.message))
+  } finally {
+    catSubmitting.value = false
+  }
+}
+
+async function deleteCat(id) {
+  try {
+    await categoriesApi.delete(id)
+    ElMessage.success('已删除')
+    await loadCategories()
+  } catch (e) {
+    ElMessage.error('删除失败: ' + (e.response?.data?.message || e.message))
+  }
+}
+
+onMounted(async () => {
+  await Promise.all([loadTables(), loadCategories()])
+})
 </script>
 
 <style scoped>
@@ -544,4 +666,44 @@ onMounted(loadTables)
 }
 
 :deep(.el-table .el-table__cell) { font-size: 12px; }
+
+/* 分类管理 */
+.category-card { margin-bottom: 16px; }
+.cat-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-height: 40px;
+}
+.cat-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f5f7fa;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  padding: 6px 12px;
+}
+.cat-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: #303133;
+}
+.cat-keyword {
+  font-size: 12px;
+  color: #909399;
+  background: #ecf5ff;
+  border-radius: 4px;
+  padding: 1px 6px;
+  border: 1px solid #b3d8ff;
+  color: #409eff;
+}
+.cat-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: 4px;
+}
+@media (max-width: 768px) {
+  .cat-item { flex-wrap: wrap; }
+}
 </style>
