@@ -579,9 +579,14 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
       };
     });
 
-    // 排序：优先补货 > 需要补货 > 备货已空 > 充足
+    // 排序：优先补货 > 需要补货 > 备货已空 > 充足，rack=0 且 storage=0 的商品排到最后
     const statusOrder = { priority: 0, need: 1, storage_empty: 2, ok: 3 };
-    result.sort((a, b) => (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3));
+    result.sort((a, b) => {
+      const aAllZero = a.rack_quantity === 0 && a.storage === 0 ? 1 : 0;
+      const bAllZero = b.rack_quantity === 0 && b.storage === 0 ? 1 : 0;
+      if (aAllZero !== bAllZero) return aAllZero - bAllZero;
+      return (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3);
+    });
 
     const priorityCount = result.filter(r => r.status === 'priority').length;
     const needCount = result.filter(r => r.status === 'need' || r.status === 'priority').length;
