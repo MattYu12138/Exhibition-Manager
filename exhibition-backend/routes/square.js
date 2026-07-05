@@ -457,14 +457,17 @@ router.get('/sync-status/:exhibition_id', (req, res) => {
   }
 });
 
+
 /**
  * 展中补货检查 - 拉取 Square 实时库存，计算 sold 和补货需求
  * GET /api/square/replenishment-check/:exhibition_id
  * 
  * 逻辑：
- * - sold（累计已售）= last_synced_quantity（展前基准）- 当前 Square 库存
- * - 补货判断基准 = replenish_baseline（上次补货时的 Square 数量，首次为 last_synced_quantity）
- * - since_last_replenish = replenish_baseline - 当前 Square 库存
+ * - sold（累计已售）= square_quantity_before（展前 Square 库存）- 当前 Square 库存
+ * - 补货判断基准：
+ *   - replenish_count = 0（从未补货）→ baseline = square_quantity_before
+ *   - replenish_count >= 1（已补过货）→ baseline = replenish_baseline（上次补货时记录的 Square 数量）
+ * - since_last_replenish = baseline - 当前 Square 库存
  * - since_last_replenish >= rack / 2 → 需要补货
  * - since_last_replenish >= rack → 优先补货
  * - storage_left = stock_quantity - replenished_qty
@@ -473,9 +476,12 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
   try {
     const { exhibition_id } = req.params;
 
-    // 确保 replenish_baseline 字段存在
+    // 确保新字段存在
     try {
       db.prepare(`ALTER TABLE exhibition_items ADD COLUMN replenish_baseline INTEGER`).run();
+    } catch (e) { /* 字段已存在则忽略 */ }
+    try {
+      db.prepare(`ALTER TABLE exhibition_items ADD COLUMN replenish_count INTEGER DEFAULT 0`).run();
     } catch (e) { /* 字段已存在则忽略 */ }
 
     // 1. 获取展会商品
@@ -491,12 +497,16 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
       return res.json({ success: true, data: [], summary: { total: 0, needs_replenishment: 0, priority: 0 } });
     }
 
-    // 2. 获取 inventory_snapshots 中的 square_catalog_variation_id
+    // 2. 获取 inventory_snapshots 中的 square_catalog_variation_id 和 square_quantity_before
     const snapshots = db.prepare(
-      'SELECT shopify_variant_id, square_catalog_variation_id FROM inventory_snapshots WHERE exhibition_id = ?'
+      'SELECT shopify_variant_id, square_catalog_variation_id, square_quantity_before FROM inventory_snapshots WHERE exhibition_id = ?'
     ).all(exhibition_id);
     const snapshotMap = {};
-    snapshots.forEach(s => { snapshotMap[s.shopify_variant_id] = s.square_catalog_variation_id; });
+    const qtyBeforeMap = {};
+    snapshots.forEach(s => {
+      snapshotMap[s.shopify_variant_id] = s.square_catalog_variation_id;
+      qtyBeforeMap[s.shopify_variant_id] = s.square_quantity_before || 0;
+    });
 
     // 3. 批量获取 Square 实时库存
     const variationIds = snapshots
@@ -512,23 +522,26 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
     const result = items.map(item => {
       const variationId = snapshotMap[item.shopify_variant_id];
       const currentSquareQty = variationId ? (inventoryCounts[variationId] ?? null) : null;
-      const lastSyncedQty = item.last_synced_quantity || 0;
+      const squareQtyBefore = qtyBeforeMap[item.shopify_variant_id] || 0;
       const rackQty = item.rack_quantity || 0;
       const stockQty = item.stock_quantity || 0;
       const replenishedQty = item.replenished_qty || 0;
+      const replenishCount = item.replenish_count || 0;
       const storageLeft = Math.max(0, stockQty - replenishedQty);
 
-      // 补货基准：上次补货时记录的 Square 数量，首次为展前同步数量
-      const baseline = item.replenish_baseline !== null && item.replenish_baseline !== undefined
+      // 补货基准：
+      // replenish_count = 0（从未补货）→ 使用 square_quantity_before
+      // replenish_count >= 1（已补过货）→ 使用 replenish_baseline
+      const baseline = replenishCount >= 1 && item.replenish_baseline !== null && item.replenish_baseline !== undefined
         ? item.replenish_baseline
-        : lastSyncedQty;
+        : squareQtyBefore;
 
-      // sold = 展前基准 - 当前 Square 库存（全程累计）
+      // sold = 展前 Square 库存 - 当前 Square 库存（全程累计）
       const sold = currentSquareQty !== null
-        ? Math.max(0, lastSyncedQty - currentSquareQty)
+        ? Math.max(0, squareQtyBefore - currentSquareQty)
         : 0;
 
-      // 自上次补货后卖出 = 补货基准 - 当前 Square 库存
+      // 自上次补货后卖出 = baseline - 当前 Square 库存
       const sinceLastReplenish = currentSquareQty !== null
         ? Math.max(0, baseline - currentSquareQty)
         : 0;
@@ -588,13 +601,14 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
 });
 
 /**
- * 确认补货 - 更新 replenished_qty 和 replenish_baseline，记录日志
+ * 确认补货 - 更新 replenished_qty、replenish_baseline 和 replenish_count，记录日志
  * POST /api/square/replenishment-confirm
  * Body: { exhibition_id, items: [{ shopify_variant_id, replenish_qty, current_square_qty }] }
  * 
  * 补货后：
  * - replenished_qty += replenish_qty（累计补货数）
  * - replenish_baseline = current_square_qty（记录此刻 Square 数量作为下次判断基准）
+ * - replenish_count += 1（补货计数器递增）
  */
 router.post('/replenishment-confirm', (req, res) => {
   try {
@@ -622,14 +636,20 @@ router.post('/replenishment-confirm', (req, res) => {
     const updateStmt = db.prepare(`
       UPDATE exhibition_items
       SET replenished_qty = COALESCE(replenished_qty, 0) + ?,
-          replenish_baseline = ?
+          replenish_baseline = ?,
+          replenish_count = COALESCE(replenish_count, 0) + 1
       WHERE exhibition_id = ? AND shopify_variant_id = ?
     `);
 
     const getStmt = db.prepare(`
       SELECT rack_quantity, stock_quantity, COALESCE(replenished_qty, 0) AS replenished_qty,
-             replenish_baseline, last_synced_quantity
+             replenish_baseline, last_synced_quantity, COALESCE(replenish_count, 0) AS replenish_count
       FROM exhibition_items
+      WHERE exhibition_id = ? AND shopify_variant_id = ?
+    `);
+
+    const getSnapshotStmt = db.prepare(`
+      SELECT square_quantity_before FROM inventory_snapshots
       WHERE exhibition_id = ? AND shopify_variant_id = ?
     `);
 
@@ -648,14 +668,20 @@ router.post('/replenishment-confirm', (req, res) => {
         const before = getStmt.get(exhibition_id, shopify_variant_id);
         if (!before) continue;
 
-        const oldBaseline = before.replenish_baseline !== null
+        // 获取展前基准
+        const snapshot = getSnapshotStmt.get(exhibition_id, shopify_variant_id);
+        const squareQtyBefore = snapshot ? (snapshot.square_quantity_before || 0) : 0;
+
+        // 计算旧 baseline
+        const oldBaseline = before.replenish_count >= 1 && before.replenish_baseline !== null
           ? before.replenish_baseline
-          : before.last_synced_quantity;
+          : squareQtyBefore;
+
         const newBaseline = current_square_qty !== null && current_square_qty !== undefined
           ? current_square_qty
           : oldBaseline;
 
-        // 更新：累加 replenished_qty，设置新 baseline
+        // 更新：累加 replenished_qty，设置新 baseline，递增 replenish_count
         updateStmt.run(qty, newBaseline, exhibition_id, shopify_variant_id);
 
         const newReplenishedTotal = before.replenished_qty + qty;
