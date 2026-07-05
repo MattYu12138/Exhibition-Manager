@@ -593,6 +593,7 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
         status,
         suggested_qty: suggestedQty,
         square_variation_id: variationId || null,
+        current_square_qty: currentSquareQty,
       };
     });
 

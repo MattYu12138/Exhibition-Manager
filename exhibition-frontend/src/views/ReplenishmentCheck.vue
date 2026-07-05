@@ -378,7 +378,7 @@ async function confirmReplenishment() {
   const toReplenish = selectedItems.value.map(item => ({
     shopify_variant_id: item.shopify_variant_id,
     replenish_qty: item._replenishQty || 3,
-    current_square_qty: null,
+    current_square_qty: item.current_square_qty !== undefined ? item.current_square_qty : null,
   }))
 
   try {
