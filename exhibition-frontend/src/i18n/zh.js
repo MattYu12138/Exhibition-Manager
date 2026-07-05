@@ -406,7 +406,7 @@ export default {
     colRack: "挂衣架",
     colSquareQty: "Square库存",
     colStorage: "备货",
-    colSold: "已售出",
+    colSold: "衣架剩余",
     colStockRemaining: "备货剩余",
     colStatus: "状态",
     colReplenishQty: "补货数量",
@@ -427,5 +427,7 @@ export default {
     confirmCancel: "取消",
     success: "补货成功",
     failed: "补货失败",
+    searchPlaceholder: "搜索商品名称或变体...",
+    catAll: "全部",
   },
 }

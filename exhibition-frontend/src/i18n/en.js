@@ -407,7 +407,7 @@ export default {
     colRack: "Rack",
     colSquareQty: "Square Qty",
     colStorage: "Storage",
-    colSold: "Sold",
+    colSold: "Rack Remaining",
     colStockRemaining: "Storage Left",
     colStatus: "Status",
     colReplenishQty: "Replenish Qty",
@@ -428,5 +428,7 @@ export default {
     confirmCancel: "Cancel",
     success: "Replenishment successful",
     failed: "Replenishment failed",
+    searchPlaceholder: "Search product or variant...",
+    catAll: "All",
   },
 }
