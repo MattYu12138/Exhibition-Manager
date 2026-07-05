@@ -560,8 +560,11 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
         : Math.max(0, rackQty - sinceLastReplenish);
 
       // 判断补货状态
+      // 如果衣架剩余 > 挂衣架数量，说明衣架上已足够，强制为 OK
       let status = 'ok'; // 充足
-      if (storageLeft <= 0 && sinceLastReplenish >= Math.ceil(rackQty / 2)) {
+      if (rackRemaining > rackQty) {
+        status = 'ok'; // 衣架剩余超过挂衣架数量，无需补货
+      } else if (storageLeft <= 0 && sinceLastReplenish >= Math.ceil(rackQty / 2)) {
         status = 'storage_empty'; // 备货已空
       } else if (rackQty > 0 && sinceLastReplenish >= rackQty) {
         status = 'priority'; // 优先补货
