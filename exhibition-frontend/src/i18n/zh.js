@@ -429,5 +429,7 @@ export default {
     failed: "补货失败",
     searchPlaceholder: "搜索商品名称或变体...",
     catAll: "全部",
+    colVariant: "规格",
+    variants: "个规格",
   },
 }

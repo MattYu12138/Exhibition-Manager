@@ -430,5 +430,7 @@ export default {
     failed: "Replenishment failed",
     searchPlaceholder: "Search product or variant...",
     catAll: "All",
+    colVariant: "Variant",
+    variants: "variants",
   },
 }
