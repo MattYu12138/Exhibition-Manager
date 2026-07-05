@@ -114,7 +114,7 @@
 
         <el-table-column :label="t('replenishment.colSold')" width="80" align="center">
           <template #default="{ row }">
-            <span class="sold-num" :class="{ 'sold-high': row.sold >= row.rack_quantity }">{{ row.sold }}</span>
+            <span class="sold-num" :class="{ 'sold-low': row.rack_remaining !== undefined && row.rack_remaining <= Math.ceil(row.rack_quantity / 2) }">{{ row.rack_remaining !== undefined ? row.rack_remaining : '-' }}</span>
           </template>
         </el-table-column>
 
@@ -193,7 +193,7 @@
           </div>
           <div class="mobile-stat">
             <span class="stat-label">{{ t('replenishment.colSold') }}</span>
-            <span class="sold-num" :class="{ 'sold-high': item.sold >= item.rack_quantity }">{{ item.sold }}</span>
+            <span class="sold-num" :class="{ 'sold-low': item.rack_remaining !== undefined && item.rack_remaining <= Math.ceil(item.rack_quantity / 2) }">{{ item.rack_remaining !== undefined ? item.rack_remaining : '-' }}</span>
           </div>
           <div class="mobile-stat">
             <span class="stat-label">{{ t('replenishment.colStockRemaining') }}</span>
@@ -463,8 +463,8 @@ onMounted(fetchData)
 .qty-badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-weight: 600; font-size: 13px; }
 .qty-badge.rack { background: #ecf5ff; color: #409eff; }
 .qty-badge.storage { background: #f4f4f5; color: #606266; }
-.sold-num { font-weight: 600; color: #e6a23c; }
-.sold-num.sold-high { color: #f56c6c; }
+.sold-num { font-weight: 600; color: #409eff; }
+.sold-num.sold-low { color: #f56c6c; }
 .text-danger { color: #f56c6c; font-weight: 600; }
 .text-muted { color: #c0c4cc; }
 

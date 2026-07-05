@@ -284,7 +284,7 @@ export default {
     searchPlaceholder: 'Search product or variant...',
     catAll: 'All',
     searchResult: '{n} result(s) found',
-    colSold: 'Sold',
+    colSold: 'Rack Remaining',
     colRemaining: 'Should Remain (To Count)',
     colSquareMatch: 'Square Match',
     colSyncTime: 'Sync Time',

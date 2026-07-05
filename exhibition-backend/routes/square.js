@@ -483,6 +483,12 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
     try {
       db.prepare(`ALTER TABLE exhibition_items ADD COLUMN replenish_count INTEGER DEFAULT 0`).run();
     } catch (e) { /* 字段已存在则忽略 */ }
+    try {
+      db.prepare(`ALTER TABLE exhibition_items ADD COLUMN replenished_qty INTEGER DEFAULT 0`).run();
+    } catch (e) { /* 字段已存在则忽略 */ }
+    try {
+      db.prepare(`ALTER TABLE exhibition_items ADD COLUMN rack_remaining INTEGER DEFAULT NULL`).run();
+    } catch (e) { /* 字段已存在则忽略 */ }
 
     // 1. 获取展会商品
     const items = db.prepare(`
@@ -546,6 +552,13 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
         ? Math.max(0, baseline - currentSquareQty)
         : 0;
 
+      // 衣架临时剩余：
+      // 如果数据库中已有 rack_remaining（补货确认后更新过）则直接使用
+      // 否则实时计算： rack_quantity - since_last_replenish
+      const rackRemaining = item.rack_remaining !== null && item.rack_remaining !== undefined
+        ? item.rack_remaining
+        : Math.max(0, rackQty - sinceLastReplenish);
+
       // 判断补货状态
       let status = 'ok'; // 充足
       if (storageLeft <= 0 && sinceLastReplenish >= Math.ceil(rackQty / 2)) {
@@ -572,6 +585,7 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
         storage: stockQty,
         storage_left: storageLeft,
         sold,
+        rack_remaining: rackRemaining,
         since_last_replenish: sinceLastReplenish,
         status,
         suggested_qty: suggestedQty,
@@ -642,13 +656,15 @@ router.post('/replenishment-confirm', (req, res) => {
       UPDATE exhibition_items
       SET replenished_qty = COALESCE(replenished_qty, 0) + ?,
           replenish_baseline = ?,
-          replenish_count = COALESCE(replenish_count, 0) + 1
+          replenish_count = COALESCE(replenish_count, 0) + 1,
+          rack_remaining = ?
       WHERE exhibition_id = ? AND shopify_variant_id = ?
     `);
 
     const getStmt = db.prepare(`
       SELECT rack_quantity, stock_quantity, COALESCE(replenished_qty, 0) AS replenished_qty,
-             replenish_baseline, last_synced_quantity, COALESCE(replenish_count, 0) AS replenish_count
+             replenish_baseline, last_synced_quantity, COALESCE(replenish_count, 0) AS replenish_count,
+             rack_remaining
       FROM exhibition_items
       WHERE exhibition_id = ? AND shopify_variant_id = ?
     `);
@@ -686,8 +702,21 @@ router.post('/replenishment-confirm', (req, res) => {
           ? current_square_qty
           : oldBaseline;
 
-        // 更新：累加 replenished_qty，设置新 baseline，递增 replenish_count
-        updateStmt.run(qty, newBaseline, exhibition_id, shopify_variant_id);
+        // 计算新的 rack_remaining：原衣架剩余 + 本次补货数量
+        // 如果 rack_remaining 为 null（从未设置），则初始化为 rack_quantity - since_last_replenish + qty
+        const sinceLastForRack = (() => {
+          const bl = before.replenish_count >= 1 && before.replenish_baseline !== null
+            ? before.replenish_baseline : squareQtyBefore;
+          return current_square_qty !== null && current_square_qty !== undefined
+            ? Math.max(0, bl - current_square_qty) : 0;
+        })();
+        const currentRackRemaining = before.rack_remaining !== null && before.rack_remaining !== undefined
+          ? before.rack_remaining
+          : Math.max(0, (before.rack_quantity || 0) - sinceLastForRack);
+        const newRackRemaining = currentRackRemaining + qty;
+
+        // 更新：累加 replenished_qty，设置新 baseline，递增 replenish_count，更新 rack_remaining
+        updateStmt.run(qty, newBaseline, newRackRemaining, exhibition_id, shopify_variant_id);
 
         const newReplenishedTotal = before.replenished_qty + qty;
         const storageLeft = Math.max(0, (before.stock_quantity || 0) - newReplenishedTotal);

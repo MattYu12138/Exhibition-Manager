@@ -265,6 +265,11 @@ const migrations = [
   'ALTER TABLE exhibition_items ADD COLUMN storage_done INTEGER DEFAULT 0',
   // 新增加密密码字段（AES-256-CBC 对称加密）
   'ALTER TABLE users ADD COLUMN password_encrypted TEXT',
+  // 展中补货相关字段
+  'ALTER TABLE exhibition_items ADD COLUMN replenish_baseline INTEGER DEFAULT NULL',
+  'ALTER TABLE exhibition_items ADD COLUMN replenish_count INTEGER DEFAULT 0',
+  'ALTER TABLE exhibition_items ADD COLUMN replenished_qty INTEGER DEFAULT 0',
+  'ALTER TABLE exhibition_items ADD COLUMN rack_remaining INTEGER DEFAULT NULL',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (e) { /* 字段已存在，忽略 */ }
