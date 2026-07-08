@@ -47,9 +47,9 @@
       >
         <template #prefix><el-icon><Search /></el-icon></template>
       </el-input>
-      <!-- Material 筛选行 -->
-      <div v-if="materialCategories.length > 0" class="filter-row">
-        <span class="filter-label">{{ t('replenishment.filterMaterial') }}</span>
+      <!-- Material 筛选区块 -->
+      <div v-if="materialCategories.length > 0" class="filter-block">
+        <div class="filter-block-label">{{ t('replenishment.filterMaterial') }}</div>
         <div class="category-tags">
           <el-tag
             :class="['cat-tag', selectedMaterial === '' ? 'cat-active' : '']"
@@ -65,9 +65,9 @@
           >{{ cat.name }}</el-tag>
         </div>
       </div>
-      <!-- Style 筛选行 -->
-      <div v-if="styleCategories.length > 0" class="filter-row">
-        <span class="filter-label">{{ t('replenishment.filterStyle') }}</span>
+      <!-- Style 筛选区块 -->
+      <div v-if="styleCategories.length > 0" class="filter-block">
+        <div class="filter-block-label">{{ t('replenishment.filterStyle') }}</div>
         <div class="category-tags">
           <el-tag
             :class="['cat-tag', selectedStyle === '' ? 'cat-active' : '']"
@@ -580,26 +580,26 @@ onMounted(fetchData)
 .filter-bar { margin-bottom: 16px; }
 .filter-bar :deep(.el-card__body) { padding: 14px 16px; }
 .search-input { margin-bottom: 12px; }
-.filter-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
+.filter-block {
   margin-bottom: 10px;
+  padding: 8px 10px;
+  background: #f9f9fb;
+  border-radius: 8px;
+  border: 1px solid #ebeef5;
 }
-.filter-row:last-child { margin-bottom: 0; }
-.filter-label {
-  font-size: 12px;
-  font-weight: 600;
+.filter-block:last-child { margin-bottom: 0; }
+.filter-block-label {
+  font-size: 11px;
+  font-weight: 700;
   color: #909399;
-  white-space: nowrap;
-  padding-top: 6px;
-  min-width: 52px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
 }
 .category-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  flex: 1;
 }
 .cat-tag {
   cursor: pointer;

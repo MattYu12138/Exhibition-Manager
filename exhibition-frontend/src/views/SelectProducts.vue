@@ -47,9 +47,9 @@
                 @click="switchStatus(tab.value)"
               >{{ tab.label }}</el-button>
             </div>
-            <!-- Material 筛选行 -->
-            <div v-if="materialCategories.length > 0" class="filter-row">
-              <span class="filter-label">{{ $t('selectProducts.filterMaterial') }}</span>
+            <!-- Material 筛选区块 -->
+            <div v-if="materialCategories.length > 0" class="filter-block">
+              <div class="filter-block-label">{{ $t('selectProducts.filterMaterial') }}</div>
               <div class="category-tags">
                 <el-tag
                   :class="['cat-tag', selectedMaterial === '' ? 'cat-active' : '']"
@@ -65,9 +65,9 @@
                 >{{ cat.name }}</el-tag>
               </div>
             </div>
-            <!-- Style 筛选行 -->
-            <div v-if="styleCategories.length > 0" class="filter-row">
-              <span class="filter-label">{{ $t('selectProducts.filterStyle') }}</span>
+            <!-- Style 筛选区块 -->
+            <div v-if="styleCategories.length > 0" class="filter-block">
+              <div class="filter-block-label">{{ $t('selectProducts.filterStyle') }}</div>
               <div class="category-tags">
                 <el-tag
                   :class="['cat-tag', selectedStyle === '' ? 'cat-active' : '']"
@@ -656,25 +656,25 @@ onMounted(async () => {
 }
 
 /* 两层分类筛选 */
-.filter-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
+.filter-block {
   margin-top: 10px;
+  padding: 8px 10px;
+  background: #f9f9fb;
+  border-radius: 8px;
+  border: 1px solid #ebeef5;
 }
-.filter-label {
+.filter-block-label {
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   color: #909399;
-  white-space: nowrap;
-  padding-top: 4px;
-  min-width: 52px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
 }
 .category-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  flex: 1;
 }
 .cat-tag {
   cursor: pointer;
