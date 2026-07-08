@@ -37,51 +37,50 @@
       </div>
     </el-card>
 
-    <!-- 搜索 + 两层分类筛选 -->
+    <!-- 搜索框 -->
     <el-card class="filter-bar">
       <el-input
         v-model="searchKeyword"
         :placeholder="t('replenishment.searchPlaceholder')"
         clearable
-        class="search-input"
       >
         <template #prefix><el-icon><Search /></el-icon></template>
       </el-input>
-      <!-- Material 筛选区块 -->
-      <div v-if="materialCategories.length > 0" class="filter-block">
-        <div class="filter-block-label">{{ t('replenishment.filterMaterial') }}</div>
-        <div class="category-tags">
-          <el-tag
-            :class="['cat-tag', selectedMaterial === '' ? 'cat-active' : '']"
-            @click="selectedMaterial = ''"
-            size="large"
-          >{{ t('replenishment.catAll') }}</el-tag>
-          <el-tag
-            v-for="cat in materialCategories"
-            :key="cat.id"
-            :class="['cat-tag', selectedMaterial === cat.keyword ? 'cat-active' : '']"
-            @click="toggleMaterial(cat.keyword)"
-            size="large"
-          >{{ cat.name }}</el-tag>
-        </div>
+    </el-card>
+    <!-- Material 独立筛选卡片 -->
+    <el-card v-if="materialCategories.length > 0" class="filter-card">
+      <div class="filter-card-title">{{ t('replenishment.filterMaterial') }}</div>
+      <div class="category-tags">
+        <el-tag
+          :class="['cat-tag', selectedMaterial === '' ? 'cat-active' : '']"
+          @click="selectedMaterial = ''"
+          size="large"
+        >{{ t('replenishment.catAll') }}</el-tag>
+        <el-tag
+          v-for="cat in materialCategories"
+          :key="cat.id"
+          :class="['cat-tag', selectedMaterial === cat.keyword ? 'cat-active' : '']"
+          @click="toggleMaterial(cat.keyword)"
+          size="large"
+        >{{ cat.name }}</el-tag>
       </div>
-      <!-- Style 筛选区块 -->
-      <div v-if="styleCategories.length > 0" class="filter-block">
-        <div class="filter-block-label">{{ t('replenishment.filterStyle') }}</div>
-        <div class="category-tags">
-          <el-tag
-            :class="['cat-tag', selectedStyle === '' ? 'cat-active' : '']"
-            @click="selectedStyle = ''"
-            size="large"
-          >{{ t('replenishment.catAll') }}</el-tag>
-          <el-tag
-            v-for="cat in styleCategories"
-            :key="cat.id"
-            :class="['cat-tag', selectedStyle === cat.keyword ? 'cat-active' : '']"
-            @click="toggleStyle(cat.keyword)"
-            size="large"
-          >{{ cat.name }}</el-tag>
-        </div>
+    </el-card>
+    <!-- Style 独立筛选卡片 -->
+    <el-card v-if="styleCategories.length > 0" class="filter-card">
+      <div class="filter-card-title">{{ t('replenishment.filterStyle') }}</div>
+      <div class="category-tags">
+        <el-tag
+          :class="['cat-tag', selectedStyle === '' ? 'cat-active' : '']"
+          @click="selectedStyle = ''"
+          size="large"
+        >{{ t('replenishment.catAll') }}</el-tag>
+        <el-tag
+          v-for="cat in styleCategories"
+          :key="cat.id"
+          :class="['cat-tag', selectedStyle === cat.keyword ? 'cat-active' : '']"
+          @click="toggleStyle(cat.keyword)"
+          size="large"
+        >{{ cat.name }}</el-tag>
       </div>
     </el-card>
 
@@ -576,19 +575,13 @@ onMounted(fetchData)
 .bar-info { display: flex; gap: 8px; flex-wrap: wrap; }
 .bar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-/* 搜索 + 两层分类筛选 */
-.filter-bar { margin-bottom: 16px; }
+/* 搜索框 */
+.filter-bar { margin-bottom: 12px; }
 .filter-bar :deep(.el-card__body) { padding: 14px 16px; }
-.search-input { margin-bottom: 12px; }
-.filter-block {
-  margin-bottom: 10px;
-  padding: 8px 10px;
-  background: #f9f9fb;
-  border-radius: 8px;
-  border: 1px solid #ebeef5;
-}
-.filter-block:last-child { margin-bottom: 0; }
-.filter-block-label {
+/* 独立筛选卡片 */
+.filter-card { margin-bottom: 12px; }
+.filter-card :deep(.el-card__body) { padding: 12px 16px; }
+.filter-card-title {
   font-size: 11px;
   font-weight: 700;
   color: #909399;

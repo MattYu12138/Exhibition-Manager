@@ -10,6 +10,43 @@
 
     <el-row :gutter="20">
       <el-col :xs="24" :lg="14">
+        <!-- Material 独立筛选卡片 -->
+        <el-card v-if="materialCategories.length > 0" class="filter-card">
+          <div class="filter-card-title">{{ $t('selectProducts.filterMaterial') }}</div>
+          <div class="category-tags">
+            <el-tag
+              :class="['cat-tag', selectedMaterial === '' ? 'cat-active' : '']"
+              @click="selectedMaterial = ''; currentPage = 1"
+              size="small"
+            >{{ $t('selectProducts.catAll') }}</el-tag>
+            <el-tag
+              v-for="cat in materialCategories"
+              :key="cat.id"
+              :class="['cat-tag', selectedMaterial === cat.keyword ? 'cat-active' : '']"
+              @click="toggleMaterial(cat.keyword)"
+              size="small"
+            >{{ cat.name }}</el-tag>
+          </div>
+        </el-card>
+        <!-- Style 独立筛选卡片 -->
+        <el-card v-if="styleCategories.length > 0" class="filter-card">
+          <div class="filter-card-title">{{ $t('selectProducts.filterStyle') }}</div>
+          <div class="category-tags">
+            <el-tag
+              :class="['cat-tag', selectedStyle === '' ? 'cat-active' : '']"
+              @click="selectedStyle = ''; currentPage = 1"
+              size="small"
+            >{{ $t('selectProducts.catAll') }}</el-tag>
+            <el-tag
+              v-for="cat in styleCategories"
+              :key="cat.id"
+              :class="['cat-tag', selectedStyle === cat.keyword ? 'cat-active' : '']"
+              @click="toggleStyle(cat.keyword)"
+              size="small"
+            >{{ cat.name }}</el-tag>
+          </div>
+        </el-card>
+        <!-- 商品列表卡片 -->
         <el-card>
           <template #header>
             <div class="card-header">
@@ -46,42 +83,6 @@
                 :class="{ 'status-btn-active': activeStatus === tab.value }"
                 @click="switchStatus(tab.value)"
               >{{ tab.label }}</el-button>
-            </div>
-            <!-- Material 筛选区块 -->
-            <div v-if="materialCategories.length > 0" class="filter-block">
-              <div class="filter-block-label">{{ $t('selectProducts.filterMaterial') }}</div>
-              <div class="category-tags">
-                <el-tag
-                  :class="['cat-tag', selectedMaterial === '' ? 'cat-active' : '']"
-                  @click="selectedMaterial = ''; currentPage = 1"
-                  size="small"
-                >{{ $t('selectProducts.catAll') }}</el-tag>
-                <el-tag
-                  v-for="cat in materialCategories"
-                  :key="cat.id"
-                  :class="['cat-tag', selectedMaterial === cat.keyword ? 'cat-active' : '']"
-                  @click="toggleMaterial(cat.keyword)"
-                  size="small"
-                >{{ cat.name }}</el-tag>
-              </div>
-            </div>
-            <!-- Style 筛选区块 -->
-            <div v-if="styleCategories.length > 0" class="filter-block">
-              <div class="filter-block-label">{{ $t('selectProducts.filterStyle') }}</div>
-              <div class="category-tags">
-                <el-tag
-                  :class="['cat-tag', selectedStyle === '' ? 'cat-active' : '']"
-                  @click="selectedStyle = ''; currentPage = 1"
-                  size="small"
-                >{{ $t('selectProducts.catAll') }}</el-tag>
-                <el-tag
-                  v-for="cat in styleCategories"
-                  :key="cat.id"
-                  :class="['cat-tag', selectedStyle === cat.keyword ? 'cat-active' : '']"
-                  @click="toggleStyle(cat.keyword)"
-                  size="small"
-                >{{ cat.name }}</el-tag>
-              </div>
             </div>
           </template>
 
@@ -655,21 +656,20 @@ onMounted(async () => {
   flex-wrap: wrap;
 }
 
-/* 两层分类筛选 */
-.filter-block {
-  margin-top: 10px;
-  padding: 8px 10px;
-  background: #f9f9fb;
-  border-radius: 8px;
-  border: 1px solid #ebeef5;
+/* 独立筛选卡片 */
+.filter-card {
+  margin-bottom: 12px;
 }
-.filter-block-label {
+.filter-card :deep(.el-card__body) {
+  padding: 12px 16px;
+}
+.filter-card-title {
   font-size: 11px;
   font-weight: 700;
   color: #909399;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
 }
 .category-tags {
   display: flex;
