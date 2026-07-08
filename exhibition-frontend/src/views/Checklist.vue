@@ -146,21 +146,42 @@
       </el-input>
     </div>
 
-    <!-- 分类筛选 -->
-    <div v-if="store.groupedItems.length" class="category-filter-bar">
-      <el-tag
-        :class="['cat-tag', selectedCategory === '' ? 'cat-active' : '']"
-        @click="selectedCategory = ''"
-        size="large"
-      >{{ $t('checklist.catAll') }}</el-tag>
-      <el-tag
-        v-for="cat in categories"
-        :key="cat.id"
-        :class="['cat-tag', selectedCategory === cat.keyword ? 'cat-active' : '']"
-        @click="toggleCategory(cat.keyword)"
-        size="large"
-      >{{ cat.name }}</el-tag>
-    </div>
+    <!-- Material 独立筛选卡片 -->
+    <el-card v-if="store.groupedItems.length && materialCategories.length > 0" class="filter-card">
+      <div class="filter-card-title">{{ $t('checklist.filterMaterial') }}</div>
+      <div class="category-tags">
+        <el-tag
+          :class="['cat-tag', selectedMaterial === '' ? 'cat-active' : '']"
+          @click="selectedMaterial = ''"
+          size="large"
+        >{{ $t('checklist.catAll') }}</el-tag>
+        <el-tag
+          v-for="cat in materialCategories"
+          :key="cat.id"
+          :class="['cat-tag', selectedMaterial === cat.keyword ? 'cat-active' : '']"
+          @click="toggleMaterial(cat.keyword)"
+          size="large"
+        >{{ cat.name }}</el-tag>
+      </div>
+    </el-card>
+    <!-- Style 独立筛选卡片 -->
+    <el-card v-if="store.groupedItems.length && styleCategories.length > 0" class="filter-card">
+      <div class="filter-card-title">{{ $t('checklist.filterStyle') }}</div>
+      <div class="category-tags">
+        <el-tag
+          :class="['cat-tag', selectedStyle === '' ? 'cat-active' : '']"
+          @click="selectedStyle = ''"
+          size="large"
+        >{{ $t('checklist.catAll') }}</el-tag>
+        <el-tag
+          v-for="cat in styleCategories"
+          :key="cat.id"
+          :class="['cat-tag', selectedStyle === cat.keyword ? 'cat-active' : '']"
+          @click="toggleStyle(cat.keyword)"
+          size="large"
+        >{{ cat.name }}</el-tag>
+      </div>
+    </el-card>
 
     <!-- Product groups -->
     <div v-loading="store.loading" class="product-groups">
@@ -454,10 +475,18 @@ const searchQuery = ref('')
 
 // 分类筛选
 const categories = ref([])
-const selectedCategory = ref('')
+const selectedMaterial = ref('')
+const selectedStyle = ref('')
 
-function toggleCategory(keyword) {
-  selectedCategory.value = selectedCategory.value === keyword ? '' : keyword
+const materialCategories = computed(() => categories.value.filter(c => c.type === 'material'))
+const styleCategories = computed(() => categories.value.filter(c => c.type === 'style'))
+
+function toggleMaterial(keyword) {
+  selectedMaterial.value = selectedMaterial.value === keyword ? '' : keyword
+}
+
+function toggleStyle(keyword) {
+  selectedStyle.value = selectedStyle.value === keyword ? '' : keyword
 }
 
 // 标签页：'unchecked' | 'checked'，默认显示未清点
@@ -473,11 +502,18 @@ function handleSearch() {
  */
 const filteredGroups = computed(() => {
   let list = store.groupedItems
-  // 分类筛选
-  if (selectedCategory.value) {
-    const cat = selectedCategory.value.toLowerCase()
+  // Material 筛选
+  if (selectedMaterial.value) {
+    const mat = selectedMaterial.value.toLowerCase()
     list = list.filter((group) =>
-      (group.product_title || '').toLowerCase().includes(cat)
+      (group.product_title || '').toLowerCase().includes(mat)
+    )
+  }
+  // Style 筛选
+  if (selectedStyle.value) {
+    const sty = selectedStyle.value.toLowerCase()
+    list = list.filter((group) =>
+      (group.product_title || '').toLowerCase().includes(sty)
     )
   }
   // 关键词搜索
@@ -925,16 +961,25 @@ onMounted(async () => {
 .sync-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 700; margin-bottom: 6px; color: #303133; }
 .sync-desc { font-size: 13px; color: #606266; display: flex; align-items: center; flex-wrap: wrap; }
 
-/* 分类筛选 */
-.category-filter-bar {
+/* 独立筛选卡片 */
+.filter-card {
+  margin-bottom: 12px;
+}
+.filter-card :deep(.el-card__body) {
+  padding: 12px 16px;
+}
+.filter-card-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #909399;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+.category-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 16px;
-  padding: 12px 16px;
-  background: #fff;
-  border-radius: 8px;
-  border: 1px solid #ebeef5;
 }
 .cat-tag {
   cursor: pointer;

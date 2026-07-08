@@ -262,6 +262,9 @@ export default {
     tabCheckedEmpty: '还没有已清点的商品',
     tabHangerEmpty: '所有商品已挂衣架！',
     tabStorageEmpty: '所有商品已备货！',
+    catAll: '全部',
+    filterMaterial: '材质',
+    filterStyle: '款式',
   },
 
   // 库存结果页

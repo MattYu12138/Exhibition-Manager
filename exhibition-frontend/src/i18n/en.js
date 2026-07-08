@@ -263,6 +263,8 @@ export default {
     tabHangerEmpty: 'All items are on hanger!',
     tabStorageEmpty: 'All items are storage-ready!',
     catAll: 'All',
+    filterMaterial: 'Material',
+    filterStyle: 'Style',
   },
 
   // Inventory Result
