@@ -207,6 +207,9 @@ export default {
     statusArchived: 'Archived',
     statusUnlisted: 'Unlisted',
     refreshProducts: 'Refresh Products',
+    filterMaterial: 'Material',
+    filterStyle: 'Style',
+    catAll: 'All',
   },
 
   // Checklist
@@ -354,6 +357,9 @@ export default {
     categoryKeywordPlaceholder: 'e.g. Short Sleeve Bodysuit',
     categoryKeywordHint: 'Products whose title contains this keyword will be shown when this category is selected.',
     categorySortOrder: 'Sort Order',
+    categoryType: 'Category Type',
+    categoryMaterial: 'Material (Fabric)',
+    categoryStyle: 'Style (Product Type)',
   },
 
   // Unmatched Items Dialog
@@ -430,6 +436,8 @@ export default {
     failed: "Replenishment failed",
     searchPlaceholder: "Search product or variant...",
     catAll: "All",
+    filterMaterial: "Material",
+    filterStyle: "Style",
     colVariant: "Variant",
     variants: "variants",
   },

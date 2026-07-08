@@ -229,6 +229,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
     keyword TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'style',
     sort_order INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -237,20 +238,23 @@ db.exec(`
 const catCount = db.prepare('SELECT COUNT(*) as cnt FROM product_categories').get();
 if (catCount.cnt === 0) {
   const defaultCategories = [
-    { name: 'Growsuit', keyword: 'Growsuit', sort_order: 1 },
-    { name: 'Short Sleeve Bodysuit', keyword: 'Short Sleeve Bodysuit', sort_order: 2 },
-    { name: 'Long Sleeve Bodysuit', keyword: 'Long Sleeve Bodysuit', sort_order: 3 },
-    { name: 'Romper', keyword: 'Romper', sort_order: 4 },
-    { name: 'Singlet', keyword: 'Singlet', sort_order: 5 },
-    { name: 'Toddler Dress', keyword: 'Toddler Dress', sort_order: 6 },
-    { name: 'Muslin Dress', keyword: 'Muslin Dress', sort_order: 7 },
-    { name: 'Cot Sheet', keyword: 'Cot Sheet', sort_order: 8 },
-    { name: 'Bassinet Sheet', keyword: 'Bassinet Sheet', sort_order: 9 },
-    { name: 'Swaddle Wrap', keyword: 'Swaddle Wrap', sort_order: 10 },
+    { name: 'Organic Cotton', keyword: 'Organic Cotton', type: 'material', sort_order: 1 },
+    { name: 'Waffle', keyword: 'Waffle', type: 'material', sort_order: 2 },
+    { name: 'Bamboo', keyword: 'Bamboo', type: 'material', sort_order: 3 },
+    { name: 'Growsuit', keyword: 'Growsuit', type: 'style', sort_order: 1 },
+    { name: 'Short Sleeve Bodysuit', keyword: 'Short Sleeve Bodysuit', type: 'style', sort_order: 2 },
+    { name: 'Long Sleeve Bodysuit', keyword: 'Long Sleeve Bodysuit', type: 'style', sort_order: 3 },
+    { name: 'Romper', keyword: 'Romper', type: 'style', sort_order: 4 },
+    { name: 'Singlet', keyword: 'Singlet', type: 'style', sort_order: 5 },
+    { name: 'Toddler Dress', keyword: 'Toddler Dress', type: 'style', sort_order: 6 },
+    { name: 'Muslin Dress', keyword: 'Muslin Dress', type: 'style', sort_order: 7 },
+    { name: 'Cot Sheet', keyword: 'Cot Sheet', type: 'style', sort_order: 8 },
+    { name: 'Bassinet Sheet', keyword: 'Bassinet Sheet', type: 'style', sort_order: 9 },
+    { name: 'Swaddle Wrap', keyword: 'Swaddle Wrap', type: 'style', sort_order: 10 },
   ];
-  const insertCat = db.prepare('INSERT INTO product_categories (name, keyword, sort_order) VALUES (?, ?, ?)');
+  const insertCat = db.prepare('INSERT INTO product_categories (name, keyword, type, sort_order) VALUES (?, ?, ?, ?)');
   for (const cat of defaultCategories) {
-    insertCat.run(cat.name, cat.keyword, cat.sort_order);
+    insertCat.run(cat.name, cat.keyword, cat.type, cat.sort_order);
   }
   console.log('[DB] product_categories 预设分类已初始化');
 }
@@ -270,6 +274,7 @@ const migrations = [
   'ALTER TABLE exhibition_items ADD COLUMN replenish_count INTEGER DEFAULT 0',
   'ALTER TABLE exhibition_items ADD COLUMN replenished_qty INTEGER DEFAULT 0',
   'ALTER TABLE exhibition_items ADD COLUMN rack_remaining INTEGER DEFAULT NULL',
+  "ALTER TABLE product_categories ADD COLUMN type TEXT NOT NULL DEFAULT 'style'",
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (e) { /* 字段已存在，忽略 */ }

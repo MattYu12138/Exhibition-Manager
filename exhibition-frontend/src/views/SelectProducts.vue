@@ -47,6 +47,42 @@
                 @click="switchStatus(tab.value)"
               >{{ tab.label }}</el-button>
             </div>
+            <!-- Material 筛选行 -->
+            <div v-if="materialCategories.length > 0" class="filter-row">
+              <span class="filter-label">{{ $t('selectProducts.filterMaterial') }}</span>
+              <div class="category-tags">
+                <el-tag
+                  :class="['cat-tag', selectedMaterial === '' ? 'cat-active' : '']"
+                  @click="selectedMaterial = ''; currentPage = 1"
+                  size="small"
+                >{{ $t('selectProducts.catAll') }}</el-tag>
+                <el-tag
+                  v-for="cat in materialCategories"
+                  :key="cat.id"
+                  :class="['cat-tag', selectedMaterial === cat.keyword ? 'cat-active' : '']"
+                  @click="toggleMaterial(cat.keyword)"
+                  size="small"
+                >{{ cat.name }}</el-tag>
+              </div>
+            </div>
+            <!-- Style 筛选行 -->
+            <div v-if="styleCategories.length > 0" class="filter-row">
+              <span class="filter-label">{{ $t('selectProducts.filterStyle') }}</span>
+              <div class="category-tags">
+                <el-tag
+                  :class="['cat-tag', selectedStyle === '' ? 'cat-active' : '']"
+                  @click="selectedStyle = ''; currentPage = 1"
+                  size="small"
+                >{{ $t('selectProducts.catAll') }}</el-tag>
+                <el-tag
+                  v-for="cat in styleCategories"
+                  :key="cat.id"
+                  :class="['cat-tag', selectedStyle === cat.keyword ? 'cat-active' : '']"
+                  @click="toggleStyle(cat.keyword)"
+                  size="small"
+                >{{ cat.name }}</el-tag>
+              </div>
+            </div>
           </template>
 
           <div v-loading="listLoading">
@@ -229,7 +265,7 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useExhibitionStore } from '@/stores/exhibition'
-import { exhibitionApi, shopifyApi } from '@/api'
+import { exhibitionApi, shopifyApi, categoriesApi } from '@/api'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -244,6 +280,22 @@ const selectionsMap = ref({})
 const saving = ref(false)
 const originalSnapshot = ref({})
 const imgError = reactive({})
+const categories = ref([])
+const selectedMaterial = ref('')
+const selectedStyle = ref('')
+
+const materialCategories = computed(() => categories.value.filter(c => c.type === 'material'))
+const styleCategories = computed(() => categories.value.filter(c => c.type === 'style'))
+
+function toggleMaterial(keyword) {
+  selectedMaterial.value = selectedMaterial.value === keyword ? '' : keyword
+  currentPage.value = 1
+}
+
+function toggleStyle(keyword) {
+  selectedStyle.value = selectedStyle.value === keyword ? '' : keyword
+  currentPage.value = 1
+}
 
 const currentPage = ref(1)
 const pageSize = 20
@@ -271,10 +323,22 @@ const totalQuantity = computed(() =>
 )
 
 const filteredProducts = computed(() => {
+  let products = store.shopifyProducts
+  // Material 筛选
+  if (selectedMaterial.value) {
+    const kw = selectedMaterial.value.toLowerCase()
+    products = products.filter(p => p.title.toLowerCase().includes(kw))
+  }
+  // Style 筛选
+  if (selectedStyle.value) {
+    const kw = selectedStyle.value.toLowerCase()
+    products = products.filter(p => p.title.toLowerCase().includes(kw))
+  }
+  // 搜索关键词
   const raw = searchQuery.value.trim().toLowerCase()
-  if (!raw) return store.shopifyProducts
+  if (!raw) return products
   const keywords = raw.split(/\s+/).filter(Boolean)
-  return store.shopifyProducts.filter((p) => {
+  return products.filter((p) => {
     const titleLower = p.title.toLowerCase()
     const variantTexts = (p.variants || []).map(
       (v) => `${v.sku || ''} ${v.gtin || ''} ${v.title || ''}`.toLowerCase()
@@ -567,9 +631,13 @@ async function syncShopifyProducts(manual = false) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   loadProducts()
   syncShopifyProducts()
+  try {
+    const catRes = await categoriesApi.getAll()
+    categories.value = catRes.data || []
+  } catch {}
 })
 </script>
 
@@ -585,6 +653,46 @@ onMounted(() => {
   gap: 8px;
   margin-top: 10px;
   flex-wrap: wrap;
+}
+
+/* 两层分类筛选 */
+.filter-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+}
+.filter-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #909399;
+  white-space: nowrap;
+  padding-top: 4px;
+  min-width: 52px;
+}
+.category-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+}
+.cat-tag {
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+  background: #f4f4f5;
+  color: #606266;
+  border-color: #dcdfe6;
+}
+.cat-tag:hover {
+  background: #ecf5ff;
+  color: #409eff;
+  border-color: #b3d8ff;
+}
+.cat-tag.cat-active {
+  background: #409eff;
+  color: #fff;
+  border-color: #409eff;
 }
 
 .product-list { display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }

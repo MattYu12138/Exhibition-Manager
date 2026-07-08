@@ -37,7 +37,7 @@
       </div>
     </el-card>
 
-    <!-- 搜索 + 分类筛选 -->
+    <!-- 搜索 + 两层分类筛选 -->
     <el-card class="filter-bar">
       <el-input
         v-model="searchKeyword"
@@ -47,19 +47,41 @@
       >
         <template #prefix><el-icon><Search /></el-icon></template>
       </el-input>
-      <div class="category-tags">
-        <el-tag
-          :class="['cat-tag', selectedCategory === '' ? 'cat-active' : '']"
-          @click="selectedCategory = ''"
-          size="large"
-        >{{ t('replenishment.catAll') }}</el-tag>
-        <el-tag
-          v-for="cat in categories"
-          :key="cat.id"
-          :class="['cat-tag', selectedCategory === cat.keyword ? 'cat-active' : '']"
-          @click="toggleCategory(cat.keyword)"
-          size="large"
-        >{{ cat.name }}</el-tag>
+      <!-- Material 筛选行 -->
+      <div v-if="materialCategories.length > 0" class="filter-row">
+        <span class="filter-label">{{ t('replenishment.filterMaterial') }}</span>
+        <div class="category-tags">
+          <el-tag
+            :class="['cat-tag', selectedMaterial === '' ? 'cat-active' : '']"
+            @click="selectedMaterial = ''"
+            size="large"
+          >{{ t('replenishment.catAll') }}</el-tag>
+          <el-tag
+            v-for="cat in materialCategories"
+            :key="cat.id"
+            :class="['cat-tag', selectedMaterial === cat.keyword ? 'cat-active' : '']"
+            @click="toggleMaterial(cat.keyword)"
+            size="large"
+          >{{ cat.name }}</el-tag>
+        </div>
+      </div>
+      <!-- Style 筛选行 -->
+      <div v-if="styleCategories.length > 0" class="filter-row">
+        <span class="filter-label">{{ t('replenishment.filterStyle') }}</span>
+        <div class="category-tags">
+          <el-tag
+            :class="['cat-tag', selectedStyle === '' ? 'cat-active' : '']"
+            @click="selectedStyle = ''"
+            size="large"
+          >{{ t('replenishment.catAll') }}</el-tag>
+          <el-tag
+            v-for="cat in styleCategories"
+            :key="cat.id"
+            :class="['cat-tag', selectedStyle === cat.keyword ? 'cat-active' : '']"
+            @click="toggleStyle(cat.keyword)"
+            size="large"
+          >{{ cat.name }}</el-tag>
+        </div>
       </div>
     </el-card>
 
@@ -328,8 +350,13 @@ const loading = ref(false)
 const allItems = ref([])
 const logs = ref([])
 const categories = ref([])
-const selectedCategory = ref('')
+const selectedMaterial = ref('')
+const selectedStyle = ref('')
 const searchKeyword = ref('')
+
+// 按 type 分组分类
+const materialCategories = computed(() => categories.value.filter(c => c.type === 'material'))
+const styleCategories = computed(() => categories.value.filter(c => c.type === 'style'))
 const expandedGroups = ref(new Set())
 
 const needsCount = computed(() => allItems.value.filter(i => i.status === 'need' || i.status === 'priority').length)
@@ -360,12 +387,17 @@ const groupedItems = computed(() => {
   return Array.from(map.values())
 })
 
-// 过滤后的分组列表（搜索 + 分类）
+// 过滤后的分组列表（搜索 + Material + Style 两层筛选，AND 逻辑）
 const filteredGroups = computed(() => {
   let groups = groupedItems.value
-  if (selectedCategory.value) {
+  if (selectedMaterial.value) {
     groups = groups.filter(g =>
-      g.product_title.toLowerCase().includes(selectedCategory.value.toLowerCase())
+      g.product_title.toLowerCase().includes(selectedMaterial.value.toLowerCase())
+    )
+  }
+  if (selectedStyle.value) {
+    groups = groups.filter(g =>
+      g.product_title.toLowerCase().includes(selectedStyle.value.toLowerCase())
     )
   }
   if (searchKeyword.value.trim()) {
@@ -405,8 +437,12 @@ function mobileGroupHeaderClass(group) {
   return ''
 }
 
-function toggleCategory(keyword) {
-  selectedCategory.value = selectedCategory.value === keyword ? '' : keyword
+function toggleMaterial(keyword) {
+  selectedMaterial.value = selectedMaterial.value === keyword ? '' : keyword
+}
+
+function toggleStyle(keyword) {
+  selectedStyle.value = selectedStyle.value === keyword ? '' : keyword
 }
 
 function statusText(status) {
@@ -540,14 +576,30 @@ onMounted(fetchData)
 .bar-info { display: flex; gap: 8px; flex-wrap: wrap; }
 .bar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-/* 搜索 + 分类筛选 */
+/* 搜索 + 两层分类筛选 */
 .filter-bar { margin-bottom: 16px; }
 .filter-bar :deep(.el-card__body) { padding: 14px 16px; }
 .search-input { margin-bottom: 12px; }
+.filter-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.filter-row:last-child { margin-bottom: 0; }
+.filter-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #909399;
+  white-space: nowrap;
+  padding-top: 6px;
+  min-width: 52px;
+}
 .category-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  flex: 1;
 }
 .cat-tag {
   cursor: pointer;

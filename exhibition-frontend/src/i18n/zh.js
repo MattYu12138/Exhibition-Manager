@@ -207,6 +207,9 @@ export default {
     statusArchived: '已归档',
     statusUnlisted: '未上架',
     refreshProducts: '刷新商品库',
+    filterMaterial: '材质',
+    filterStyle: '款式',
+    catAll: '全部',
   },
 
   // 清点页
@@ -353,6 +356,9 @@ export default {
     categoryKeywordPlaceholder: '例如：Short Sleeve Bodysuit',
     categoryKeywordHint: '商品标题中包含此关键词的商品将在选中该分类时显示。',
     categorySortOrder: '排序',
+    categoryType: '分类类型',
+    categoryMaterial: '材质（面料）',
+    categoryStyle: '款式（产品类型）',
   },
 
   // 未匹配商品弹窗
@@ -429,6 +435,8 @@ export default {
     failed: "补货失败",
     searchPlaceholder: "搜索商品名称或变体...",
     catAll: "全部",
+    filterMaterial: "材质",
+    filterStyle: "款式",
     colVariant: "规格",
     variants: "个规格",
   },

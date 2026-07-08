@@ -19,28 +19,64 @@
           <el-button type="primary" size="small" @click="openCatDialog()"><el-icon><Plus /></el-icon> {{ t('dbAdmin.categoryAdd') }}</el-button>
         </div>
       </template>
-      <div class="cat-list">
-        <div v-if="catLoading" style="color:#999;font-size:13px;">{{ t('dbAdmin.loading') }}</div>
-        <el-empty v-else-if="!catLoading && categories.length === 0" :description="t('dbAdmin.categoryEmpty')" style="padding:20px 0" />
-        <div v-for="cat in categories" :key="cat.id" class="cat-item">
-          <span class="cat-name">{{ cat.name }}</span>
-          <span class="cat-keyword">{{ cat.keyword }}</span>
-          <div class="cat-actions">
-            <el-button link type="primary" size="small" @click="openCatDialog(cat)">{{ t('dbAdmin.actionEdit') }}</el-button>
-            <el-popconfirm
-              :title="t('dbAdmin.deleteConfirm')"
-              :confirm-button-text="t('dbAdmin.deleteConfirmOk')"
-              :cancel-button-text="t('dbAdmin.deleteConfirmCancel')"
-              confirm-button-type="danger"
-              @confirm="deleteCat(cat.id)"
-            >
-              <template #reference>
-                <el-button link type="danger" size="small">{{ t('dbAdmin.actionDelete') }}</el-button>
-              </template>
-            </el-popconfirm>
+      <div v-if="catLoading" style="color:#999;font-size:13px;padding:8px 0;">{{ t('dbAdmin.loading') }}</div>
+      <el-empty v-else-if="!catLoading && categories.length === 0" :description="t('dbAdmin.categoryEmpty')" style="padding:20px 0" />
+      <template v-else>
+        <!-- Material 分组 -->
+        <div v-if="materialCategories.length > 0" class="cat-group">
+          <div class="cat-group-title">
+            <el-tag type="warning" size="small" effect="plain">Material</el-tag>
+            <span>{{ t('dbAdmin.categoryMaterial') }}</span>
+          </div>
+          <div class="cat-list">
+            <div v-for="cat in materialCategories" :key="cat.id" class="cat-item">
+              <span class="cat-name">{{ cat.name }}</span>
+              <span class="cat-keyword">{{ cat.keyword }}</span>
+              <div class="cat-actions">
+                <el-button link type="primary" size="small" @click="openCatDialog(cat)">{{ t('dbAdmin.actionEdit') }}</el-button>
+                <el-popconfirm
+                  :title="t('dbAdmin.deleteConfirm')"
+                  :confirm-button-text="t('dbAdmin.deleteConfirmOk')"
+                  :cancel-button-text="t('dbAdmin.deleteConfirmCancel')"
+                  confirm-button-type="danger"
+                  @confirm="deleteCat(cat.id)"
+                >
+                  <template #reference>
+                    <el-button link type="danger" size="small">{{ t('dbAdmin.actionDelete') }}</el-button>
+                  </template>
+                </el-popconfirm>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+        <!-- Style 分组 -->
+        <div v-if="styleCategories.length > 0" class="cat-group">
+          <div class="cat-group-title">
+            <el-tag type="primary" size="small" effect="plain">Style</el-tag>
+            <span>{{ t('dbAdmin.categoryStyle') }}</span>
+          </div>
+          <div class="cat-list">
+            <div v-for="cat in styleCategories" :key="cat.id" class="cat-item">
+              <span class="cat-name">{{ cat.name }}</span>
+              <span class="cat-keyword">{{ cat.keyword }}</span>
+              <div class="cat-actions">
+                <el-button link type="primary" size="small" @click="openCatDialog(cat)">{{ t('dbAdmin.actionEdit') }}</el-button>
+                <el-popconfirm
+                  :title="t('dbAdmin.deleteConfirm')"
+                  :confirm-button-text="t('dbAdmin.deleteConfirmOk')"
+                  :cancel-button-text="t('dbAdmin.deleteConfirmCancel')"
+                  confirm-button-type="danger"
+                  @confirm="deleteCat(cat.id)"
+                >
+                  <template #reference>
+                    <el-button link type="danger" size="small">{{ t('dbAdmin.actionDelete') }}</el-button>
+                  </template>
+                </el-popconfirm>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
     </el-card>
 
     <!-- 分类新增/编辑对话框 -->
@@ -52,6 +88,12 @@
       destroy-on-close
     >
       <el-form :model="catForm" label-position="top" size="small">
+        <el-form-item :label="t('dbAdmin.categoryType')" required>
+          <el-radio-group v-model="catForm.type">
+            <el-radio value="material">Material （材质）</el-radio>
+            <el-radio value="style">Style （款式）</el-radio>
+          </el-radio-group>
+        </el-form-item>
         <el-form-item :label="t('dbAdmin.categoryName')" required>
           <el-input v-model="catForm.name" :placeholder="t('dbAdmin.categoryNamePlaceholder')" clearable />
         </el-form-item>
@@ -416,13 +458,16 @@ function getColWidth(col) {
   return 120
 }
 
-// ─── 分类管理 ────────────────────────────────────────────────────
+// ─── 分类管理 ────────────────────────────────────────────────────────────────────────────────
 const categories = ref([])
 const catLoading = ref(false)
 const catDialogVisible = ref(false)
 const catEditing = ref(null) // null=新增, object=编辑
-const catForm = ref({ name: '', keyword: '', sort_order: 0 })
+const catForm = ref({ name: '', keyword: '', type: 'style', sort_order: 0 })
 const catSubmitting = ref(false)
+
+const materialCategories = computed(() => categories.value.filter(c => c.type === 'material'))
+const styleCategories = computed(() => categories.value.filter(c => c.type === 'style'))
 
 async function loadCategories() {
   catLoading.value = true
@@ -439,8 +484,8 @@ async function loadCategories() {
 function openCatDialog(cat = null) {
   catEditing.value = cat
   catForm.value = cat
-    ? { name: cat.name, keyword: cat.keyword, sort_order: cat.sort_order || 0 }
-    : { name: '', keyword: '', sort_order: 0 }
+    ? { name: cat.name, keyword: cat.keyword, type: cat.type || 'style', sort_order: cat.sort_order || 0 }
+    : { name: '', keyword: '', type: 'style', sort_order: 0 }
   catDialogVisible.value = true
 }
 
@@ -669,6 +714,19 @@ onMounted(async () => {
 
 /* 分类管理 */
 .category-card { margin-bottom: 16px; }
+.cat-group {
+  margin-bottom: 16px;
+}
+.cat-group:last-child { margin-bottom: 0; }
+.cat-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #606266;
+}
 .cat-list {
   display: flex;
   flex-wrap: wrap;
