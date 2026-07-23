@@ -65,7 +65,7 @@
           </div>
           <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
             <!-- 已同步标签 -->
-            <el-tag v-if="squareSynced" type="success" size="large" style="font-size: 13px; padding: 0 12px; height: 36px; line-height: 36px;">
+            <el-tag v-if="squareSynced && !syncing" type="success" size="large" style="font-size: 13px; padding: 0 12px; height: 36px; line-height: 36px;">
               <el-icon style="margin-right: 4px;"><CircleCheck /></el-icon>
               已同步 Square
               <span v-if="squareSyncedAt" style="margin-left: 6px; font-size: 11px; opacity: 0.8;">
@@ -74,6 +74,7 @@
             </el-tag>
             <!-- 同步按钮 -->
             <el-tooltip
+              v-if="!syncing"
               :content="store.checkProgress < 100 ? $t('checklist.syncTooltip', { n: store.totalItems - store.checkedCount }) : ''"
               :disabled="store.checkProgress === 100"
               placement="top"
@@ -82,7 +83,6 @@
                 <el-button
                   :type="squareSynced ? 'warning' : 'primary'"
                   size="large"
-                  :loading="syncing"
                   :disabled="store.checkProgress < 100"
                   @click="syncToSquare"
                 >
@@ -91,6 +91,28 @@
                 </el-button>
               </span>
             </el-tooltip>
+          </div>
+        </div>
+        <!-- 同步进度条 -->
+        <div v-if="syncing" class="sync-progress-section">
+          <div class="sync-progress-header">
+            <span class="sync-progress-label">{{ syncProgressMessage }}</span>
+            <span class="sync-progress-percent">{{ syncProgress }}%</span>
+          </div>
+          <el-progress
+            :percentage="syncProgress"
+            :stroke-width="12"
+            :show-text="false"
+            :status="syncProgress === 100 ? 'success' : ''"
+            style="margin-top: 8px;"
+          />
+          <div v-if="syncCurrentItem" class="sync-progress-item">
+            正在处理: {{ syncCurrentItem }}
+          </div>
+          <div class="sync-progress-stats">
+            <span>已同步: {{ syncSynced }}</span>
+            <span>跳过: {{ syncSkipped }}</span>
+            <span>未匹配: {{ syncUnmatched }}</span>
           </div>
         </div>
       </el-card>
@@ -452,7 +474,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useExhibitionStore } from '@/stores/exhibition'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -465,6 +487,14 @@ const router = useRouter()
 const store = useExhibitionStore()
 const id = route.params.id
 const syncing = ref(false)
+const syncTaskId = ref(null)
+const syncProgress = ref(0)
+const syncProgressMessage = ref('')
+const syncCurrentItem = ref('')
+const syncSynced = ref(0)
+const syncSkipped = ref(0)
+const syncUnmatched = ref(0)
+let syncPollTimer = null
 
 // Square 同步状态
 const squareSynced = ref(false)
@@ -631,6 +661,84 @@ async function checkAll(checked) {
   }
 }
 
+function resetSyncProgress() {
+  syncProgress.value = 0
+  syncProgressMessage.value = ''
+  syncCurrentItem.value = ''
+  syncSynced.value = 0
+  syncSkipped.value = 0
+  syncUnmatched.value = 0
+  syncTaskId.value = null
+}
+
+function stopSyncPolling() {
+  if (syncPollTimer) {
+    clearInterval(syncPollTimer)
+    syncPollTimer = null
+  }
+}
+
+function startSyncPolling(taskId) {
+  stopSyncPolling()
+  syncPollTimer = setInterval(async () => {
+    try {
+      const res = await squareApi.getSyncTaskProgress(taskId)
+      if (!res.success) return
+
+      syncProgress.value = res.progress || 0
+      syncProgressMessage.value = res.message || ''
+      syncCurrentItem.value = res.currentItem || ''
+      syncSynced.value = res.synced || 0
+      syncSkipped.value = res.skipped || 0
+      syncUnmatched.value = res.unmatched || 0
+
+      if (res.status === 'completed') {
+        stopSyncPolling()
+        syncing.value = false
+        squareSynced.value = true
+        squareSyncedAt.value = new Date().toISOString()
+
+        const result = res.results
+        if (result?.unmatched && result.unmatched.length > 0) {
+          unmatchedItems.value = result.unmatched.map((item) => ({
+            ...item,
+            customName: item.product_title || '',
+            customVariantName: item.variant_title || 'Default',
+            customPrice: 0,
+            customDescription: '',
+            includeInSquare: true,
+          }))
+          unmatchedDialogVisible.value = true
+        } else {
+          try {
+            await ElMessageBox.confirm(
+              t('checklist.goReplenishment'),
+              t('checklist.syncSuccess'),
+              {
+                confirmButtonText: t('checklist.goReplenishmentBtn'),
+                cancelButtonText: t('checklist.stayHere'),
+                type: 'success',
+              }
+            )
+            router.push(`/exhibitions/${id}/replenishment`)
+          } catch {
+            router.push(`/exhibitions/${id}`)
+          }
+        }
+        resetSyncProgress()
+      } else if (res.status === 'failed') {
+        stopSyncPolling()
+        syncing.value = false
+        ElMessage.error(t('checklist.syncFailed', { msg: res.error || '未知错误' }))
+        resetSyncProgress()
+      }
+    } catch (err) {
+      // 网络错误不停止轮询，继续重试
+      console.warn('[sync-poll] 查询进度失败:', err.message)
+    }
+  }, 1500) // 每 1.5 秒查询一次
+}
+
 async function syncToSquare() {
   if (store.checkProgress < 100) {
     ElMessage.warning(t('checklist.uncheckedWarning', { n: store.totalItems - store.checkedCount }))
@@ -656,44 +764,55 @@ async function syncToSquare() {
   }
 
   syncing.value = true
+  resetSyncProgress()
+  syncProgressMessage.value = '正在启动同步任务...'
+
   try {
     const result = await store.syncBeforeExhibition(id, squareSynced.value)
 
-    // 同步成功后更新本地状态
-    squareSynced.value = true
-    squareSyncedAt.value = new Date().toISOString()
-
-    if (result?.unmatched && result.unmatched.length > 0) {
-      unmatchedItems.value = result.unmatched.map((item) => ({
-        ...item,
-        customName: item.product_title || '',
-        customVariantName: item.variant_title || 'Default',
-        customPrice: 0,
-        customDescription: '',
-        includeInSquare: true,
-      }))
-      unmatchedDialogVisible.value = true
+    if (result?.task_id) {
+      // 异步任务模式：开始轮询进度
+      syncTaskId.value = result.task_id
+      syncProgressMessage.value = '同步任务已启动，正在处理...'
+      startSyncPolling(result.task_id)
     } else {
-      // 同步成功，提示是否跳转到展中补货
-      try {
-        await ElMessageBox.confirm(
-          t('checklist.goReplenishment'),
-          t('checklist.syncSuccess'),
-          {
-            confirmButtonText: t('checklist.goReplenishmentBtn'),
-            cancelButtonText: t('checklist.stayHere'),
-            type: 'success',
-          }
-        )
-        router.push(`/exhibitions/${id}/replenishment`)
-      } catch {
-        router.push(`/exhibitions/${id}`)
+      // 兼容旧的同步返回模式
+      syncing.value = false
+      squareSynced.value = true
+      squareSyncedAt.value = new Date().toISOString()
+
+      if (result?.unmatched && result.unmatched.length > 0) {
+        unmatchedItems.value = result.unmatched.map((item) => ({
+          ...item,
+          customName: item.product_title || '',
+          customVariantName: item.variant_title || 'Default',
+          customPrice: 0,
+          customDescription: '',
+          includeInSquare: true,
+        }))
+        unmatchedDialogVisible.value = true
+      } else {
+        try {
+          await ElMessageBox.confirm(
+            t('checklist.goReplenishment'),
+            t('checklist.syncSuccess'),
+            {
+              confirmButtonText: t('checklist.goReplenishmentBtn'),
+              cancelButtonText: t('checklist.stayHere'),
+              type: 'success',
+            }
+          )
+          router.push(`/exhibitions/${id}/replenishment`)
+        } catch {
+          router.push(`/exhibitions/${id}`)
+        }
       }
+      resetSyncProgress()
     }
   } catch (err) {
-    ElMessage.error(t('checklist.syncFailed', { msg: err.message }))
-  } finally {
     syncing.value = false
+    ElMessage.error(t('checklist.syncFailed', { msg: err.message }))
+    resetSyncProgress()
   }
 }
 
@@ -792,6 +911,10 @@ onMounted(async () => {
   } catch (e) {
     // 忽略分类加载失败
   }
+})
+
+onBeforeUnmount(() => {
+  stopSyncPolling()
 })
 </script>
 
@@ -960,6 +1083,48 @@ onMounted(async () => {
 .sync-info { flex: 1; }
 .sync-title { display: flex; align-items: center; gap: 8px; font-size: 16px; font-weight: 700; margin-bottom: 6px; color: #303133; }
 .sync-desc { font-size: 13px; color: #606266; display: flex; align-items: center; flex-wrap: wrap; }
+
+/* 同步进度条 */
+.sync-progress-section {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #ebeef5;
+}
+.sync-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.sync-progress-label {
+  font-size: 13px;
+  color: #606266;
+  font-weight: 500;
+}
+.sync-progress-percent {
+  font-size: 14px;
+  font-weight: 700;
+  color: #409eff;
+}
+.sync-progress-item {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #909399;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sync-progress-stats {
+  margin-top: 8px;
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: #909399;
+}
+.sync-progress-stats span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 
 /* 独立筛选卡片 */
 .filter-card {

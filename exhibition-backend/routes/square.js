@@ -3,6 +3,22 @@ const router = express.Router();
 const squareService = require('../services/square');
 const db = require('../db');
 const { snapshotId } = require('../utils/snowflake');
+const crypto = require('crypto');
+
+// ─────────────────────────────────────────────
+// 内存任务存储（用于异步同步任务的进度追踪）
+// ─────────────────────────────────────────────
+const syncTasks = new Map();
+
+// 自动清理已完成超过 30 分钟的任务
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, task] of syncTasks) {
+    if ((task.status === 'completed' || task.status === 'failed') && (now - task.updatedAt > 30 * 60 * 1000)) {
+      syncTasks.delete(id);
+    }
+  }
+}, 5 * 60 * 1000);
 
 // 获取 Square 商品目录
 router.get('/catalog', async (req, res) => {
@@ -63,228 +79,311 @@ router.post('/sync', async (req, res) => {
       }
     }
 
-    // 获取展会商品清单（通过 VIEW 获取 sku/gtin/product_title/variant_title 等商品信息）
+    // 检查是否已有正在进行的同步任务
+    for (const [, task] of syncTasks) {
+      if (task.exhibition_id === exhibition_id && task.status === 'running') {
+        return res.json({
+          success: true,
+          task_id: task.id,
+          message: '同步任务已在进行中',
+        });
+      }
+    }
+
+    // 获取展会商品清单
     const items = db.prepare('SELECT * FROM exhibition_items_view WHERE exhibition_id = ?').all(exhibition_id);
     if (!items.length) {
       return res.status(400).json({ success: false, message: '展会清单为空' });
     }
 
     // ─────────────────────────────────────────────
-    // 优化 1：只拉取一次 Square 目录（TTL 缓存命中时 0 次 API）
+    // 创建异步任务，立即返回 task_id
     // ─────────────────────────────────────────────
-    console.log(`[sync] 开始同步，共 ${items.length} 件商品，sync_type=${sync_type}，force=${!!force}`);
-    const catalog = await squareService.getAllCatalogItems();
+    const taskId = crypto.randomUUID();
+    const task = {
+      id: taskId,
+      exhibition_id,
+      sync_type,
+      force: !!force,
+      status: 'running',      // running | completed | failed
+      total: items.length,
+      completed: 0,
+      synced: 0,
+      skipped: 0,
+      failed: 0,
+      unmatched: 0,
+      currentItem: '',
+      message: '正在初始化...',
+      results: null,
+      error: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    syncTasks.set(taskId, task);
 
-    // ─────────────────────────────────────────────
-    // 优化 2：批量匹配（纯内存操作，传入已有目录）
-    // ─────────────────────────────────────────────
-    const matchResults = await Promise.all(
-      items.map(async (item) => {
-        const match = await squareService.findVariationByGtinOrSku(item.gtin, item.sku, catalog);
-        return { item, match };
-      })
-    );
-
-    // 分离匹配成功和未匹配
-    const matched = matchResults.filter((r) => r.match !== null);
-    const unmatchedItems = matchResults.filter((r) => r.match === null);
-
-    const results = [];
-    const unmatched = [];
-
-    // 收集未匹配商品信息
-    for (const { item } of unmatchedItems) {
-      unmatched.push({
-        shopify_variant_id: item.shopify_variant_id,
-        shopify_product_id: item.shopify_product_id,
-        product_title: item.product_title,
-        variant_title: item.variant_title,
-        sku: item.sku || '',
-        gtin: item.gtin || '',
-        image_url: item.image_url || '',
-        planned_quantity: item.planned_quantity,
-        rack_quantity: item.rack_quantity,
-        stock_quantity: item.stock_quantity,
-      });
-      results.push({
-        shopify_variant_id: item.shopify_variant_id,
-        product_title: item.product_title,
-        variant_title: item.variant_title,
-        status: 'not_found',
-        message: '未在 Square 中找到匹配商品',
-      });
-    }
-
-    if (matched.length === 0) {
-      return res.json({
-        success: true,
-        data: results,
-        unmatched,
-        unmatched_count: unmatched.length,
-      });
-    }
+    // 立即返回 task_id，后台异步执行
+    res.json({ success: true, task_id: taskId, message: '同步任务已启动' });
 
     // ─────────────────────────────────────────────
-    // 优化 3：批量获取所有匹配变体的当前库存（1 次 API）
+    // 后台异步执行同步逻辑
     // ─────────────────────────────────────────────
-    const variationIds = matched.map((r) => r.match.variationId);
-    const inventoryCounts = await squareService.batchGetInventoryCounts(variationIds);
-    console.log(`[sync] 批量获取库存完成，共 ${variationIds.length} 个变体`);
+    (async () => {
+      try {
+        task.message = '正在拉取 Square 商品目录...';
+        task.updatedAt = Date.now();
+        const catalog = await squareService.getAllCatalogItems();
 
-    if (sync_type === 'before') {
-      // ═══════════════════════════════════════════
-      // 出发前：在 Square 现有库存基础上累加 planned_quantity
-      // ═══════════════════════════════════════════
+        task.message = '正在匹配商品...';
+        task.updatedAt = Date.now();
+        const matchResults = await Promise.all(
+          items.map(async (item) => {
+            const match = await squareService.findVariationByGtinOrSku(item.gtin, item.sku, catalog);
+            return { item, match };
+          })
+        );
 
-      // 过滤出需要实际写入的商品（数量有变化的）
-      const toSync = matched.filter(({ item }) => {
-        const lastSyncedQty = item.last_synced_quantity;
-        const plannedQty = item.planned_quantity;
-        // 数量未变动则跳过
-        return !(lastSyncedQty !== null && lastSyncedQty !== undefined && lastSyncedQty === plannedQty);
-      });
+        const matched = matchResults.filter((r) => r.match !== null);
+        const unmatchedItems = matchResults.filter((r) => r.match === null);
 
-      // 记录跳过的商品
-      for (const { item } of matched) {
-        const lastSyncedQty = item.last_synced_quantity;
-        const plannedQty = item.planned_quantity;
-        if (lastSyncedQty !== null && lastSyncedQty !== undefined && lastSyncedQty === plannedQty) {
+        const results = [];
+        const unmatched = [];
+
+        // 收集未匹配商品
+        for (const { item } of unmatchedItems) {
+          unmatched.push({
+            shopify_variant_id: item.shopify_variant_id,
+            shopify_product_id: item.shopify_product_id,
+            product_title: item.product_title,
+            variant_title: item.variant_title,
+            sku: item.sku || '',
+            gtin: item.gtin || '',
+            image_url: item.image_url || '',
+            planned_quantity: item.planned_quantity,
+            rack_quantity: item.rack_quantity,
+            stock_quantity: item.stock_quantity,
+          });
           results.push({
             shopify_variant_id: item.shopify_variant_id,
             product_title: item.product_title,
             variant_title: item.variant_title,
-            status: 'skipped',
-            message: `数量未变动（${plannedQty}），跳过同步`,
+            status: 'not_found',
+            message: '未在 Square 中找到匹配商品',
           });
         }
-      }
+        task.unmatched = unmatched.length;
+        task.updatedAt = Date.now();
 
-      // ─────────────────────────────────────────────
-      // 优化 4：分批写入库存（每批 10 个，间隔 1.1秒，避免 429）
-      // ─────────────────────────────────────────────
-      console.log(`[sync] 分批写入 ${toSync.length} 件商品库存（每批 10 个，间隔 1.1秒）...`);
-      const syncTasks = toSync.map(({ item, match }) => async () => {
-        const plannedQty = item.planned_quantity;
-        const lastSyncedQty = item.last_synced_quantity;
-        const currentQty = inventoryCounts[match.variationId] ?? 0;
+        if (matched.length === 0) {
+          task.status = 'completed';
+          task.completed = task.total;
+          task.message = '同步完成（无匹配商品）';
+          task.results = { data: results, unmatched, unmatched_count: unmatched.length };
+          task.updatedAt = Date.now();
+          return;
+        }
 
-        const deltaQty = (lastSyncedQty !== null && lastSyncedQty !== undefined)
-          ? plannedQty - lastSyncedQty
-          : plannedQty;
+        // 批量获取库存
+        task.message = '正在获取 Square 库存数据...';
+        task.updatedAt = Date.now();
+        const variationIds = matched.map((r) => r.match.variationId);
+        const inventoryCounts = await squareService.batchGetInventoryCounts(variationIds);
 
-        // newTotalQty = Square 同步后实际总量（原有库存 + 带走增量）
-        const newTotalQty = Math.max(0, currentQty + deltaQty);
+        if (sync_type === 'before') {
+          // 过滤需要实际写入的商品
+          const toSync = matched.filter(({ item }) => {
+            const lastSyncedQty = item.last_synced_quantity;
+            const plannedQty = item.planned_quantity;
+            return !(lastSyncedQty !== null && lastSyncedQty !== undefined && lastSyncedQty === plannedQty);
+          });
 
-        // 写入 Square 库存（带重试）
-        await squareService.setInventoryQuantityWithRetry(match.variationId, newTotalQty);
-
-        // 记录快照
-        try {
-          const existing = db.prepare(
-            'SELECT id FROM inventory_snapshots WHERE exhibition_id = ? AND shopify_variant_id = ?'
-          ).get(exhibition_id, item.shopify_variant_id);
-
-          if (existing) {
-            db.prepare(
-              'UPDATE inventory_snapshots SET square_catalog_variation_id = ?, square_quantity_before = ?, square_quantity_after = NULL, sold_quantity = NULL, remaining_quantity = NULL, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
-            ).run(match.variationId, newTotalQty, existing.id);
-          } else {
-            db.prepare(
-              'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before) VALUES (?, ?, ?, ?, ?)'
-            ).run(snapshotId(db), exhibition_id, item.shopify_variant_id, match.variationId, newTotalQty);
+          // 记录跳过的商品
+          for (const { item } of matched) {
+            const lastSyncedQty = item.last_synced_quantity;
+            const plannedQty = item.planned_quantity;
+            if (lastSyncedQty !== null && lastSyncedQty !== undefined && lastSyncedQty === plannedQty) {
+              task.skipped++;
+              task.completed++;
+              results.push({
+                shopify_variant_id: item.shopify_variant_id,
+                product_title: item.product_title,
+                variant_title: item.variant_title,
+                status: 'skipped',
+                message: `数量未变动（${plannedQty}），跳过同步`,
+              });
+            }
           }
 
-          db.prepare(
-            'UPDATE exhibition_items SET last_synced_quantity = ? WHERE exhibition_id = ? AND shopify_variant_id = ?'
-          ).run(plannedQty, exhibition_id, item.shopify_variant_id);
-        } catch (dbErr) {
-          console.warn('[sync] 快照写入失败（不影响库存同步）:', dbErr.message);
+          // 更新总数（只算需要实际同步的 + 跳过的 + 未匹配的）
+          task.total = toSync.length + task.skipped + unmatched.length;
+          task.completed = task.skipped + unmatched.length;
+          task.message = `正在同步库存到 Square（0/${toSync.length}）...`;
+          task.updatedAt = Date.now();
+
+          // 分批写入库存
+          const batchTasks = toSync.map(({ item, match }) => async () => {
+            const plannedQty = item.planned_quantity;
+            const lastSyncedQty = item.last_synced_quantity;
+            const currentQty = inventoryCounts[match.variationId] ?? 0;
+
+            const deltaQty = (lastSyncedQty !== null && lastSyncedQty !== undefined)
+              ? plannedQty - lastSyncedQty
+              : plannedQty;
+
+            const newTotalQty = Math.max(0, currentQty + deltaQty);
+
+            await squareService.setInventoryQuantityWithRetry(match.variationId, newTotalQty);
+
+            // 记录快照
+            try {
+              const existing = db.prepare(
+                'SELECT id FROM inventory_snapshots WHERE exhibition_id = ? AND shopify_variant_id = ?'
+              ).get(exhibition_id, item.shopify_variant_id);
+
+              if (existing) {
+                db.prepare(
+                  'UPDATE inventory_snapshots SET square_catalog_variation_id = ?, square_quantity_before = ?, square_quantity_after = NULL, sold_quantity = NULL, remaining_quantity = NULL, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
+                ).run(match.variationId, newTotalQty, existing.id);
+              } else {
+                db.prepare(
+                  'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before) VALUES (?, ?, ?, ?, ?)'
+                ).run(snapshotId(db), exhibition_id, item.shopify_variant_id, match.variationId, newTotalQty);
+              }
+
+              db.prepare(
+                'UPDATE exhibition_items SET last_synced_quantity = ? WHERE exhibition_id = ? AND shopify_variant_id = ?'
+              ).run(plannedQty, exhibition_id, item.shopify_variant_id);
+            } catch (dbErr) {
+              console.warn('[sync] 快照写入失败:', dbErr.message);
+            }
+
+            task.synced++;
+            task.completed++;
+            task.currentItem = `${item.product_title} - ${item.variant_title}`;
+            task.message = `正在同步库存到 Square（${task.synced}/${toSync.length}）...`;
+            task.updatedAt = Date.now();
+
+            results.push({
+              shopify_variant_id: item.shopify_variant_id,
+              product_title: item.product_title,
+              variant_title: item.variant_title,
+              square_variation_id: match.variationId,
+              match_type: match.matchType,
+              planned_quantity: plannedQty,
+              delta_quantity: deltaQty,
+              square_previous_quantity: currentQty,
+              square_synced_quantity: newTotalQty,
+              status: 'synced',
+              message: `Square 原有 ${currentQty} 件，${deltaQty >= 0 ? '+' : ''}${deltaQty} 件，现有 ${newTotalQty} 件`,
+            });
+          });
+
+          await squareService.executeBatched(batchTasks, 10, 1100, (batchCompleted, batchTotal) => {
+            console.log(`[sync] 进度: ${batchCompleted}/${batchTotal}`);
+          });
+
+          // 同步完成后记录 square_synced_at
+          try {
+            db.prepare(
+              'UPDATE exhibitions SET square_synced_at = CURRENT_TIMESTAMP WHERE id = ?'
+            ).run(exhibition_id);
+          } catch (dbErr) {
+            console.warn('[sync] 更新 square_synced_at 失败:', dbErr.message);
+          }
+
+        } else if (sync_type === 'after') {
+          task.total = matched.length + unmatched.length;
+          task.completed = unmatched.length;
+          task.message = '正在计算卖出量...';
+          task.updatedAt = Date.now();
+
+          for (const { item, match } of matched) {
+            const squareRemaining = inventoryCounts[match.variationId] ?? 0;
+
+            const snapshot = db.prepare(
+              'SELECT * FROM inventory_snapshots WHERE exhibition_id = ? AND shopify_variant_id = ?'
+            ).get(exhibition_id, item.shopify_variant_id);
+
+            const qtyBefore = snapshot ? snapshot.square_quantity_before : item.planned_quantity;
+            const soldQty = Math.max(0, qtyBefore - squareRemaining);
+            const remainingQty = Math.max(0, item.planned_quantity - soldQty);
+
+            if (snapshot) {
+              db.prepare(
+                'UPDATE inventory_snapshots SET square_quantity_after = ?, sold_quantity = ?, remaining_quantity = ?, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
+              ).run(squareRemaining, soldQty, remainingQty, snapshot.id);
+            } else {
+              db.prepare(
+                'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before, square_quantity_after, sold_quantity, remaining_quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+              ).run(snapshotId(db), exhibition_id, item.shopify_variant_id, match.variationId, qtyBefore, squareRemaining, soldQty, remainingQty);
+            }
+
+            task.synced++;
+            task.completed++;
+            task.updatedAt = Date.now();
+
+            results.push({
+              shopify_variant_id: item.shopify_variant_id,
+              product_title: item.product_title,
+              variant_title: item.variant_title,
+              square_variation_id: match.variationId,
+              match_type: match.matchType,
+              planned_quantity: item.planned_quantity,
+              square_quantity_before: qtyBefore,
+              square_quantity_after: squareRemaining,
+              sold_quantity: soldQty,
+              remaining_quantity: remainingQty,
+              status: 'calculated',
+            });
+          }
         }
 
-        results.push({
-          shopify_variant_id: item.shopify_variant_id,
-          product_title: item.product_title,
-          variant_title: item.variant_title,
-          square_variation_id: match.variationId,
-          match_type: match.matchType,
-          planned_quantity: plannedQty,
-          delta_quantity: deltaQty,
-          square_previous_quantity: currentQty,
-          square_synced_quantity: newTotalQty,
-          status: 'synced',
-          message: `Square 原有 ${currentQty} 件，${deltaQty >= 0 ? '+' : ''}${deltaQty} 件，现有 ${newTotalQty} 件`,
-        });
-      });
+        // 任务完成
+        task.status = 'completed';
+        task.message = `同步完成！成功 ${task.synced} 件，跳过 ${task.skipped} 件，未匹配 ${task.unmatched} 件`;
+        task.results = { data: results, unmatched, unmatched_count: unmatched.length };
+        task.updatedAt = Date.now();
+        console.log(`[sync] 任务 ${taskId} 完成: ${task.message}`);
 
-      await squareService.executeBatched(syncTasks, 10, 1100, (completed, total) => {
-        console.log(`[sync] 进度: ${completed}/${total}`);
-      });
-
-      // ─────────────────────────────────────────────
-      // 同步完成后：记录 exhibitions.square_synced_at（防重复锁）
-      // ─────────────────────────────────────────────
-      try {
-        db.prepare(
-          'UPDATE exhibitions SET square_synced_at = CURRENT_TIMESTAMP WHERE id = ?'
-        ).run(exhibition_id);
-        console.log(`[sync] 已记录 exhibitions.square_synced_at for ${exhibition_id}`);
-      } catch (dbErr) {
-        console.warn('[sync] 更新 square_synced_at 失败:', dbErr.message);
+      } catch (err) {
+        task.status = 'failed';
+        task.error = err.message;
+        task.message = `同步失败: ${err.message}`;
+        task.updatedAt = Date.now();
+        console.error(`[sync] 任务 ${taskId} 失败:`, err.message);
       }
+    })();
 
-    } else if (sync_type === 'after') {
-      // ═══════════════════════════════════════════
-      // 展会结束后：读取 Square 当前剩余量，计算卖出量
-      // ═══════════════════════════════════════════
-      for (const { item, match } of matched) {
-        const squareRemaining = inventoryCounts[match.variationId] ?? 0;
-
-        const snapshot = db.prepare(
-          'SELECT * FROM inventory_snapshots WHERE exhibition_id = ? AND shopify_variant_id = ?'
-        ).get(exhibition_id, item.shopify_variant_id);
-
-        const qtyBefore = snapshot ? snapshot.square_quantity_before : item.planned_quantity;
-        const soldQty = Math.max(0, qtyBefore - squareRemaining);
-        const remainingQty = Math.max(0, item.planned_quantity - soldQty);
-
-        if (snapshot) {
-          db.prepare(
-            'UPDATE inventory_snapshots SET square_quantity_after = ?, sold_quantity = ?, remaining_quantity = ?, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
-          ).run(squareRemaining, soldQty, remainingQty, snapshot.id);
-        } else {
-          db.prepare(
-            'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before, square_quantity_after, sold_quantity, remaining_quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-          ).run(snapshotId(db), exhibition_id, item.shopify_variant_id, match.variationId, qtyBefore, squareRemaining, soldQty, remainingQty);
-        }
-
-        results.push({
-          shopify_variant_id: item.shopify_variant_id,
-          product_title: item.product_title,
-          variant_title: item.variant_title,
-          square_variation_id: match.variationId,
-          match_type: match.matchType,
-          planned_quantity: item.planned_quantity,
-          square_quantity_before: qtyBefore,
-          square_quantity_after: squareRemaining,
-          sold_quantity: soldQty,
-          remaining_quantity: remainingQty,
-          status: 'calculated',
-        });
-      }
-    }
-
-    console.log(`[sync] 同步完成，成功 ${results.filter(r => r.status === 'synced' || r.status === 'calculated').length} 件，未匹配 ${unmatched.length} 件`);
-
-    res.json({
-      success: true,
-      data: results,
-      unmatched,
-      unmatched_count: unmatched.length,
-    });
   } catch (err) {
-    console.error('Square 同步失败:', err.message);
-    res.status(500).json({ success: false, message: 'Square 同步失败: ' + err.message });
+    console.error('Square 同步启动失败:', err.message);
+    res.status(500).json({ success: false, message: 'Square 同步启动失败: ' + err.message });
   }
+});
+
+/**
+ * 查询同步任务进度
+ * GET /api/square/sync-task/:task_id
+ */
+router.get('/sync-task/:task_id', (req, res) => {
+  const task = syncTasks.get(req.params.task_id);
+  if (!task) {
+    return res.status(404).json({ success: false, message: '任务不存在或已过期' });
+  }
+  res.json({
+    success: true,
+    task_id: task.id,
+    status: task.status,
+    total: task.total,
+    completed: task.completed,
+    synced: task.synced,
+    skipped: task.skipped,
+    failed: task.failed,
+    unmatched: task.unmatched,
+    progress: task.total > 0 ? Math.round((task.completed / task.total) * 100) : 0,
+    message: task.message,
+    currentItem: task.currentItem,
+    error: task.error,
+    results: task.status === 'completed' ? task.results : null,
+  });
 });
 
 /**

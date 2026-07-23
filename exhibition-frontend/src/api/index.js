@@ -61,6 +61,8 @@ export const squareApi = {
   getSnapshots: (exhibitionId) => api.get(`/square/snapshots/${exhibitionId}`),
   createItems: (exhibitionId, items) =>
     api.post('/square/create-items', { exhibition_id: exhibitionId, items }, { timeout: 300000 }),
+  // 同步任务进度查询
+  getSyncTaskProgress: (taskId) => api.get(`/square/sync-task/${taskId}`),
   // 展中补货
   replenishmentCheck: (exhibitionId) => api.get(`/square/replenishment-check/${exhibitionId}`, { timeout: 120000 }),
   replenishmentConfirm: (exhibitionId, items) =>
