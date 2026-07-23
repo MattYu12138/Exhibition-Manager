@@ -332,6 +332,56 @@ class SquareService {
 
     return response;
   }
+
+  /**
+   * 带重试的库存写入（遇到 429 自动等待重试）
+   * @param {string} catalogObjectId
+   * @param {number} quantity
+   * @param {number} maxRetries - 最大重试次数，默认 5
+   */
+  async setInventoryQuantityWithRetry(catalogObjectId, quantity, maxRetries = 5) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await this.setInventoryQuantity(catalogObjectId, quantity);
+      } catch (err) {
+        const isRateLimited = err.statusCode === 429 || (err.message && err.message.includes('RATE_LIMITED'));
+        if (isRateLimited && attempt < maxRetries) {
+          // 指数退避：1s, 2s, 4s, 8s, 16s
+          const waitMs = Math.pow(2, attempt) * 1000;
+          console.warn(`[Square] 429 Rate Limited，等待 ${waitMs}ms 后重试 (${attempt + 1}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, waitMs));
+        } else {
+          throw err;
+        }
+      }
+    }
+  }
+
+  /**
+   * 分批执行异步任务（控制并发，避免 429）
+   * @param {Array} tasks - 任务数组，每个元素是一个 async 函数
+   * @param {number} batchSize - 每批并发数量，默认 10
+   * @param {number} delayMs - 每批之间的延迟毫秒数，默认 1100
+   * @param {function} onProgress - 进度回调 (completed, total)
+   */
+  async executeBatched(tasks, batchSize = 10, delayMs = 1100, onProgress = null) {
+    const results = [];
+    for (let i = 0; i < tasks.length; i += batchSize) {
+      const batch = tasks.slice(i, i + batchSize);
+      const batchResults = await Promise.all(batch.map(fn => fn()));
+      results.push(...batchResults);
+
+      if (onProgress) {
+        onProgress(results.length, tasks.length);
+      }
+
+      // 如果还有下一批，等待一段时间
+      if (i + batchSize < tasks.length) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+    return results;
+  }
 }
 
 module.exports = new SquareService();

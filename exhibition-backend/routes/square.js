@@ -160,63 +160,65 @@ router.post('/sync', async (req, res) => {
       }
 
       // ─────────────────────────────────────────────
-      // 优化 4：并发写入所有需要同步的商品库存
+      // 优化 4：分批写入库存（每批 10 个，间隔 1.1秒，避免 429）
       // ─────────────────────────────────────────────
-      console.log(`[sync] 并发写入 ${toSync.length} 件商品库存...`);
-      await Promise.all(
-        toSync.map(async ({ item, match }) => {
-          const plannedQty = item.planned_quantity;
-          const lastSyncedQty = item.last_synced_quantity;
-          const currentQty = inventoryCounts[match.variationId] ?? 0;
+      console.log(`[sync] 分批写入 ${toSync.length} 件商品库存（每批 10 个，间隔 1.1秒）...`);
+      const syncTasks = toSync.map(({ item, match }) => async () => {
+        const plannedQty = item.planned_quantity;
+        const lastSyncedQty = item.last_synced_quantity;
+        const currentQty = inventoryCounts[match.variationId] ?? 0;
 
-          const deltaQty = (lastSyncedQty !== null && lastSyncedQty !== undefined)
-            ? plannedQty - lastSyncedQty
-            : plannedQty;
+        const deltaQty = (lastSyncedQty !== null && lastSyncedQty !== undefined)
+          ? plannedQty - lastSyncedQty
+          : plannedQty;
 
-          // newTotalQty = Square 同步后实际总量（原有库存 + 带走增量）
-          const newTotalQty = Math.max(0, currentQty + deltaQty);
+        // newTotalQty = Square 同步后实际总量（原有库存 + 带走增量）
+        const newTotalQty = Math.max(0, currentQty + deltaQty);
 
-          // 写入 Square 库存
-          await squareService.setInventoryQuantity(match.variationId, newTotalQty);
+        // 写入 Square 库存（带重试）
+        await squareService.setInventoryQuantityWithRetry(match.variationId, newTotalQty);
 
-          // 记录快照
-          try {
-            const existing = db.prepare(
-              'SELECT id FROM inventory_snapshots WHERE exhibition_id = ? AND shopify_variant_id = ?'
-            ).get(exhibition_id, item.shopify_variant_id);
+        // 记录快照
+        try {
+          const existing = db.prepare(
+            'SELECT id FROM inventory_snapshots WHERE exhibition_id = ? AND shopify_variant_id = ?'
+          ).get(exhibition_id, item.shopify_variant_id);
 
-            if (existing) {
-              db.prepare(
-                'UPDATE inventory_snapshots SET square_catalog_variation_id = ?, square_quantity_before = ?, square_quantity_after = NULL, sold_quantity = NULL, remaining_quantity = NULL, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
-              ).run(match.variationId, newTotalQty, existing.id);
-            } else {
-              db.prepare(
-                'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before) VALUES (?, ?, ?, ?, ?)'
-              ).run(snapshotId(db), exhibition_id, item.shopify_variant_id, match.variationId, newTotalQty);
-            }
-
+          if (existing) {
             db.prepare(
-              'UPDATE exhibition_items SET last_synced_quantity = ? WHERE exhibition_id = ? AND shopify_variant_id = ?'
-            ).run(plannedQty, exhibition_id, item.shopify_variant_id);
-          } catch (dbErr) {
-            console.warn('[sync] 快照写入失败（不影响库存同步）:', dbErr.message);
+              'UPDATE inventory_snapshots SET square_catalog_variation_id = ?, square_quantity_before = ?, square_quantity_after = NULL, sold_quantity = NULL, remaining_quantity = NULL, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
+            ).run(match.variationId, newTotalQty, existing.id);
+          } else {
+            db.prepare(
+              'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before) VALUES (?, ?, ?, ?, ?)'
+            ).run(snapshotId(db), exhibition_id, item.shopify_variant_id, match.variationId, newTotalQty);
           }
 
-          results.push({
-            shopify_variant_id: item.shopify_variant_id,
-            product_title: item.product_title,
-            variant_title: item.variant_title,
-            square_variation_id: match.variationId,
-            match_type: match.matchType,
-            planned_quantity: plannedQty,
-            delta_quantity: deltaQty,
-            square_previous_quantity: currentQty,
-            square_synced_quantity: newTotalQty,
-            status: 'synced',
-            message: `Square 原有 ${currentQty} 件，${deltaQty >= 0 ? '+' : ''}${deltaQty} 件，现有 ${newTotalQty} 件`,
-          });
-        })
-      );
+          db.prepare(
+            'UPDATE exhibition_items SET last_synced_quantity = ? WHERE exhibition_id = ? AND shopify_variant_id = ?'
+          ).run(plannedQty, exhibition_id, item.shopify_variant_id);
+        } catch (dbErr) {
+          console.warn('[sync] 快照写入失败（不影响库存同步）:', dbErr.message);
+        }
+
+        results.push({
+          shopify_variant_id: item.shopify_variant_id,
+          product_title: item.product_title,
+          variant_title: item.variant_title,
+          square_variation_id: match.variationId,
+          match_type: match.matchType,
+          planned_quantity: plannedQty,
+          delta_quantity: deltaQty,
+          square_previous_quantity: currentQty,
+          square_synced_quantity: newTotalQty,
+          status: 'synced',
+          message: `Square 原有 ${currentQty} 件，${deltaQty >= 0 ? '+' : ''}${deltaQty} 件，现有 ${newTotalQty} 件`,
+        });
+      });
+
+      await squareService.executeBatched(syncTasks, 10, 1100, (completed, total) => {
+        console.log(`[sync] 进度: ${completed}/${total}`);
+      });
 
       // ─────────────────────────────────────────────
       // 同步完成后：记录 exhibitions.square_synced_at（防重复锁）
@@ -340,7 +342,7 @@ router.post('/create-items', async (req, res) => {
           }
 
           if (plannedQty > 0) {
-            await squareService.setInventoryQuantity(variationId, plannedQty);
+            await squareService.setInventoryQuantityWithRetry(variationId, plannedQty);
           }
 
           try {
