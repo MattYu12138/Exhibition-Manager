@@ -53,16 +53,16 @@ export const squareApi = {
   getCatalog: () => api.get('/square/catalog'),
   getSyncStatus: (exhibitionId) => api.get(`/square/sync-status/${exhibitionId}`),
   syncBefore: (exhibitionId, force = false) =>
-    api.post('/square/sync', { exhibition_id: exhibitionId, sync_type: 'before', force }),
+    api.post('/square/sync', { exhibition_id: exhibitionId, sync_type: 'before', force }, { timeout: 300000 }),
   syncAfter: (exhibitionId) =>
-    api.post('/square/sync', { exhibition_id: exhibitionId, sync_type: 'after' }),
+    api.post('/square/sync', { exhibition_id: exhibitionId, sync_type: 'after' }, { timeout: 300000 }),
   updateRemaining: (exhibitionId) =>
-    api.post('/square/sync/update-remaining', { exhibition_id: exhibitionId }),
+    api.post('/square/sync/update-remaining', { exhibition_id: exhibitionId }, { timeout: 300000 }),
   getSnapshots: (exhibitionId) => api.get(`/square/snapshots/${exhibitionId}`),
   createItems: (exhibitionId, items) =>
-    api.post('/square/create-items', { exhibition_id: exhibitionId, items }),
+    api.post('/square/create-items', { exhibition_id: exhibitionId, items }, { timeout: 300000 }),
   // 展中补货
-  replenishmentCheck: (exhibitionId) => api.get(`/square/replenishment-check/${exhibitionId}`),
+  replenishmentCheck: (exhibitionId) => api.get(`/square/replenishment-check/${exhibitionId}`, { timeout: 120000 }),
   replenishmentConfirm: (exhibitionId, items) =>
     api.post('/square/replenishment-confirm', { exhibition_id: exhibitionId, items }),
   replenishmentLog: (exhibitionId) => api.get(`/square/replenishment-log/${exhibitionId}`),
