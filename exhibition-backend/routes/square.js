@@ -478,6 +478,21 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
   try {
     const { exhibition_id } = req.params;
 
+    // ─────────────────────────────────────────────
+    // 前置检查：必须先完成 Square 同步才能使用展中补货
+    // ─────────────────────────────────────────────
+    const exhibition = db.prepare('SELECT square_synced_at FROM exhibitions WHERE id = ?').get(exhibition_id);
+    if (!exhibition) {
+      return res.status(404).json({ success: false, message: '展会不存在' });
+    }
+    if (!exhibition.square_synced_at) {
+      return res.status(403).json({
+        success: false,
+        not_synced: true,
+        message: '请先在清点页面完成"同步到 Square"后，才能使用展中补货功能。',
+      });
+    }
+
     // 确保新字段存在
     try {
       db.prepare(`ALTER TABLE exhibition_items ADD COLUMN replenish_baseline INTEGER`).run();
