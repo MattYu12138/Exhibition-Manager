@@ -676,16 +676,16 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
         : Math.max(0, rackQty - sinceLastReplenish);
 
       // 判断补货状态
-      // 如果衣架剩余 > 挂衣架数量，说明衣架上已足够，强制为 OK
+      // 核心原则：如果货架上的货还是满的（rackRemaining >= rackQty），就不需要补货
       let status = 'ok'; // 充足
-      if (rackRemaining > rackQty) {
-        status = 'ok'; // 衣架剩余超过挂衣架数量，无需补货
-      } else if (storageLeft <= 0 && sinceLastReplenish >= Math.ceil(rackQty / 2)) {
-        status = 'storage_empty'; // 备货已空
-      } else if (rackQty > 0 && sinceLastReplenish >= rackQty) {
-        status = 'priority'; // 优先补货
-      } else if (rackQty > 0 && sinceLastReplenish >= Math.ceil(rackQty / 2)) {
-        status = 'need'; // 需要补货
+      if (rackRemaining >= rackQty) {
+        status = 'ok'; // 货架满的，无需补货
+      } else if (storageLeft <= 0 && rackRemaining < rackQty) {
+        status = 'storage_empty'; // 备货已空且货架不满
+      } else if (rackQty > 0 && rackRemaining <= 0) {
+        status = 'priority'; // 货架已空，优先补货
+      } else if (rackQty > 0 && rackRemaining < Math.ceil(rackQty / 2)) {
+        status = 'need'; // 货架剩余不足一半，需要补货
       }
 
       // 建议补货数量
