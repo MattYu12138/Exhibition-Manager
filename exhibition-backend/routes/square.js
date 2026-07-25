@@ -671,9 +671,10 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
       // 衣架临时剩余：
       // 如果数据库中已有 rack_remaining（补货确认后更新过）则直接使用
       // 否则实时计算： rack_quantity - since_last_replenish
+      // 允许负数：负数表示员工已经自行补货（未走系统），实际架上比预期多
       const rackRemaining = item.rack_remaining !== null && item.rack_remaining !== undefined
         ? item.rack_remaining
-        : Math.max(0, rackQty - sinceLastReplenish);
+        : rackQty - sinceLastReplenish;
 
       // 判断补货状态
       // 核心原则：如果货架上的货还是满的（rackRemaining >= rackQty），就不需要补货
