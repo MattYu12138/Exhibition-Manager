@@ -330,6 +330,21 @@
         </div>
       </div>
     </el-card>
+
+    <!-- 移动端固定浮窗按钮 -->
+    <div class="fab-container">
+      <div class="fab fab-left" @click="fetchData" :class="{ 'fab-loading': loading }">
+        <el-icon :size="24"><Refresh /></el-icon>
+      </div>
+      <div
+        class="fab fab-right"
+        :class="{ 'fab-disabled': selectedItems.length === 0 }"
+        @click="selectedItems.length > 0 && confirmReplenishment()"
+      >
+        <el-icon :size="24"><Check /></el-icon>
+        <span v-if="selectedItems.length > 0" class="fab-badge">{{ selectedItems.length }}</span>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -856,5 +871,71 @@ onMounted(fetchData)
 @media (min-width: 769px) {
   .mobile-list { display: none !important; }
   .desktop-table { display: block; }
+  .fab-container { display: none; }
+}
+
+/* 固定浮窗按钮 */
+.fab-container {
+  position: fixed;
+  bottom: 80px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 0 20px;
+  pointer-events: none;
+  z-index: 999;
+}
+.fab {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  pointer-events: auto;
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.2s, opacity 0.2s;
+}
+.fab:active {
+  transform: scale(0.9);
+}
+.fab-left {
+  background: #409eff;
+  color: #fff;
+}
+.fab-left.fab-loading {
+  animation: fab-spin 1s linear infinite;
+}
+@keyframes fab-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.fab-right {
+  background: #67c23a;
+  color: #fff;
+}
+.fab-right.fab-disabled {
+  background: #c0c4cc;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.fab-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #f56c6c;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
 }
 </style>
