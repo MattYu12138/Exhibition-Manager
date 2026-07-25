@@ -688,9 +688,9 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
         status = 'need'; // 货架剩余不足一半，需要补货
       }
 
-      // 建议补货数量
+      // 建议补货数量：补齐至 rack 数量，受 storageLeft 限制
       const suggestedQty = (status === 'need' || status === 'priority')
-        ? Math.min(3, storageLeft)
+        ? Math.min(Math.max(0, rackQty - rackRemaining), storageLeft)
         : 0;
 
       return {

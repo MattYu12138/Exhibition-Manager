@@ -504,7 +504,7 @@ async function fetchData() {
     allItems.value = data.map(item => ({
       ...item,
       _selected: false,
-      _replenishQty: item.suggested_qty || 3,
+      _replenishQty: item.suggested_qty || Math.max(1, item.rack_quantity - item.rack_remaining),
     }))
     logs.value = logRes.data || []
     categories.value = catRes.data || []
@@ -525,7 +525,7 @@ async function fetchData() {
 async function confirmReplenishment() {
   const toReplenish = selectedItems.value.map(item => ({
     shopify_variant_id: item.shopify_variant_id,
-    replenish_qty: item._replenishQty || 3,
+    replenish_qty: item._replenishQty || 1,
     current_square_qty: item.current_square_qty !== undefined ? item.current_square_qty : null,
   }))
 
