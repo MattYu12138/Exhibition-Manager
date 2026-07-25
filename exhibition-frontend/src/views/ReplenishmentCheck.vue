@@ -283,8 +283,7 @@
                 v-model="item._replenishQty"
                 :min="1"
                 :max="Math.max(1, item.storage_left)"
-                size="small"
-                controls-position="right"
+                size="default"
               />
             </div>
           </div>
@@ -504,7 +503,7 @@ async function fetchData() {
     const data = checkRes.data || []
     allItems.value = data.map(item => ({
       ...item,
-      _selected: item.status === 'priority',
+      _selected: false,
       _replenishQty: item.suggested_qty || 3,
     }))
     logs.value = logRes.data || []
@@ -815,9 +814,23 @@ onMounted(fetchData)
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 10px;
-  padding-top: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid #f0f0f0;
+}
+.mobile-card-footer .el-input-number {
+  width: 160px;
+}
+.mobile-card-footer .el-input-number .el-input__inner {
+  font-size: 18px;
+  font-weight: 600;
+  height: 44px;
+  line-height: 44px;
+}
+.mobile-card-footer .el-input-number .el-input-number__decrease,
+.mobile-card-footer .el-input-number .el-input-number__increase {
+  width: 44px;
+  font-size: 18px;
 }
 
 /* 移动端日志 */
