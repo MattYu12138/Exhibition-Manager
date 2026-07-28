@@ -184,7 +184,7 @@
                   v-if="(row.status === 'need' || row.status === 'priority') && row._selected"
                   v-model="row._replenishQty"
                   :min="1"
-                  :max="Math.max(1, row.storage_left)"
+                  :max="row.rack_quantity || 99"
                   size="small"
                   controls-position="right"
                 />
@@ -282,7 +282,7 @@
               <el-input-number
                 v-model="item._replenishQty"
                 :min="1"
-                :max="Math.max(1, item.storage_left)"
+                :max="item.rack_quantity || 99"
                 size="default"
               />
             </div>
