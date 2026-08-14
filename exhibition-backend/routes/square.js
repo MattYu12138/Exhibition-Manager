@@ -190,26 +190,31 @@ router.post('/sync', async (req, res) => {
 
         if (sync_type === 'before') {
           // 过滤需要实际写入的商品
-          const toSync = matched.filter(({ item }) => {
-            const lastSyncedQty = item.last_synced_quantity;
-            const plannedQty = item.planned_quantity;
-            return !(lastSyncedQty !== null && lastSyncedQty !== undefined && lastSyncedQty === plannedQty);
-          });
-
-          // 记录跳过的商品
-          for (const { item } of matched) {
-            const lastSyncedQty = item.last_synced_quantity;
-            const plannedQty = item.planned_quantity;
-            if (lastSyncedQty !== null && lastSyncedQty !== undefined && lastSyncedQty === plannedQty) {
-              task.skipped++;
-              task.completed++;
-              results.push({
-                shopify_variant_id: item.shopify_variant_id,
-                product_title: item.product_title,
-                variant_title: item.variant_title,
-                status: 'skipped',
-                message: `数量未变动（${plannedQty}），跳过同步`,
+          // force 模式下不跳过任何商品，确保 square_quantity_before 重新记录
+          const toSync = task.force
+            ? matched
+            : matched.filter(({ item }) => {
+                const lastSyncedQty = item.last_synced_quantity;
+                const plannedQty = item.planned_quantity;
+                return !(lastSyncedQty !== null && lastSyncedQty !== undefined && lastSyncedQty === plannedQty);
               });
+
+          // 记录跳过的商品（force 模式下不跳过）
+          if (!task.force) {
+            for (const { item } of matched) {
+              const lastSyncedQty = item.last_synced_quantity;
+              const plannedQty = item.planned_quantity;
+              if (lastSyncedQty !== null && lastSyncedQty !== undefined && lastSyncedQty === plannedQty) {
+                task.skipped++;
+                task.completed++;
+                results.push({
+                  shopify_variant_id: item.shopify_variant_id,
+                  product_title: item.product_title,
+                  variant_title: item.variant_title,
+                  status: 'skipped',
+                  message: `数量未变动（${plannedQty}），跳过同步`,
+                });
+              }
             }
           }
 
