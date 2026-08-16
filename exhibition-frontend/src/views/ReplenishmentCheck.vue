@@ -21,6 +21,12 @@
           <el-tag v-if="needsCount === 0 && priorityCount === 0" type="success" size="large">
             {{ t('replenishment.allSufficient') }}
           </el-tag>
+          <!-- 补满模式开关 -->
+          <div class="mode-toggle">
+            <span class="mode-label" :class="{ active: !fillUpMode }">{{ t('replenishment.modeNormal') || '正常' }}</span>
+            <el-switch v-model="fillUpMode" :active-text="''" :inactive-text="''" style="margin: 0 6px" />
+            <span class="mode-label" :class="{ active: fillUpMode }">{{ t('replenishment.modeFillUp') || '补满' }}</span>
+          </div>
         </div>
         <div class="bar-actions">
           <el-button type="primary" @click="fetchData" :loading="loading">
@@ -367,21 +373,48 @@ const selectedMaterial = ref('')
 const selectedStyle = ref('')
 const searchKeyword = ref('')
 
+// 补满模式开关
+const fillUpMode = ref(false)
+
 // 按 type 分组分类
 const materialCategories = computed(() => categories.value.filter(c => c.type === 'material'))
 const styleCategories = computed(() => categories.value.filter(c => c.type === 'style'))
 const expandedGroups = ref(new Set())
 
-const needsCount = computed(() => allItems.value.filter(i => i.status === 'need' || i.status === 'priority').length)
-const priorityCount = computed(() => allItems.value.filter(i => i.status === 'priority').length)
-const selectedItems = computed(() => allItems.value.filter(i => i._selected))
+// 根据模式计算 effective status
+function getEffectiveStatus(item) {
+  if (!fillUpMode.value) return item.status
+  // 补满模式：只要 rack_remaining < rack_quantity 且 storage_left > 0，就标记为 need
+  if (item.rack_remaining < item.rack_quantity && item.storage_left > 0) {
+    return 'need'
+  }
+  if (item.rack_remaining < item.rack_quantity && item.storage_left <= 0) {
+    return 'storage_empty'
+  }
+  return 'ok'
+}
+
+// 使用 effectiveItems 替代直接使用 allItems 的 status
+const effectiveItems = computed(() => {
+  return allItems.value.map(item => ({
+    ...item,
+    status: getEffectiveStatus(item),
+    _replenishQty: fillUpMode.value
+      ? Math.min(item.rack_quantity - item.rack_remaining, item.storage_left)
+      : item._replenishQty,
+  }))
+})
+
+const needsCount = computed(() => effectiveItems.value.filter(i => i.status === 'need' || i.status === 'priority').length)
+const priorityCount = computed(() => effectiveItems.value.filter(i => i.status === 'priority').length)
+const selectedItems = computed(() => effectiveItems.value.filter(i => i._selected))
 const selectAll = ref(false)
 const isIndeterminate = ref(false)
 
 // 按商品名称分组
 const groupedItems = computed(() => {
   const map = new Map()
-  for (const item of allItems.value) {
+  for (const item of effectiveItems.value) {
     const key = item.product_title || ''
     if (!map.has(key)) {
       map.set(key, {
@@ -588,6 +621,11 @@ onMounted(fetchData)
 .bar-content { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
 .bar-info { display: flex; gap: 8px; flex-wrap: wrap; }
 .bar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* 补满模式开关 */
+.mode-toggle { display: flex; align-items: center; margin-left: 12px; padding: 4px 10px; background: #f5f5f5; border-radius: 20px; }
+.mode-label { font-size: 12px; color: #999; transition: all 0.3s; cursor: default; }
+.mode-label.active { color: #409eff; font-weight: 600; }
 
 /* 搜索框 */
 .filter-bar { margin-bottom: 12px; }

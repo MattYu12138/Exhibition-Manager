@@ -442,5 +442,7 @@ export default {
     filterStyle: "款式",
     colVariant: "规格",
     variants: "个规格",
+    modeNormal: "正常",
+    modeFillUp: "补满",
   },
 }

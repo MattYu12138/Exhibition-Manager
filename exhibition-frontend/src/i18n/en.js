@@ -442,5 +442,7 @@ export default {
     filterStyle: "Style",
     colVariant: "Variant",
     variants: "variants",
+    modeNormal: "Normal",
+    modeFillUp: "Fill Up",
   },
 }
