@@ -917,4 +917,47 @@ router.get('/replenishment-log/:exhibition_id', (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+/**
+ * 手动修改备货剩余 (storage_left)
+ * PUT /api/square/update-storage-left/:exhibition_id
+ * Body: { shopify_variant_id, new_storage_left }
+ * 实际操作：修改 stock_quantity = replenished_qty + new_storage_left
+ */
+router.put('/update-storage-left/:exhibition_id', (req, res) => {
+  try {
+    const { exhibition_id } = req.params;
+    const { shopify_variant_id, new_storage_left } = req.body;
+
+    if (!shopify_variant_id || new_storage_left === undefined || new_storage_left === null) {
+      return res.status(400).json({ success: false, message: 'shopify_variant_id and new_storage_left are required' });
+    }
+
+    const newStorageLeft = Math.max(0, parseInt(new_storage_left, 10));
+
+    const item = db.prepare(
+      'SELECT stock_quantity, replenished_qty FROM exhibition_items WHERE exhibition_id = ? AND shopify_variant_id = ?'
+    ).get(exhibition_id, shopify_variant_id);
+
+    if (!item) {
+      return res.status(404).json({ success: false, message: 'Item not found' });
+    }
+
+    const replenishedQty = item.replenished_qty || 0;
+    const newStockQty = replenishedQty + newStorageLeft;
+
+    db.prepare(
+      'UPDATE exhibition_items SET stock_quantity = ? WHERE exhibition_id = ? AND shopify_variant_id = ?'
+    ).run(newStockQty, exhibition_id, shopify_variant_id);
+
+    res.json({
+      success: true,
+      message: `Storage left updated to ${newStorageLeft}`,
+      data: { stock_quantity: newStockQty, storage_left: newStorageLeft },
+    });
+  } catch (err) {
+    console.error('[update-storage-left] error:', err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;

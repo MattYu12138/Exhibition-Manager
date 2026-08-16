@@ -68,6 +68,8 @@ export const squareApi = {
   replenishmentConfirm: (exhibitionId, items) =>
     api.post('/square/replenishment-confirm', { exhibition_id: exhibitionId, items }),
   replenishmentLog: (exhibitionId) => api.get(`/square/replenishment-log/${exhibitionId}`),
+  updateStorageLeft: (exhibitionId, shopifyVariantId, newStorageLeft) =>
+    api.put(`/square/update-storage-left/${exhibitionId}`, { shopify_variant_id: shopifyVariantId, new_storage_left: newStorageLeft }),
 }
 // ==================== 健康检查 ====================
 export const healthApi = {

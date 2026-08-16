@@ -171,7 +171,21 @@
 
             <el-table-column :label="t('replenishment.colStockRemaining')" width="100" align="center">
               <template #default="{ row }">
-                <span :class="row.storage_left <= 0 ? 'text-danger' : ''">{{ row.storage_left }}</span>
+                <span
+                  v-if="editingStorageId !== row.shopify_variant_id"
+                  :class="[row.storage_left <= 0 ? 'text-danger' : '', 'editable-cell']"
+                  @click="startEditStorage(row)"
+                >{{ row.storage_left }}</span>
+                <el-input-number
+                  v-else
+                  v-model="editingStorageValue"
+                  :min="0"
+                  size="small"
+                  controls-position="right"
+                  @blur="saveStorageLeft(row)"
+                  @keyup.enter="saveStorageLeft(row)"
+                  style="width: 80px"
+                />
               </template>
             </el-table-column>
 
@@ -280,7 +294,21 @@
               </div>
               <div class="mobile-stat">
                 <span class="stat-label">{{ t('replenishment.colStockRemaining') }}</span>
-                <span :class="item.storage_left <= 0 ? 'text-danger' : ''">{{ item.storage_left }}</span>
+                <span
+                  v-if="editingStorageId !== item.shopify_variant_id"
+                  :class="[item.storage_left <= 0 ? 'text-danger' : '', 'editable-cell']"
+                  @click="startEditStorage(item)"
+                >{{ item.storage_left }}</span>
+                <el-input-number
+                  v-else
+                  v-model="editingStorageValue"
+                  :min="0"
+                  size="small"
+                  controls-position="right"
+                  @blur="saveStorageLeft(item)"
+                  @keyup.enter="saveStorageLeft(item)"
+                  style="width: 70px"
+                />
               </div>
             </div>
             <div v-if="(item.status === 'need' || item.status === 'priority') && item._selected" class="mobile-card-footer">
@@ -525,6 +553,30 @@ function mobileCardClass(item) {
   }
 }
 
+// ─── 手动修改 Storage Left ───
+const editingStorageId = ref(null)
+const editingStorageValue = ref(0)
+
+function startEditStorage(item) {
+  editingStorageId.value = item.shopify_variant_id
+  editingStorageValue.value = item.storage_left
+}
+
+async function saveStorageLeft(item) {
+  const newVal = editingStorageValue.value
+  editingStorageId.value = null
+  if (newVal === item.storage_left) return // 没改动
+
+  try {
+    await squareApi.updateStorageLeft(exhibitionId, item.shopify_variant_id, newVal)
+    item.storage_left = newVal
+    item.storage = (item.replenished_qty || 0) + newVal
+    ElMessage.success(`Storage Left 已更新为 ${newVal}`)
+  } catch (err) {
+    ElMessage.error('更新失败: ' + (err.message || ''))
+  }
+}
+
 function handleSelectAll(val) {
   allItems.value.forEach(item => {
     if (item.status === 'need' || item.status === 'priority') {
@@ -630,6 +682,10 @@ onMounted(fetchData)
 .mode-toggle { display: flex; align-items: center; margin-left: 12px; padding: 4px 10px; background: #f5f5f5; border-radius: 20px; }
 .mode-label { font-size: 12px; color: #999; transition: all 0.3s; cursor: default; }
 .mode-label.active { color: #409eff; font-weight: 600; }
+
+/* 可编辑单元格 */
+.editable-cell { cursor: pointer; border-bottom: 1px dashed #ccc; padding: 2px 4px; transition: all 0.2s; }
+.editable-cell:hover { background: #f0f9ff; border-color: #409eff; }
 
 /* 搜索框 */
 .filter-bar { margin-bottom: 12px; }
