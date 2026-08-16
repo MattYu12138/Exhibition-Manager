@@ -967,12 +967,27 @@ onMounted(fetchData)
 @media (max-width: 768px) {
   .page-header { margin-bottom: 12px; }
   .page-title { font-size: 17px; }
-  .bar-content { flex-direction: column; align-items: flex-start; }
-  .bar-actions { width: 100%; }
-  .bar-actions .el-button { flex: 1; }
+  .bar-content { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .bar-info { width: 100%; justify-content: space-between; align-items: center; }
+  .bar-info .el-tag { font-size: 12px; }
+  .mode-toggle { margin-left: 0; margin-top: 4px; width: 100%; justify-content: center; padding: 8px 16px; background: #f8f8f8; border-radius: 24px; }
+  .mode-label { font-size: 14px; }
+  .bar-actions { width: 100%; display: flex; }
+  .bar-actions .el-button { flex: 1; height: 40px; font-size: 14px; }
   .desktop-table { display: none !important; }
   .mobile-list { display: block; }
   .log-card :deep(.el-card__body) { padding: 12px; }
+  .filter-card { margin-bottom: 8px; }
+  .filter-card :deep(.el-card__body) { padding: 10px 12px; }
+  .filter-card-title { font-size: 11px; margin-bottom: 6px; }
+  .category-tags { gap: 6px; }
+  .cat-tag { font-size: 12px; padding: 4px 10px; }
+  .mobile-card-body { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .mobile-stat { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .stat-label { font-size: 11px; }
+  .mobile-stat .qty-badge { font-size: 16px; }
+  .mobile-stat .editable-cell { font-size: 16px; padding: 4px 8px; }
+  .mobile-card-footer .el-input-number { width: 180px; }
 }
 @media (min-width: 769px) {
   .mobile-list { display: none !important; }
