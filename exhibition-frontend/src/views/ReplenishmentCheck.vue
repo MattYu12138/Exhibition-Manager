@@ -401,8 +401,8 @@ const selectedMaterial = ref('')
 const selectedStyle = ref('')
 const searchKeyword = ref('')
 
-// 补满模式开关
-const fillUpMode = ref(false)
+// 补满模式开关（刷新后保留状态）
+const fillUpMode = ref(localStorage.getItem('replenish_fillUpMode') === 'true')
 
 // 按 type 分组分类
 const materialCategories = computed(() => categories.value.filter(c => c.type === 'material'))
@@ -422,11 +422,12 @@ function getEffectiveStatus(item) {
   return 'ok'
 }
 
-// 当 fillUpMode 切换时，直接更新 allItems 中每个 item 的 status 和 _replenishQty
-watch(fillUpMode, () => {
+// 当 fillUpMode 切换时，保存到 localStorage 并更新 allItems
+watch(fillUpMode, (val) => {
+  localStorage.setItem('replenish_fillUpMode', val ? 'true' : 'false')
   for (const item of allItems.value) {
     item.status = getEffectiveStatus(item)
-    if (fillUpMode.value) {
+    if (val) {
       item._replenishQty = Math.max(1, Math.min(item.rack_quantity - item.rack_remaining, item.storage_left))
     } else {
       item._replenishQty = item._defaultReplenishQty
@@ -610,6 +611,13 @@ async function fetchData() {
       _defaultReplenishQty: defaultQty(item),
       _replenishQty: defaultQty(item),
     }))
+    // 如果当前是补满模式，刷新后重新应用 status
+    if (fillUpMode.value) {
+      for (const item of allItems.value) {
+        item.status = getEffectiveStatus(item)
+        item._replenishQty = Math.max(1, Math.min(item.rack_quantity - item.rack_remaining, item.storage_left))
+      }
+    }
     logs.value = logRes.data || []
     categories.value = catRes.data || []
     // 默认展开有需要补货的分组
