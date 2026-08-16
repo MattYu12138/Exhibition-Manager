@@ -46,9 +46,15 @@
               </button>
               <button
                 @click="syncSquare"
-                class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg flex items-center gap-2"
+                class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
               >
                 <img :src="squareLogoUrl" class="w-4 h-4 object-contain" /> {{ t('inventory.syncSquare') }}
+              </button>
+              <button
+                @click="openImportToSquare"
+                class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg flex items-center gap-2 border-t border-gray-100"
+              >
+                <span class="w-4 h-4 flex items-center justify-center text-xs">📤</span> {{ t('inventory.importToSquare') || 'Import to Square' }}
               </button>
             </div>
           </div>
@@ -1237,6 +1243,149 @@
         </div>
       </div>
     </div>
+
+    <!-- ═══ Import to Square Dialog ═══ -->
+    <div v-if="showImportDialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+        <!-- Header -->
+        <div class="px-6 py-4 border-b flex items-center justify-between">
+          <h2 class="text-lg font-semibold">📤 Import Shopify Products to Square</h2>
+          <button @click="showImportDialog = false" class="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+        </div>
+
+        <!-- Content -->
+        <div class="flex-1 overflow-y-auto p-6">
+          <!-- Loading state -->
+          <div v-if="importComparing" class="text-center py-12">
+            <div class="animate-spin text-3xl mb-3">⟳</div>
+            <p class="text-gray-500">Comparing Shopify and Square catalogs...</p>
+          </div>
+
+          <!-- Compare Results -->
+          <div v-else-if="importCompareResult && !importRunning">
+            <!-- Summary -->
+            <div class="grid grid-cols-4 gap-4 mb-6">
+              <div class="bg-gray-50 rounded-lg p-3 text-center">
+                <div class="text-2xl font-bold">{{ importCompareResult.summary.total_shopify }}</div>
+                <div class="text-xs text-gray-500">Shopify Products</div>
+              </div>
+              <div class="bg-green-50 rounded-lg p-3 text-center">
+                <div class="text-2xl font-bold text-green-600">{{ importCompareResult.summary.matched }}</div>
+                <div class="text-xs text-gray-500">Already in Square</div>
+              </div>
+              <div class="bg-blue-50 rounded-lg p-3 text-center">
+                <div class="text-2xl font-bold text-blue-600">{{ importCompareResult.summary.unmatched }}</div>
+                <div class="text-xs text-gray-500">Not in Square</div>
+              </div>
+              <div class="bg-yellow-50 rounded-lg p-3 text-center">
+                <div class="text-2xl font-bold text-yellow-600">{{ importCompareResult.summary.partial_match }}</div>
+                <div class="text-xs text-gray-500">Partial Match</div>
+              </div>
+            </div>
+
+            <!-- Unmatched products (ready to import) -->
+            <div v-if="importCompareResult.unmatched.length > 0" class="mb-6">
+              <h3 class="font-semibold text-sm mb-2 flex items-center gap-2">
+                <span class="text-blue-600">●</span> Ready to Import ({{ importCompareResult.unmatched.length }} products)
+              </h3>
+              <div class="border rounded-lg max-h-60 overflow-y-auto">
+                <div v-for="item in importCompareResult.unmatched" :key="item.product_id" class="flex items-center gap-3 px-4 py-2 border-b last:border-b-0 hover:bg-gray-50">
+                  <input type="checkbox" v-model="importSelectedProducts" :value="item.product_id" class="rounded" />
+                  <img v-if="item.main_image" :src="item.main_image" class="w-8 h-8 rounded object-cover" />
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium truncate">{{ item.title }}</div>
+                    <div class="text-xs text-gray-400">{{ item.variants.length }} variants</div>
+                  </div>
+                </div>
+              </div>
+              <div class="mt-2 flex items-center gap-3">
+                <button @click="importSelectedProducts = importCompareResult.unmatched.map(i => i.product_id)" class="text-xs text-blue-600 hover:underline">Select All</button>
+                <button @click="importSelectedProducts = []" class="text-xs text-gray-500 hover:underline">Deselect All</button>
+                <span class="text-xs text-gray-400">{{ importSelectedProducts.length }} selected</span>
+              </div>
+            </div>
+
+            <!-- Partial match (needs review) -->
+            <div v-if="importCompareResult.partialMatch.length > 0" class="mb-6">
+              <h3 class="font-semibold text-sm mb-2 flex items-center gap-2">
+                <span class="text-yellow-500">●</span> Needs Review ({{ importCompareResult.partialMatch.length }} products)
+                <span class="text-xs text-gray-400 font-normal">— Name matches but SKU/GTIN differ</span>
+              </h3>
+              <div class="border rounded-lg max-h-60 overflow-y-auto">
+                <div v-for="item in importCompareResult.partialMatch" :key="item.product_id" class="px-4 py-3 border-b last:border-b-0">
+                  <div class="flex items-center gap-3">
+                    <img v-if="item.main_image" :src="item.main_image" class="w-8 h-8 rounded object-cover" />
+                    <div class="flex-1">
+                      <div class="text-sm font-medium">{{ item.title }}</div>
+                      <div class="text-xs text-gray-400">{{ item.matched_variants }}/{{ item.total_variants }} variants matched</div>
+                    </div>
+                    <span class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded">Review</span>
+                  </div>
+                  <div v-if="item.unmatched_variants.length > 0" class="mt-2 ml-11">
+                    <div class="text-xs text-gray-500 mb-1">Unmatched variants:</div>
+                    <div v-for="v in item.unmatched_variants" :key="v.id" class="text-xs text-gray-600 flex gap-4">
+                      <span>{{ v.variant_title }}</span>
+                      <span class="text-gray-400">SKU: {{ v.sku || '—' }}</span>
+                      <span class="text-gray-400">GTIN: {{ v.gtin || '—' }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Import Progress -->
+          <div v-if="importRunning" class="py-8">
+            <div class="mb-4 text-center">
+              <div class="text-sm text-gray-600 mb-2">{{ importTaskStatus.message }}</div>
+              <div class="w-full bg-gray-200 rounded-full h-3">
+                <div class="bg-purple-600 h-3 rounded-full transition-all duration-300" :style="{ width: importProgress + '%' }"></div>
+              </div>
+              <div class="text-xs text-gray-400 mt-1">{{ importTaskStatus.completed }}/{{ importTaskStatus.total }} ({{ importProgress }}%)</div>
+            </div>
+            <div v-if="importTaskStatus.currentItem" class="text-center text-xs text-gray-500">
+              Current: {{ importTaskStatus.currentItem }}
+            </div>
+          </div>
+
+          <!-- Import Complete -->
+          <div v-if="importTaskStatus && importTaskStatus.status === 'completed' && !importRunning">
+            <div class="text-center py-6">
+              <div class="text-3xl mb-2">✅</div>
+              <div class="text-lg font-semibold text-green-600">Import Complete</div>
+              <div class="text-sm text-gray-500 mt-1">{{ importTaskStatus.succeeded }} succeeded, {{ importTaskStatus.failed }} failed</div>
+            </div>
+            <div v-if="importTaskStatus.errors && importTaskStatus.errors.length > 0" class="mt-4">
+              <h4 class="text-sm font-semibold text-red-600 mb-2">Failed Items:</h4>
+              <div class="border border-red-200 rounded-lg max-h-40 overflow-y-auto">
+                <div v-for="err in importTaskStatus.errors" :key="err.product_id" class="px-4 py-2 border-b last:border-b-0 text-sm">
+                  <span class="font-medium">{{ err.title }}</span>
+                  <span class="text-red-500 text-xs ml-2">{{ err.error }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="px-6 py-4 border-t flex items-center justify-between bg-gray-50 rounded-b-xl">
+          <div class="text-xs text-gray-400">
+            <span v-if="!importRunning && importCompareResult">10 products per batch, ~1.5s delay between batches</span>
+          </div>
+          <div class="flex gap-3">
+            <button @click="showImportDialog = false" class="border px-4 py-2 rounded-lg text-sm hover:bg-gray-100">Close</button>
+            <button
+              v-if="importCompareResult && !importRunning && importTaskStatus?.status !== 'completed'"
+              @click="startImport"
+              :disabled="importSelectedProducts.length === 0"
+              class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg text-sm disabled:opacity-50 flex items-center gap-2"
+            >
+              📤 Import {{ importSelectedProducts.length }} Products to Square
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -2333,8 +2482,96 @@ async function commitChanges() {
   }
 }
 
+// ─── Import to Square ────────────────────────────────────────────────────────────────
+const showImportDialog = ref(false)
+const importComparing = ref(false)
+const importCompareResult = ref(null)
+const importSelectedProducts = ref([])
+const importRunning = ref(false)
+const importTaskId = ref(null)
+const importTaskStatus = ref(null)
+let importPollTimer = null
+
+const importProgress = computed(() => {
+  if (!importTaskStatus.value || !importTaskStatus.value.total) return 0
+  return Math.round((importTaskStatus.value.completed / importTaskStatus.value.total) * 100)
+})
+
+async function openImportToSquare() {
+  showSyncDropdown.value = false
+  showImportDialog.value = true
+  importCompareResult.value = null
+  importSelectedProducts.value = []
+  importRunning.value = false
+  importTaskId.value = null
+  importTaskStatus.value = null
+
+  // Run comparison
+  importComparing.value = true
+  try {
+    const res = await api.post('/products/shopify-to-square-compare')
+    importCompareResult.value = res.data
+    // Auto-select all unmatched products
+    importSelectedProducts.value = (res.data.unmatched || []).map(i => i.product_id)
+  } catch (err) {
+    alert('Compare failed: ' + (err.response?.data?.error || err.message))
+    showImportDialog.value = false
+  } finally {
+    importComparing.value = false
+  }
+}
+
+async function startImport() {
+  if (importSelectedProducts.value.length === 0) return
+
+  // Build products payload from selected
+  const products = importCompareResult.value.unmatched
+    .filter(p => importSelectedProducts.value.includes(p.product_id))
+    .map(p => ({
+      product_id: p.product_id,
+      title: p.title,
+      description: p.description || '',
+      variants: p.variants,
+    }))
+
+  importRunning.value = true
+  try {
+    const res = await api.post('/products/shopify-to-square-import', { products })
+    importTaskId.value = res.data.task_id
+    importTaskStatus.value = { status: 'running', total: products.length, completed: 0, succeeded: 0, failed: 0, message: 'Starting...', currentItem: '' }
+    // Start polling
+    pollImportProgress()
+  } catch (err) {
+    alert('Import failed: ' + (err.response?.data?.error || err.message))
+    importRunning.value = false
+  }
+}
+
+function pollImportProgress() {
+  if (importPollTimer) clearInterval(importPollTimer)
+  importPollTimer = setInterval(async () => {
+    try {
+      const res = await api.get(`/products/shopify-to-square-task/${importTaskId.value}`)
+      importTaskStatus.value = res.data
+      if (res.data.status === 'completed' || res.data.status === 'failed') {
+        clearInterval(importPollTimer)
+        importPollTimer = null
+        importRunning.value = false
+        // Refresh Square data
+        await fetchSquareLastSync()
+      }
+    } catch (err) {
+      console.error('Poll error:', err)
+    }
+  }, 1500)
+}
+
 onMounted(async () => {
   await Promise.all([fetchProducts(), fetchLastSync(), fetchSquareLastSync()])
+})
+
+onUnmounted(() => {
+  if (importPollTimer) clearInterval(importPollTimer)
 })
 </script>
 

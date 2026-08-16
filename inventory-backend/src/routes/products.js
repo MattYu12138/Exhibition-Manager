@@ -916,15 +916,353 @@ router.get('/square-search', requirePermission('read'), (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Shopify → Square 批量导入（异步任务模式，10 条/批）
+// ─────────────────────────────────────────────────────────────────────────────
+const crypto = require('crypto');
+const importTasks = new Map();
+
+// 自动清理已完成超过 30 分钟的任务
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, task] of importTasks) {
+    if ((task.status === 'completed' || task.status === 'failed') && (now - task.updatedAt > 30 * 60 * 1000)) {
+      importTasks.delete(id);
+    }
+  }
+}, 5 * 60 * 1000);
+
+/**
+ * POST /api/products/shopify-to-square-compare
+ * Compare Shopify products with Square catalog.
+ * Returns: matched (already in Square), unmatched (not in Square), partialMatch (name similar but SKU/GTIN differ)
+ */
+router.post('/shopify-to-square-compare', requirePermission('read'), async (req, res) => {
+  try {
+    const db = getDb();
+
+    // Check if square_products has data
+    const count = db.prepare('SELECT COUNT(*) as cnt FROM square_products').get();
+    if (!count || count.cnt === 0) {
+      return res.status(400).json({ error: 'Square data not synced yet. Please run Square sync first.' });
+    }
+
+    // Get all Shopify products with variants
+    const allProducts = db.prepare('SELECT * FROM products ORDER BY title').all();
+    const allVariants = db.prepare('SELECT * FROM product_variants').all();
+    const variantsByProduct = {};
+    for (const v of allVariants) {
+      if (!variantsByProduct[v.product_id]) variantsByProduct[v.product_id] = [];
+      variantsByProduct[v.product_id].push(v);
+    }
+
+    // Get all Square products
+    const squareRows = db.prepare('SELECT * FROM square_products').all();
+    const squareSkuSet = new Set();
+    const squareGtinSet = new Set();
+    const squareNameMap = {}; // lowercase item_name -> [variations]
+    for (const sq of squareRows) {
+      if (sq.sku && sq.sku.trim()) squareSkuSet.add(sq.sku.trim());
+      if (sq.gtin && sq.gtin.trim()) squareGtinSet.add(sq.gtin.trim());
+      const nameKey = (sq.item_name || '').toLowerCase().trim();
+      if (!squareNameMap[nameKey]) squareNameMap[nameKey] = [];
+      squareNameMap[nameKey].push(sq);
+    }
+
+    const matched = [];      // Shopify products fully matched in Square
+    const unmatched = [];    // Shopify products NOT in Square at all
+    const partialMatch = []; // Name matches but SKU/GTIN differ
+
+    for (const product of allProducts) {
+      const variants = variantsByProduct[product.id] || [];
+      if (variants.length === 0) continue;
+
+      // Check if ANY variant matches Square by SKU or GTIN
+      let hasFullMatch = false;
+      let hasPartialMatch = false;
+      const unmatchedVariants = [];
+
+      for (const v of variants) {
+        const sku = (v.sku || '').trim();
+        const gtin = (v.gtin || '').trim();
+        const matchedBySku = sku && squareSkuSet.has(sku);
+        const matchedByGtin = gtin && squareGtinSet.has(gtin);
+
+        if (matchedBySku || matchedByGtin) {
+          hasFullMatch = true;
+        } else {
+          unmatchedVariants.push(v);
+        }
+      }
+
+      if (hasFullMatch && unmatchedVariants.length === 0) {
+        // All variants matched
+        matched.push({ product_id: product.id, title: product.title, variant_count: variants.length });
+      } else if (unmatchedVariants.length > 0) {
+        // Check if product name matches a Square item (partial match)
+        const nameKey = (product.title || '').toLowerCase().trim();
+        const nameMatches = squareNameMap[nameKey] || [];
+
+        if (nameMatches.length > 0 && hasFullMatch) {
+          // Some variants match, some don't — partial match
+          partialMatch.push({
+            product_id: product.id,
+            title: product.title,
+            main_image: product.main_image,
+            total_variants: variants.length,
+            matched_variants: variants.length - unmatchedVariants.length,
+            unmatched_variants: unmatchedVariants.map(v => ({
+              id: v.id,
+              variant_title: v.variant_title,
+              sku: v.sku,
+              gtin: v.gtin,
+              price: v.price,
+            })),
+            square_candidates: nameMatches.slice(0, 5).map(sq => ({
+              variation_id: sq.id,
+              item_name: sq.item_name,
+              variation_name: sq.variation_name,
+              sku: sq.sku,
+              gtin: sq.gtin,
+            })),
+          });
+        } else if (!hasFullMatch) {
+          // No variant matches at all
+          // Check name similarity for partial match hint
+          if (nameMatches.length > 0) {
+            partialMatch.push({
+              product_id: product.id,
+              title: product.title,
+              main_image: product.main_image,
+              total_variants: variants.length,
+              matched_variants: 0,
+              unmatched_variants: variants.map(v => ({
+                id: v.id,
+                variant_title: v.variant_title,
+                sku: v.sku,
+                gtin: v.gtin,
+                price: v.price,
+              })),
+              square_candidates: nameMatches.slice(0, 5).map(sq => ({
+                variation_id: sq.id,
+                item_name: sq.item_name,
+                variation_name: sq.variation_name,
+                sku: sq.sku,
+                gtin: sq.gtin,
+              })),
+            });
+          } else {
+            // Completely unmatched — ready to create in Square
+            unmatched.push({
+              product_id: product.id,
+              title: product.title,
+              main_image: product.main_image,
+              description: product.description || '',
+              variants: variants.map(v => ({
+                id: v.id,
+                variant_title: v.variant_title,
+                sku: v.sku,
+                gtin: v.gtin,
+                price: v.price,
+                image_url: v.image_url,
+              })),
+            });
+          }
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      summary: {
+        total_shopify: allProducts.length,
+        total_square: squareRows.length,
+        matched: matched.length,
+        unmatched: unmatched.length,
+        partial_match: partialMatch.length,
+      },
+      matched,
+      unmatched,
+      partialMatch,
+    });
+  } catch (err) {
+    console.error('shopify-to-square-compare error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/products/shopify-to-square-import
+ * Start async batch import of Shopify products to Square.
+ * Body: { products: [{ product_id, title, variants: [...] }] }
+ * Processes 10 products per batch with 1.5s delay between batches.
+ * Returns task_id for progress polling.
+ */
+router.post('/shopify-to-square-import', requirePermission('write'), async (req, res) => {
+  try {
+    const { products } = req.body;
+    if (!products || !Array.isArray(products) || products.length === 0) {
+      return res.status(400).json({ error: 'products array is required and must not be empty' });
+    }
+
+    const taskId = crypto.randomUUID();
+    const task = {
+      id: taskId,
+      status: 'running',
+      total: products.length,
+      completed: 0,
+      succeeded: 0,
+      failed: 0,
+      currentItem: '',
+      message: 'Initializing...',
+      results: [],
+      errors: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    importTasks.set(taskId, task);
+
+    res.json({ success: true, task_id: taskId, message: 'Import task started' });
+
+    // Background async execution
+    (async () => {
+      try {
+        const db = getDb();
+        const locationId = squareService.locationId;
+        const BATCH_SIZE = 10;
+        const BATCH_DELAY_MS = 1500;
+
+        for (let i = 0; i < products.length; i += BATCH_SIZE) {
+          const batch = products.slice(i, i + BATCH_SIZE);
+
+          for (const product of batch) {
+            task.currentItem = product.title;
+            task.message = `Importing: ${product.title} (${task.completed + 1}/${task.total})`;
+            task.updatedAt = Date.now();
+
+            try {
+              // Get variants from DB if not provided in request
+              let variants = product.variants;
+              if (!variants || variants.length === 0) {
+                variants = db.prepare(
+                  'SELECT * FROM product_variants WHERE product_id = ? ORDER BY id'
+                ).all(product.product_id).map(v => ({
+                  variant_title: v.variant_title,
+                  sku: v.sku,
+                  gtin: v.gtin,
+                  price: v.price,
+                }));
+              }
+
+              if (variants.length === 0) {
+                task.errors.push({ product_id: product.product_id, title: product.title, error: 'No variants' });
+                task.failed++;
+                task.completed++;
+                continue;
+              }
+
+              const itemId = `#import-item-${product.product_id}-${Date.now()}`;
+              const squareVariations = variants.map((v, idx) => ({
+                type: 'ITEM_VARIATION',
+                id: `#import-var-${product.product_id}-${idx}`,
+                itemVariationData: {
+                  itemId,
+                  name: v.variant_title || 'Default',
+                  sku: v.sku || '',
+                  upc: v.gtin || '',
+                  pricingType: 'FIXED_PRICING',
+                  priceMoney: { amount: Math.round((v.price || 0) * 100), currency: 'AUD' },
+                  locationOverrides: locationId ? [{ locationId, trackInventory: true }] : [],
+                },
+              }));
+
+              const upsertRes = await squareService.client.catalog.object.upsert({
+                idempotencyKey: `import-${product.product_id}-${Date.now()}`,
+                object: {
+                  type: 'ITEM',
+                  id: itemId,
+                  itemData: {
+                    name: product.title,
+                    description: product.description || '',
+                    variations: squareVariations,
+                  },
+                },
+              });
+
+              task.results.push({
+                product_id: product.product_id,
+                title: product.title,
+                variant_count: variants.length,
+                squareItemId: upsertRes.catalogObject?.id,
+              });
+              task.succeeded++;
+            } catch (err) {
+              task.errors.push({ product_id: product.product_id, title: product.title, error: err.message });
+              task.failed++;
+            }
+
+            task.completed++;
+            task.updatedAt = Date.now();
+          }
+
+          // Delay between batches (except for the last batch)
+          if (i + BATCH_SIZE < products.length) {
+            task.message = `Batch complete. Waiting before next batch... (${task.completed}/${task.total})`;
+            task.updatedAt = Date.now();
+            await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+          }
+        }
+
+        task.status = 'completed';
+        task.message = `Import complete: ${task.succeeded} succeeded, ${task.failed} failed`;
+        task.updatedAt = Date.now();
+
+        // Invalidate Square catalog cache after import
+        squareService.invalidateCatalogCache();
+      } catch (err) {
+        task.status = 'failed';
+        task.message = `Import failed: ${err.message}`;
+        task.updatedAt = Date.now();
+      }
+    })();
+  } catch (err) {
+    console.error('shopify-to-square-import error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/products/shopify-to-square-task/:taskId
+ * Poll import task progress.
+ */
+router.get('/shopify-to-square-task/:taskId', requirePermission('read'), (req, res) => {
+  const task = importTasks.get(req.params.taskId);
+  if (!task) {
+    return res.status(404).json({ error: 'Task not found' });
+  }
+  res.json({
+    success: true,
+    task_id: task.id,
+    status: task.status,
+    total: task.total,
+    completed: task.completed,
+    succeeded: task.succeeded,
+    failed: task.failed,
+    currentItem: task.currentItem,
+    message: task.message,
+    results: task.status === 'completed' ? task.results : undefined,
+    errors: task.errors.length > 0 ? task.errors : undefined,
+  });
+});
+
 /**
  * POST /api/products/bulk-add-to-square
- * Add ALL Shopify products (with all variants) that have no GTIN/SKU match in Square.
- * Returns a summary of added items.
+ * (Legacy) Add ALL unmatched Shopify products to Square in one go.
+ * Kept for backward compatibility but prefer shopify-to-square-import for batched mode.
  */
 router.post('/bulk-add-to-square', requirePermission('write'), async (req, res) => {
   try {
     const db = getDb();
-    // Get all unmatched Shopify products (distinct product IDs)
     const unmatchedProducts = db.prepare(`
       SELECT DISTINCT p.id AS product_id, p.title, p.description
       FROM product_variants pv
@@ -944,7 +1282,6 @@ router.post('/bulk-add-to-square', requirePermission('write'), async (req, res) 
       ORDER BY p.title
     `).all();
 
-    const squareService = require('../utils/square');
     const locationId = squareService.locationId;
     const results = [];
     const errors = [];
