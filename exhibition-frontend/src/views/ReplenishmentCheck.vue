@@ -355,7 +355,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -383,7 +383,7 @@ const expandedGroups = ref(new Set())
 
 // 根据模式计算 effective status
 function getEffectiveStatus(item) {
-  if (!fillUpMode.value) return item.status
+  if (!fillUpMode.value) return item._originalStatus
   // 补满模式：只要 rack_remaining < rack_quantity 且 storage_left > 0，就标记为 need
   if (item.rack_remaining < item.rack_quantity && item.storage_left > 0) {
     return 'need'
@@ -394,27 +394,28 @@ function getEffectiveStatus(item) {
   return 'ok'
 }
 
-// 使用 effectiveItems 替代直接使用 allItems 的 status
-const effectiveItems = computed(() => {
-  return allItems.value.map(item => ({
-    ...item,
-    status: getEffectiveStatus(item),
-    _replenishQty: fillUpMode.value
-      ? Math.min(item.rack_quantity - item.rack_remaining, item.storage_left)
-      : item._replenishQty,
-  }))
+// 当 fillUpMode 切换时，直接更新 allItems 中每个 item 的 status 和 _replenishQty
+watch(fillUpMode, () => {
+  for (const item of allItems.value) {
+    item.status = getEffectiveStatus(item)
+    if (fillUpMode.value) {
+      item._replenishQty = Math.max(1, Math.min(item.rack_quantity - item.rack_remaining, item.storage_left))
+    } else {
+      item._replenishQty = item._defaultReplenishQty
+    }
+  }
 })
 
-const needsCount = computed(() => effectiveItems.value.filter(i => i.status === 'need' || i.status === 'priority').length)
-const priorityCount = computed(() => effectiveItems.value.filter(i => i.status === 'priority').length)
-const selectedItems = computed(() => effectiveItems.value.filter(i => i._selected))
+const needsCount = computed(() => allItems.value.filter(i => i.status === 'need' || i.status === 'priority').length)
+const priorityCount = computed(() => allItems.value.filter(i => i.status === 'priority').length)
+const selectedItems = computed(() => allItems.value.filter(i => i._selected))
 const selectAll = ref(false)
 const isIndeterminate = ref(false)
 
 // 按商品名称分组
 const groupedItems = computed(() => {
   const map = new Map()
-  for (const item of effectiveItems.value) {
+  for (const item of allItems.value) {
     const key = item.product_title || ''
     if (!map.has(key)) {
       map.set(key, {
@@ -549,10 +550,13 @@ async function fetchData() {
       categoriesApi.getAll().catch(() => ({ data: [] })),
     ])
     const data = checkRes.data || []
+    const defaultQty = (item) => item.suggested_qty || Math.max(1, item.rack_quantity - item.rack_remaining)
     allItems.value = data.map(item => ({
       ...item,
       _selected: false,
-      _replenishQty: item.suggested_qty || Math.max(1, item.rack_quantity - item.rack_remaining),
+      _originalStatus: item.status,
+      _defaultReplenishQty: defaultQty(item),
+      _replenishQty: defaultQty(item),
     }))
     logs.value = logRes.data || []
     categories.value = catRes.data || []
