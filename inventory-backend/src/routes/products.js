@@ -654,7 +654,7 @@ router.post('/square-add-item', requirePermission('write'), async (req, res) => 
         upc: v.gtin || '',
         pricingType: 'FIXED_PRICING',
         priceMoney: {
-          amount: Math.round((v.price || 0) * 100),
+          amount: BigInt(Math.round((v.price || 0) * 100)),
           currency: 'AUD',
         },
         locationOverrides: locationId ? [{ locationId, trackInventory: true }] : [],
@@ -1171,7 +1171,7 @@ router.post('/shopify-to-square-import', requirePermission('write'), async (req,
                   sku: v.sku || '',
                   upc: v.gtin || '',
                   pricingType: 'FIXED_PRICING',
-                  priceMoney: { amount: Math.round((v.price || 0) * 100), currency: 'AUD' },
+                  priceMoney: { amount: BigInt(Math.round((v.price || 0) * 100)), currency: 'AUD' },
                   locationOverrides: locationId ? [{ locationId, trackInventory: true }] : [],
                 },
               }));
@@ -1302,7 +1302,7 @@ router.post('/bulk-add-to-square', requirePermission('write'), async (req, res) 
           sku: v.sku || '',
           upc: v.gtin || '',
           pricingType: 'FIXED_PRICING',
-          priceMoney: { amount: Math.round((v.price || 0) * 100), currency: 'AUD' },
+          priceMoney: { amount: BigInt(Math.round((v.price || 0) * 100)), currency: 'AUD' },
           locationOverrides: locationId ? [{ locationId, trackInventory: true }] : [],
         },
       }));

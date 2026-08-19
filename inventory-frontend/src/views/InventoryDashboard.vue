@@ -1249,7 +1249,7 @@
       <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
         <!-- Header -->
         <div class="px-6 py-4 border-b flex items-center justify-between">
-          <h2 class="text-lg font-semibold">📤 Import Shopify Products to Square</h2>
+          <h2 class="text-lg font-semibold">📤 {{ t('inventory.importTitle') }}</h2>
           <button @click="showImportDialog = false" class="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
         </div>
 
@@ -1258,7 +1258,7 @@
           <!-- Loading state -->
           <div v-if="importComparing" class="text-center py-12">
             <div class="animate-spin text-3xl mb-3">⟳</div>
-            <p class="text-gray-500">Comparing Shopify and Square catalogs...</p>
+            <p class="text-gray-500">{{ t('inventory.importComparing') }}</p>
           </div>
 
           <!-- Compare Results -->
@@ -1267,26 +1267,26 @@
             <div class="grid grid-cols-4 gap-4 mb-6">
               <div class="bg-gray-50 rounded-lg p-3 text-center">
                 <div class="text-2xl font-bold">{{ importCompareResult.summary.total_shopify }}</div>
-                <div class="text-xs text-gray-500">Shopify Products</div>
+                <div class="text-xs text-gray-500">{{ t('inventory.importShopifyProducts') }}</div>
               </div>
               <div class="bg-green-50 rounded-lg p-3 text-center">
                 <div class="text-2xl font-bold text-green-600">{{ importCompareResult.summary.matched }}</div>
-                <div class="text-xs text-gray-500">Already in Square</div>
+                <div class="text-xs text-gray-500">{{ t('inventory.importAlreadyInSquare') }}</div>
               </div>
               <div class="bg-blue-50 rounded-lg p-3 text-center">
                 <div class="text-2xl font-bold text-blue-600">{{ importCompareResult.summary.unmatched }}</div>
-                <div class="text-xs text-gray-500">Not in Square</div>
+                <div class="text-xs text-gray-500">{{ t('inventory.importNotInSquare') }}</div>
               </div>
               <div class="bg-yellow-50 rounded-lg p-3 text-center">
                 <div class="text-2xl font-bold text-yellow-600">{{ importCompareResult.summary.partial_match }}</div>
-                <div class="text-xs text-gray-500">Partial Match</div>
+                <div class="text-xs text-gray-500">{{ t('inventory.importPartialMatch') }}</div>
               </div>
             </div>
 
             <!-- Unmatched products (ready to import) -->
             <div v-if="importCompareResult.unmatched.length > 0" class="mb-6">
               <h3 class="font-semibold text-sm mb-2 flex items-center gap-2">
-                <span class="text-blue-600">●</span> Ready to Import ({{ importCompareResult.unmatched.length }} products)
+                <span class="text-blue-600">●</span> {{ t('inventory.importReadyToImport') }} ({{ importCompareResult.unmatched.length }})
               </h3>
               <div class="border rounded-lg max-h-60 overflow-y-auto">
                 <div v-for="item in importCompareResult.unmatched" :key="item.product_id" class="flex items-center gap-3 px-4 py-2 border-b last:border-b-0 hover:bg-gray-50">
@@ -1294,22 +1294,22 @@
                   <img v-if="item.main_image" :src="item.main_image" class="w-8 h-8 rounded object-cover" />
                   <div class="flex-1 min-w-0">
                     <div class="text-sm font-medium truncate">{{ item.title }}</div>
-                    <div class="text-xs text-gray-400">{{ item.variants.length }} variants</div>
+                    <div class="text-xs text-gray-400">{{ item.variants.length }} {{ t('inventory.importVariants') }}</div>
                   </div>
                 </div>
               </div>
               <div class="mt-2 flex items-center gap-3">
-                <button @click="importSelectedProducts = importCompareResult.unmatched.map(i => i.product_id)" class="text-xs text-blue-600 hover:underline">Select All</button>
-                <button @click="importSelectedProducts = []" class="text-xs text-gray-500 hover:underline">Deselect All</button>
-                <span class="text-xs text-gray-400">{{ importSelectedProducts.length }} selected</span>
+                <button @click="importSelectedProducts = importCompareResult.unmatched.map(i => i.product_id)" class="text-xs text-blue-600 hover:underline">{{ t('inventory.importSelectAll') }}</button>
+                <button @click="importSelectedProducts = []" class="text-xs text-gray-500 hover:underline">{{ t('inventory.importDeselectAll') }}</button>
+                <span class="text-xs text-gray-400">{{ importSelectedProducts.length }} {{ t('inventory.importSelected') }}</span>
               </div>
             </div>
 
             <!-- Partial match (needs review) -->
             <div v-if="importCompareResult.partialMatch.length > 0" class="mb-6">
               <h3 class="font-semibold text-sm mb-2 flex items-center gap-2">
-                <span class="text-yellow-500">●</span> Needs Review ({{ importCompareResult.partialMatch.length }} products)
-                <span class="text-xs text-gray-400 font-normal">— Name matches but SKU/GTIN differ</span>
+                <span class="text-yellow-500">●</span> {{ t('inventory.importNeedsReview') }} ({{ importCompareResult.partialMatch.length }})
+                <span class="text-xs text-gray-400 font-normal">— {{ t('inventory.importNameMatchSkuDiffer') }}</span>
               </h3>
               <div class="border rounded-lg max-h-60 overflow-y-auto">
                 <div v-for="item in importCompareResult.partialMatch" :key="item.product_id" class="px-4 py-3 border-b last:border-b-0">
@@ -1317,12 +1317,12 @@
                     <img v-if="item.main_image" :src="item.main_image" class="w-8 h-8 rounded object-cover" />
                     <div class="flex-1">
                       <div class="text-sm font-medium">{{ item.title }}</div>
-                      <div class="text-xs text-gray-400">{{ item.matched_variants }}/{{ item.total_variants }} variants matched</div>
+                      <div class="text-xs text-gray-400">{{ item.matched_variants }}/{{ item.total_variants }} {{ t('inventory.importVariantsMatched') }}</div>
                     </div>
-                    <span class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded">Review</span>
+                    <span class="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded">{{ t('inventory.importReview') }}</span>
                   </div>
                   <div v-if="item.unmatched_variants.length > 0" class="mt-2 ml-11">
-                    <div class="text-xs text-gray-500 mb-1">Unmatched variants:</div>
+                    <div class="text-xs text-gray-500 mb-1">{{ t('inventory.importUnmatchedVariants') }}:</div>
                     <div v-for="v in item.unmatched_variants" :key="v.id" class="text-xs text-gray-600 flex gap-4">
                       <span>{{ v.variant_title }}</span>
                       <span class="text-gray-400">SKU: {{ v.sku || '—' }}</span>
@@ -1344,7 +1344,7 @@
               <div class="text-xs text-gray-400 mt-1">{{ importTaskStatus.completed }}/{{ importTaskStatus.total }} ({{ importProgress }}%)</div>
             </div>
             <div v-if="importTaskStatus.currentItem" class="text-center text-xs text-gray-500">
-              Current: {{ importTaskStatus.currentItem }}
+              {{ t('inventory.importCurrent') }}: {{ importTaskStatus.currentItem }}
             </div>
           </div>
 
@@ -1352,11 +1352,11 @@
           <div v-if="importTaskStatus && importTaskStatus.status === 'completed' && !importRunning">
             <div class="text-center py-6">
               <div class="text-3xl mb-2">✅</div>
-              <div class="text-lg font-semibold text-green-600">Import Complete</div>
-              <div class="text-sm text-gray-500 mt-1">{{ importTaskStatus.succeeded }} succeeded, {{ importTaskStatus.failed }} failed</div>
+              <div class="text-lg font-semibold text-green-600">{{ t('inventory.importComplete') }}</div>
+              <div class="text-sm text-gray-500 mt-1">{{ importTaskStatus.succeeded }} {{ t('inventory.importSucceeded') }}, {{ importTaskStatus.failed }} {{ t('inventory.importFailed') }}</div>
             </div>
             <div v-if="importTaskStatus.errors && importTaskStatus.errors.length > 0" class="mt-4">
-              <h4 class="text-sm font-semibold text-red-600 mb-2">Failed Items:</h4>
+              <h4 class="text-sm font-semibold text-red-600 mb-2">{{ t('inventory.importFailedItems') }}:</h4>
               <div class="border border-red-200 rounded-lg max-h-40 overflow-y-auto">
                 <div v-for="err in importTaskStatus.errors" :key="err.product_id" class="px-4 py-2 border-b last:border-b-0 text-sm">
                   <span class="font-medium">{{ err.title }}</span>
@@ -1370,17 +1370,17 @@
         <!-- Footer -->
         <div class="px-6 py-4 border-t flex items-center justify-between bg-gray-50 rounded-b-xl">
           <div class="text-xs text-gray-400">
-            <span v-if="!importRunning && importCompareResult">10 products per batch, ~1.5s delay between batches</span>
+            <span v-if="!importRunning && importCompareResult">{{ t('inventory.importBatchInfo') }}</span>
           </div>
           <div class="flex gap-3">
-            <button @click="showImportDialog = false" class="border px-4 py-2 rounded-lg text-sm hover:bg-gray-100">Close</button>
+            <button @click="showImportDialog = false" class="border px-4 py-2 rounded-lg text-sm hover:bg-gray-100">{{ t('inventory.importClose') }}</button>
             <button
               v-if="importCompareResult && !importRunning && importTaskStatus?.status !== 'completed'"
               @click="startImport"
               :disabled="importSelectedProducts.length === 0"
               class="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-lg text-sm disabled:opacity-50 flex items-center gap-2"
             >
-              📤 Import {{ importSelectedProducts.length }} Products to Square
+              📤 {{ t('inventory.importBtn', { n: importSelectedProducts.length }) }}
             </button>
           </div>
         </div>
