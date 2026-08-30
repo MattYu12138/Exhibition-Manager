@@ -21,6 +21,9 @@
           <el-tag v-if="needsCount === 0 && priorityCount === 0" type="success" size="large">
             {{ t('replenishment.allSufficient') }}
           </el-tag>
+          <el-tag v-if="selectedNoStockItems.length > 0" type="danger" effect="plain" size="large">
+            {{ t('replenishment.pendingNoStockCount', { n: selectedNoStockItems.length }) }}
+          </el-tag>
           <!-- 补满模式开关 -->
           <div class="mode-toggle">
             <span class="mode-label" :class="{ active: !fillUpMode }">{{ t('replenishment.modeNormal') || '正常' }}</span>
@@ -196,35 +199,41 @@
               </template>
             </el-table-column>
 
-            <el-table-column :label="t('replenishment.stockAction')" width="140" align="center">
+            <el-table-column :label="t('replenishment.stockAction')" width="230" align="center">
               <template #default="{ row }">
                 <el-button
-                  v-if="row.stock_available"
-                  type="danger"
-                  plain
-                  size="small"
-                  @click="setStockAvailability(row, false)"
-                >{{ t('replenishment.markNoStock') }}</el-button>
-                <el-button
-                  v-else
+                  v-if="!row.stock_available"
                   type="success"
                   plain
                   size="small"
-                  @click="setStockAvailability(row, true)"
+                  @click="restoreStockAvailability(row)"
                 >{{ t('replenishment.restoreStock') }}</el-button>
+                <el-radio-group
+                  v-else-if="row._selected"
+                  v-model="row._action"
+                  size="small"
+                  class="action-choice"
+                >
+                  <el-radio-button value="replenish">{{ t('replenishment.actionReplenish') }}</el-radio-button>
+                  <el-radio-button value="no_stock">{{ t('replenishment.markNoStock') }}</el-radio-button>
+                </el-radio-group>
+                <span v-else class="text-muted">{{ t('replenishment.selectFirst') }}</span>
               </template>
             </el-table-column>
 
             <el-table-column :label="t('replenishment.colReplenishQty')" width="120" align="center">
               <template #default="{ row }">
                 <el-input-number
-                  v-if="(row.status === 'need' || row.status === 'priority') && row._selected"
+                  v-if="row._selected && row._action === 'replenish'"
                   v-model="row._replenishQty"
                   :min="1"
                   :max="999"
                   size="small"
                   controls-position="right"
                 />
+                <el-tag v-else-if="row._selected && row._action === 'no_stock'" type="danger" effect="plain" size="small">
+                  {{ t('replenishment.pendingNoStock') }}
+                </el-tag>
                 <span v-else-if="row.status === 'need' || row.status === 'priority'" class="text-muted">-</span>
               </template>
             </el-table-column>
@@ -307,25 +316,28 @@
               </div>
             </div>
             <div class="mobile-stock-action">
-              <span class="stock-state-text" :class="{ unavailable: !item.stock_available }">
-                {{ item.stock_available ? t('replenishment.stockAvailable') : t('replenishment.stockUnavailable') }}
-              </span>
-              <el-button
-                v-if="item.stock_available"
-                type="danger"
-                plain
-                size="small"
-                @click="setStockAvailability(item, false)"
-              >{{ t('replenishment.markNoStock') }}</el-button>
-              <el-button
-                v-else
-                type="success"
-                plain
-                size="small"
-                @click="setStockAvailability(item, true)"
-              >{{ t('replenishment.restoreStock') }}</el-button>
+              <template v-if="!item.stock_available">
+                <span class="stock-state-text unavailable">{{ t('replenishment.stockUnavailable') }}</span>
+                <el-button
+                  type="success"
+                  plain
+                  size="small"
+                  @click="restoreStockAvailability(item)"
+                >{{ t('replenishment.restoreStock') }}</el-button>
+              </template>
+              <template v-else-if="item._selected">
+                <span class="stock-state-text">{{ t('replenishment.chooseAction') }}</span>
+                <el-radio-group v-model="item._action" size="small" class="action-choice mobile-action-choice">
+                  <el-radio-button value="replenish">{{ t('replenishment.actionReplenish') }}</el-radio-button>
+                  <el-radio-button value="no_stock">{{ t('replenishment.markNoStock') }}</el-radio-button>
+                </el-radio-group>
+              </template>
+              <template v-else>
+                <span class="stock-state-text">{{ t('replenishment.stockAvailable') }}</span>
+                <span class="select-action-hint">{{ t('replenishment.selectFirst') }}</span>
+              </template>
             </div>
-            <div v-if="(item.status === 'need' || item.status === 'priority') && item._selected" class="mobile-card-footer">
+            <div v-if="item._selected && item._action === 'replenish'" class="mobile-card-footer">
               <span class="stat-label">{{ t('replenishment.colReplenishQty') }}</span>
               <el-input-number
                 v-model="item._replenishQty"
@@ -333,6 +345,9 @@
                 :max="999"
                 size="default"
               />
+            </div>
+            <div v-else-if="item._selected && item._action === 'no_stock'" class="mobile-no-stock-pending">
+              {{ t('replenishment.pendingNoStockHint') }}
             </div>
           </div>
         </div>
@@ -452,6 +467,8 @@ watch(selectedStockView, (val) => {
 const needsCount = computed(() => allItems.value.filter(i => i.status === 'need' || i.status === 'priority').length)
 const priorityCount = computed(() => allItems.value.filter(i => i.status === 'priority').length)
 const selectedItems = computed(() => allItems.value.filter(i => i._selected))
+const selectedReplenishmentItems = computed(() => selectedItems.value.filter(i => i._action === 'replenish'))
+const selectedNoStockItems = computed(() => selectedItems.value.filter(i => i._action === 'no_stock'))
 const selectAll = ref(false)
 const isIndeterminate = ref(false)
 
@@ -578,37 +595,21 @@ function mobileCardClass(item) {
 }
 
 // ─── 人工备货状态 ───
-async function setStockAvailability(item, available) {
-  if (!available) {
-    try {
-      await ElMessageBox.confirm(
-        t('replenishment.markNoStockConfirm'),
-        t('replenishment.markNoStock'),
-        {
-          confirmButtonText: t('replenishment.confirmOk'),
-          cancelButtonText: t('replenishment.confirmCancel'),
-          type: 'warning',
-        }
-      )
-    } catch {
-      return
-    }
-  }
-
+// 标记无备货随补货统一提交；恢复有货在“没有备货”分类中即时处理。
+async function restoreStockAvailability(item) {
   try {
     await squareApi.updateReplenishmentStockStatus(
       exhibitionId,
       item.shopify_variant_id,
-      available
+      true
     )
-    item.stock_available = available
+    item.stock_available = true
     item._selected = false
+    item._action = 'replenish'
     item.status = getEffectiveStatus(item)
     item._replenishQty = Math.max(1, item.rack_quantity - item.rack_remaining)
     updateSelection()
-    ElMessage.success(available
-      ? t('replenishment.restoreStockSuccess')
-      : t('replenishment.markNoStockSuccess'))
+    ElMessage.success(t('replenishment.restoreStockSuccess'))
   } catch (err) {
     ElMessage.error(t('replenishment.stockStatusUpdateFailed') + ': ' + (err.message || ''))
   }
@@ -643,6 +644,7 @@ async function fetchData() {
       ...item,
       stock_available: item.stock_available !== false,
       _selected: false,
+      _action: 'replenish',
       _replenishQty: Math.max(1, item.rack_quantity - item.rack_remaining),
     }))
     applyDisplayMode()
@@ -663,20 +665,32 @@ async function fetchData() {
 }
 
 async function confirmReplenishment() {
-  const toReplenish = selectedItems.value.map(item => ({
+  const toReplenish = selectedReplenishmentItems.value.map(item => ({
     shopify_variant_id: item.shopify_variant_id,
     replenish_qty: item._replenishQty || 1,
-    current_square_qty: item.current_square_qty !== undefined ? item.current_square_qty : null,
   }))
+  const noStockVariantIds = selectedNoStockItems.value.map(item => item.shopify_variant_id)
+
+  let confirmMessage = t('replenishment.confirmMsg', { n: toReplenish.length })
+  if (noStockVariantIds.length > 0 && toReplenish.length > 0) {
+    confirmMessage = t('replenishment.confirmMixedMsg', {
+      replenish: toReplenish.length,
+      noStock: noStockVariantIds.length,
+    })
+  } else if (noStockVariantIds.length > 0) {
+    confirmMessage = t('replenishment.confirmNoStockMsg', { n: noStockVariantIds.length })
+  }
 
   try {
     await ElMessageBox.confirm(
-      t('replenishment.confirmMsg', { n: toReplenish.length }),
-      t('replenishment.confirmTitle'),
+      confirmMessage,
+      noStockVariantIds.length > 0
+        ? t('replenishment.noStockWarningTitle')
+        : t('replenishment.confirmTitle'),
       {
         confirmButtonText: t('replenishment.confirmOk'),
         cancelButtonText: t('replenishment.confirmCancel'),
-        type: 'warning',
+        type: noStockVariantIds.length > 0 ? 'warning' : 'info',
       }
     )
   } catch {
@@ -684,7 +698,11 @@ async function confirmReplenishment() {
   }
 
   try {
-    const res = await squareApi.replenishmentConfirm(exhibitionId, toReplenish)
+    const res = await squareApi.replenishmentConfirm(
+      exhibitionId,
+      toReplenish,
+      noStockVariantIds
+    )
     if (res.success) {
       ElMessage.success(res.message || t('replenishment.success'))
       await fetchData()
@@ -1014,9 +1032,26 @@ onMounted(fetchData)
   color: #67c23a;
 }
 .stock-state-text.unavailable { color: #909399; }
+.select-action-hint { font-size: 12px; color: #a8abb2; }
+.action-choice { white-space: nowrap; }
+.action-choice :deep(.el-radio-button__inner) { padding: 7px 10px; font-size: 12px; }
+.action-choice :deep(.el-radio-button:last-child .el-radio-button__inner) { color: #c45656; }
+.action-choice :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
+  color: #fff;
+}
 .mobile-stock-action .el-button {
   min-height: 34px;
   border-radius: 9px;
+}
+.mobile-no-stock-pending {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #fab6b6;
+  border-radius: 10px;
+  background: #fef0f0;
+  color: #c45656;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .mobile-card-footer {
@@ -1077,8 +1112,11 @@ onMounted(fetchData)
   .mobile-stat { flex-direction: column; align-items: center; gap: 4px; }
   .stat-label { font-size: 11px; }
   .mobile-stat .qty-badge, .mobile-stat .sold-num { font-size: 18px; }
-  .mobile-stock-action { margin-top: 6px; padding-top: 10px; }
+  .mobile-stock-action { margin-top: 6px; padding-top: 10px; flex-wrap: wrap; }
   .mobile-stock-action .el-button { min-width: 112px; min-height: 38px; }
+  .mobile-action-choice { width: 100%; display: flex; }
+  .mobile-action-choice :deep(.el-radio-button) { flex: 1; }
+  .mobile-action-choice :deep(.el-radio-button__inner) { width: 100%; min-height: 38px; display: flex; align-items: center; justify-content: center; }
   .mobile-card-footer .el-input-number { width: 180px; }
 }
 @media (min-width: 769px) {

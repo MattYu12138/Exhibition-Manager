@@ -65,8 +65,12 @@ export const squareApi = {
   getSyncTaskProgress: (taskId) => api.get(`/square/sync-task/${taskId}`),
   // 展中补货
   replenishmentCheck: (exhibitionId) => api.get(`/square/replenishment-check/${exhibitionId}`, { timeout: 120000 }),
-  replenishmentConfirm: (exhibitionId, items) =>
-    api.post('/square/replenishment-confirm', { exhibition_id: exhibitionId, items }),
+  replenishmentConfirm: (exhibitionId, items, noStockItems = []) =>
+    api.post('/square/replenishment-confirm', {
+      exhibition_id: exhibitionId,
+      items,
+      no_stock_items: noStockItems,
+    }),
   replenishmentLog: (exhibitionId) => api.get(`/square/replenishment-log/${exhibitionId}`),
   updateReplenishmentStockStatus: (exhibitionId, shopifyVariantId, stockAvailable) =>
     api.put(`/square/replenishment-stock-status/${exhibitionId}`, {

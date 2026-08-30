@@ -743,7 +743,11 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
 /**
  * 确认补货 - 更新 replenish_baseline 和 replenish_count，并记录本次补货数量
  * POST /api/square/replenishment-confirm
- * Body: { exhibition_id, items: [{ shopify_variant_id, replenish_qty }] }
+ * Body: {
+ *   exhibition_id,
+ *   items: [{ shopify_variant_id, replenish_qty }],
+ *   no_stock_items: [shopify_variant_id]
+ * }
  *
  * 补货后：
  * - 不再累计或扣减备货库存
@@ -755,9 +759,20 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
  */
 router.post('/replenishment-confirm', async (req, res) => {
   try {
-    const { exhibition_id, items } = req.body;
-    if (!exhibition_id || !items || !Array.isArray(items) || items.length === 0) {
+    const { exhibition_id, items = [], no_stock_items = [] } = req.body;
+    if (!exhibition_id || !Array.isArray(items) || !Array.isArray(no_stock_items)) {
       return res.status(400).json({ success: false, message: '参数不完整' });
+    }
+
+    const noStockIds = [...new Set(no_stock_items.filter(Boolean).map(String))];
+    const noStockSet = new Set(noStockIds);
+    // 若同一规格意外同时出现在两组中，以“无备货”为准，避免错误更新补货基准。
+    const replenishItems = items.filter(item =>
+      item && item.shopify_variant_id && !noStockSet.has(String(item.shopify_variant_id))
+    );
+
+    if (replenishItems.length === 0 && noStockIds.length === 0) {
+      return res.status(400).json({ success: false, message: '请至少选择一个操作' });
     }
 
     // 确保 replenishment_log 表存在
@@ -791,7 +806,7 @@ router.post('/replenishment-confirm', async (req, res) => {
 
     // 收集需要查询的 variation IDs
     const neededVariationIds = [];
-    for (const { shopify_variant_id } of items) {
+    for (const { shopify_variant_id } of replenishItems) {
       const vid = variationMap[shopify_variant_id];
       if (vid && !neededVariationIds.includes(vid)) {
         neededVariationIds.push(vid);
@@ -832,9 +847,16 @@ router.post('/replenishment-confirm', async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
+    const markNoStockStmt = db.prepare(`
+      UPDATE exhibition_items
+      SET stock_available = 0
+      WHERE exhibition_id = ? AND shopify_variant_id = ?
+    `);
+
     const results = [];
+    let noStockUpdated = 0;
     const transaction = db.transaction(() => {
-      for (const { shopify_variant_id, replenish_qty } of items) {
+      for (const { shopify_variant_id, replenish_qty } of replenishItems) {
         const qty = parseInt(replenish_qty) || 3;
         if (qty <= 0) continue;
 
@@ -887,14 +909,26 @@ router.post('/replenishment-confirm', async (req, res) => {
           live_square_qty: liveSquareQty,
         });
       }
+
+      for (const shopifyVariantId of noStockIds) {
+        const updateResult = markNoStockStmt.run(exhibition_id, shopifyVariantId);
+        noStockUpdated += updateResult.changes;
+      }
     });
 
     transaction();
 
+    const messageParts = [];
+    if (results.length > 0) messageParts.push(`确认补货 ${results.length} 个商品`);
+    if (noStockUpdated > 0) messageParts.push(`标记无备货 ${noStockUpdated} 个商品`);
+
     res.json({
       success: true,
-      data: results,
-      message: `成功补货 ${results.length} 个商品`,
+      data: {
+        replenished: results,
+        no_stock_updated: noStockUpdated,
+      },
+      message: messageParts.join('，') || '操作完成',
     });
   } catch (err) {
     console.error('[replenishment-confirm] 错误:', err.message);
