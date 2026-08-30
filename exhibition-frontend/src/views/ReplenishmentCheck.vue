@@ -337,18 +337,20 @@
                 <span class="select-action-hint">{{ t('replenishment.selectFirst') }}</span>
               </template>
             </div>
-            <div v-if="item._selected && item._action === 'replenish'" class="mobile-card-footer">
-              <span class="stat-label">{{ t('replenishment.colReplenishQty') }}</span>
-              <el-input-number
-                v-model="item._replenishQty"
-                :min="1"
-                :max="999"
-                size="default"
-              />
-            </div>
-            <div v-else-if="item._selected && item._action === 'no_stock'" class="mobile-no-stock-pending">
-              {{ t('replenishment.pendingNoStockHint') }}
-            </div>
+            <Transition name="operation-panel" mode="out-in">
+              <div v-if="item._selected && item._action === 'replenish'" key="replenish" class="mobile-card-footer">
+                <span class="replenish-qty-label">{{ t('replenishment.colReplenishQty') }}</span>
+                <el-input-number
+                  v-model="item._replenishQty"
+                  :min="1"
+                  :max="999"
+                  size="default"
+                />
+              </div>
+              <div v-else-if="item._selected && item._action === 'no_stock'" key="no-stock" class="mobile-no-stock-pending">
+                {{ t('replenishment.pendingNoStockHint') }}
+              </div>
+            </Transition>
           </div>
         </div>
       </div>
@@ -591,6 +593,7 @@ function mobileCardClass(item) {
     'card-priority': item.status === 'priority',
     'card-need': item.status === 'need',
     'card-empty': item.status === 'storage_empty',
+    'card-selected': item._selected,
   }
 }
 
@@ -959,11 +962,12 @@ onMounted(fetchData)
 /* 移动端变体卡片 */
 .mobile-card {
   background: #fff;
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 12px;
   margin-bottom: 8px;
   border: 1px solid #ebeef5;
-  transition: all 0.2s;
+  transition: border-color 0.28s ease, background-color 0.28s ease, box-shadow 0.28s ease, transform 0.2s ease;
+  will-change: transform;
 }
 .mobile-card:last-child { margin-bottom: 0; }
 .mobile-card.card-priority {
@@ -977,7 +981,12 @@ onMounted(fetchData)
 .mobile-card.card-empty {
   border-color: #dcdfe6;
   background: #f4f4f5;
-  opacity: 0.7;
+  opacity: 0.78;
+}
+.mobile-card.card-selected {
+  border-color: #409eff;
+  box-shadow: 0 8px 22px rgba(64, 158, 255, 0.14);
+  transform: translateY(-1px);
 }
 .mobile-card-header {
   display: flex;
@@ -1021,27 +1030,29 @@ onMounted(fetchData)
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(144, 147, 153, 0.16);
+  gap: 8px;
+  margin-top: 7px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(144, 147, 153, 0.12);
 }
 .stock-state-text {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: #67c23a;
 }
 .stock-state-text.unavailable { color: #909399; }
-.select-action-hint { font-size: 12px; color: #a8abb2; }
-.action-choice { white-space: nowrap; }
-.action-choice :deep(.el-radio-button__inner) { padding: 7px 10px; font-size: 12px; }
+.select-action-hint { font-size: 11px; color: #a8abb2; }
+.action-choice { white-space: nowrap; transition: opacity 0.2s ease, transform 0.2s ease; }
+.action-choice :deep(.el-radio-button__inner) { padding: 5px 8px; font-size: 11px; line-height: 18px; transition: all 0.2s ease; }
 .action-choice :deep(.el-radio-button:last-child .el-radio-button__inner) { color: #c45656; }
 .action-choice :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
   color: #fff;
 }
 .mobile-stock-action .el-button {
-  min-height: 34px;
-  border-radius: 9px;
+  min-height: 30px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 11px;
 }
 .mobile-no-stock-pending {
   margin-top: 10px;
@@ -1058,23 +1069,51 @@ onMounted(fetchData)
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid #f0f0f0;
+  padding: 12px;
+  border: 1px solid rgba(64, 158, 255, 0.18);
+  border-radius: 12px;
+  background: rgba(236, 245, 255, 0.62);
+}
+.replenish-qty-label {
+  color: #337ecc;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 .mobile-card-footer .el-input-number {
-  width: 160px;
+  width: 204px;
+}
+.mobile-card-footer .el-input-number .el-input__wrapper {
+  min-height: 54px;
+  border-radius: 12px;
 }
 .mobile-card-footer .el-input-number .el-input__inner {
-  font-size: 18px;
-  font-weight: 600;
-  height: 44px;
-  line-height: 44px;
+  font-size: 26px;
+  font-weight: 750;
+  height: 54px;
+  line-height: 54px;
+  color: #1f6fb5;
 }
 .mobile-card-footer .el-input-number .el-input-number__decrease,
 .mobile-card-footer .el-input-number .el-input-number__increase {
-  width: 44px;
-  font-size: 18px;
+  width: 52px;
+  font-size: 21px;
+  transition: background-color 0.18s ease, color 0.18s ease, transform 0.12s ease;
+}
+.mobile-card-footer .el-input-number .el-input-number__decrease:active,
+.mobile-card-footer .el-input-number .el-input-number__increase:active {
+  transform: scale(0.94);
+}
+.operation-panel-enter-active,
+.operation-panel-leave-active {
+  transition: opacity 0.2s ease, transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.operation-panel-enter-from,
+.operation-panel-leave-to {
+  opacity: 0;
+  transform: translateY(-5px);
 }
 
 /* 移动端日志 */
@@ -1112,17 +1151,29 @@ onMounted(fetchData)
   .mobile-stat { flex-direction: column; align-items: center; gap: 4px; }
   .stat-label { font-size: 11px; }
   .mobile-stat .qty-badge, .mobile-stat .sold-num { font-size: 18px; }
-  .mobile-stock-action { margin-top: 6px; padding-top: 10px; flex-wrap: wrap; }
-  .mobile-stock-action .el-button { min-width: 112px; min-height: 38px; }
-  .mobile-action-choice { width: 100%; display: flex; }
-  .mobile-action-choice :deep(.el-radio-button) { flex: 1; }
-  .mobile-action-choice :deep(.el-radio-button__inner) { width: 100%; min-height: 38px; display: flex; align-items: center; justify-content: center; }
-  .mobile-card-footer .el-input-number { width: 180px; }
+  .mobile-stock-action { margin-top: 5px; padding-top: 7px; flex-wrap: nowrap; }
+  .mobile-stock-action .el-button { min-width: 88px; min-height: 30px; }
+  .mobile-action-choice { width: auto; display: flex; margin-left: auto; }
+  .mobile-action-choice :deep(.el-radio-button) { flex: none; }
+  .mobile-action-choice :deep(.el-radio-button__inner) { width: auto; min-height: 30px; display: flex; align-items: center; justify-content: center; padding: 5px 9px; }
+  .mobile-card-footer .el-input-number { width: min(204px, 62vw); }
+  .mobile-card:active { transform: scale(0.995); }
 }
 @media (min-width: 769px) {
   .mobile-list { display: none !important; }
   .desktop-table { display: block; }
   .fab-container { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-card,
+  .action-choice,
+  .operation-panel-enter-active,
+  .operation-panel-leave-active,
+  .mobile-card-footer .el-input-number .el-input-number__decrease,
+  .mobile-card-footer .el-input-number .el-input-number__increase {
+    transition: none !important;
+  }
 }
 
 /* 固定浮窗按钮 */
