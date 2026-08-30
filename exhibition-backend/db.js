@@ -274,6 +274,10 @@ const migrations = [
   'ALTER TABLE exhibition_items ADD COLUMN replenish_count INTEGER DEFAULT 0',
   'ALTER TABLE exhibition_items ADD COLUMN replenished_qty INTEGER DEFAULT 0',
   'ALTER TABLE exhibition_items ADD COLUMN rack_remaining INTEGER DEFAULT NULL',
+  // 人工备货状态：1=还有备货，0=已无备货；按展会和商品变体独立记录
+  'ALTER TABLE exhibition_items ADD COLUMN stock_available INTEGER NOT NULL DEFAULT 1',
+  // 每次确认补货后衣架上的实际基准数量，用于支持部分补货
+  'ALTER TABLE exhibition_items ADD COLUMN replenish_rack_quantity INTEGER DEFAULT NULL',
   "ALTER TABLE product_categories ADD COLUMN type TEXT NOT NULL DEFAULT 'style'",
 ];
 for (const sql of migrations) {

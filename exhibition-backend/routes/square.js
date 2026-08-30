@@ -576,7 +576,7 @@ router.get('/sync-status/:exhibition_id', (req, res) => {
  * - since_last_replenish = baseline - 当前 Square 库存
  * - since_last_replenish >= rack / 2 → 需要补货
  * - since_last_replenish >= rack → 优先补货
- * - storage_left = stock_quantity - replenished_qty
+ * - 不再计算备货数量；stock_available 由员工人工确认
  */
 router.get('/replenishment-check/:exhibition_id', async (req, res) => {
   try {
@@ -651,10 +651,8 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
       const currentSquareQty = variationId ? (inventoryCounts[variationId] ?? null) : null;
       const squareQtyBefore = qtyBeforeMap[item.shopify_variant_id] || 0;
       const rackQty = item.rack_quantity || 0;
-      const stockQty = item.stock_quantity || 0;
-      const replenishedQty = item.replenished_qty || 0;
       const replenishCount = item.replenish_count || 0;
-      const storageLeft = Math.max(0, stockQty - replenishedQty);
+      const stockAvailable = item.stock_available !== 0;
 
       // 补货基准：
       // replenish_count = 0（从未补货）→ 使用 square_quantity_before
@@ -674,27 +672,26 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
         : 0;
 
       // 衣架实时剩余：
-      // 统一用实时计算： rack_quantity - sinceLastReplenish
-      // sinceLastReplenish 基于 baseline（补货后会更新 baseline），所以补货后也能继续追踪
-      // 允许负数：负数表示员工已经自行补货（未走系统），实际架上比预期多
-      const rackRemaining = rackQty - sinceLastReplenish;
+      // 从未补货时以计划衣架数量为基准；补货后以员工本次实际补完后的衣架数量为基准。
+      // 这样默认补满时回到 rackQty；若员工把默认 3 改成 2，只增加实际补的 2 件。
+      const rackBaselineQty = replenishCount >= 1 && item.replenish_rack_quantity !== null && item.replenish_rack_quantity !== undefined
+        ? item.replenish_rack_quantity
+        : rackQty;
+      const rackRemaining = rackBaselineQty - sinceLastReplenish;
 
-      // 判断补货状态
-      // 核心原则：如果货架上的货还是满的（rackRemaining >= rackQty），就不需要补货
-      let status = 'ok'; // 充足
-      if (rackRemaining >= rackQty) {
-        status = 'ok'; // 货架满的，无需补货
-      } else if (storageLeft <= 0 && rackRemaining < rackQty) {
-        status = 'storage_empty'; // 备货已空且货架不满
+      // 判断补货状态：备货状态由员工人工确认，不再依赖库存数量
+      let status = 'ok';
+      if (!stockAvailable) {
+        status = 'storage_empty'; // 员工已标记无备货，不再进入待补货提醒
       } else if (rackQty > 0 && rackRemaining <= 0) {
-        status = 'priority'; // 货架已空，优先补货
+        status = 'priority'; // 衣架已空，优先补货
       } else if (rackQty > 0 && rackRemaining < Math.ceil(rackQty / 2)) {
-        status = 'need'; // 货架剩余不足一半，需要补货
+        status = 'need'; // 衣架剩余不足一半，需要补货
       }
 
-      // 建议补货数量：补齐至 rack 数量，受 storageLeft 限制
+      // 建议补货数量：默认补满衣架，不再受备货数量限制；员工可在确认前修改
       const suggestedQty = (status === 'need' || status === 'priority')
-        ? Math.min(Math.max(0, rackQty - rackRemaining), storageLeft)
+        ? Math.max(0, rackQty - rackRemaining)
         : 0;
 
       return {
@@ -705,8 +702,8 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
         sku: item.sku,
         image_url: item.image_url,
         rack_quantity: rackQty,
-        storage: stockQty,
-        storage_left: storageLeft,
+        rack_baseline_quantity: rackBaselineQty,
+        stock_available: stockAvailable,
         sold,
         rack_remaining: rackRemaining,
         since_last_replenish: sinceLastReplenish,
@@ -717,13 +714,13 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
       };
     });
 
-    // 排序：优先补货 > 需要补货 > 备货已空 > 充足，rack=0 且 storage=0 的商品排到最后
-    const statusOrder = { priority: 0, need: 1, storage_empty: 2, ok: 3 };
+    // 排序：优先补货 > 需要补货 > 充足 > 人工标记无备货；未设置衣架的排到最后
+    const statusOrder = { priority: 0, need: 1, ok: 2, storage_empty: 3 };
     result.sort((a, b) => {
-      const aAllZero = a.rack_quantity === 0 && a.storage === 0 ? 1 : 0;
-      const bAllZero = b.rack_quantity === 0 && b.storage === 0 ? 1 : 0;
-      if (aAllZero !== bAllZero) return aAllZero - bAllZero;
-      return (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3);
+      const aNoRack = a.rack_quantity <= 0 ? 1 : 0;
+      const bNoRack = b.rack_quantity <= 0 ? 1 : 0;
+      if (aNoRack !== bNoRack) return aNoRack - bNoRack;
+      return (statusOrder[a.status] ?? 2) - (statusOrder[b.status] ?? 2);
     });
 
     const priorityCount = result.filter(r => r.status === 'priority').length;
@@ -744,12 +741,12 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
 });
 
 /**
- * 确认补货 - 更新 replenished_qty、replenish_baseline 和 replenish_count，记录日志
+ * 确认补货 - 更新 replenish_baseline 和 replenish_count，并记录本次补货数量
  * POST /api/square/replenishment-confirm
  * Body: { exhibition_id, items: [{ shopify_variant_id, replenish_qty }] }
- * 
+ *
  * 补货后：
- * - replenished_qty += replenish_qty（累计补货数）
+ * - 不再累计或扣减备货库存
  * - replenish_baseline = 实时 Square 库存（后端实时查询，确保精确）
  * - replenish_count += 1（补货计数器递增）
  * 
@@ -810,16 +807,16 @@ router.post('/replenishment-confirm', async (req, res) => {
 
     const updateStmt = db.prepare(`
       UPDATE exhibition_items
-      SET replenished_qty = COALESCE(replenished_qty, 0) + ?,
-          replenish_baseline = ?,
+      SET replenish_baseline = ?,
+          replenish_rack_quantity = ?,
           replenish_count = COALESCE(replenish_count, 0) + 1,
           rack_remaining = NULL
       WHERE exhibition_id = ? AND shopify_variant_id = ?
     `);
 
     const getStmt = db.prepare(`
-      SELECT rack_quantity, stock_quantity, COALESCE(replenished_qty, 0) AS replenished_qty,
-             replenish_baseline, last_synced_quantity, COALESCE(replenish_count, 0) AS replenish_count,
+      SELECT rack_quantity, replenish_baseline, replenish_rack_quantity,
+             COALESCE(replenish_count, 0) AS replenish_count,
              rack_remaining
       FROM exhibition_items
       WHERE exhibition_id = ? AND shopify_variant_id = ?
@@ -859,19 +856,25 @@ router.post('/replenishment-confirm', async (req, res) => {
         const liveSquareQty = vid ? (liveInventory[vid] ?? null) : null;
         const newBaseline = liveSquareQty !== null ? liveSquareQty : oldBaseline;
 
-        // 更新：累加 replenished_qty，设置新 baseline，递增 replenish_count
-        // rack_remaining 设为 NULL，让 replenishment-check 实时计算
-        updateStmt.run(qty, newBaseline, exhibition_id, shopify_variant_id);
+        // 计算确认补货前的衣架剩余，并只加上员工实际确认的数量
+        const previousRackBaseline = before.replenish_count >= 1 && before.replenish_rack_quantity !== null
+          ? before.replenish_rack_quantity
+          : (before.rack_quantity || 0);
+        const soldSincePreviousBaseline = liveSquareQty !== null
+          ? Math.max(0, oldBaseline - liveSquareQty)
+          : 0;
+        const rackRemainingBefore = previousRackBaseline - soldSincePreviousBaseline;
+        const newRackBaseline = Math.min(before.rack_quantity || 0, rackRemainingBefore + qty);
 
-        const newReplenishedTotal = before.replenished_qty + qty;
-        const storageLeft = Math.max(0, (before.stock_quantity || 0) - newReplenishedTotal);
+        // 只更新新的 Square 基准、实际衣架基准和补货次数；不再累计或扣减备货库存
+        updateStmt.run(newBaseline, newRackBaseline, exhibition_id, shopify_variant_id);
 
-        // 记录日志
+        // 保留本次补货历史；旧的库存统计字段写入 NULL，仅用于兼容现有表结构
         logStmt.run(
           exhibition_id, shopify_variant_id, qty,
           oldBaseline, newBaseline,
-          before.replenished_qty, newReplenishedTotal,
-          storageLeft
+          null, null,
+          null
         );
 
         results.push({
@@ -879,8 +882,9 @@ router.post('/replenishment-confirm', async (req, res) => {
           replenish_qty: qty,
           baseline_before: oldBaseline,
           baseline_after: newBaseline,
+          rack_remaining_before: rackRemainingBefore,
+          rack_remaining_after: newRackBaseline,
           live_square_qty: liveSquareQty,
-          storage_left: storageLeft,
         });
       }
     });
@@ -918,44 +922,40 @@ router.get('/replenishment-log/:exhibition_id', (req, res) => {
   }
 });
 /**
- * 手动修改备货剩余 (storage_left)
- * PUT /api/square/update-storage-left/:exhibition_id
- * Body: { shopify_variant_id, new_storage_left }
- * 实际操作：修改 stock_quantity = replenished_qty + new_storage_left
+ * 人工设置商品是否还有备货
+ * PUT /api/square/replenishment-stock-status/:exhibition_id
+ * Body: { shopify_variant_id, stock_available }
+ * 状态按展会和商品变体独立保存，不维护具体备货数量。
  */
-router.put('/update-storage-left/:exhibition_id', (req, res) => {
+router.put('/replenishment-stock-status/:exhibition_id', (req, res) => {
   try {
     const { exhibition_id } = req.params;
-    const { shopify_variant_id, new_storage_left } = req.body;
+    const { shopify_variant_id, stock_available } = req.body;
 
-    if (!shopify_variant_id || new_storage_left === undefined || new_storage_left === null) {
-      return res.status(400).json({ success: false, message: 'shopify_variant_id and new_storage_left are required' });
+    if (!shopify_variant_id || typeof stock_available !== 'boolean') {
+      return res.status(400).json({
+        success: false,
+        message: 'shopify_variant_id and boolean stock_available are required',
+      });
     }
 
-    const newStorageLeft = Math.max(0, parseInt(new_storage_left, 10));
+    const result = db.prepare(`
+      UPDATE exhibition_items
+      SET stock_available = ?
+      WHERE exhibition_id = ? AND shopify_variant_id = ?
+    `).run(stock_available ? 1 : 0, exhibition_id, shopify_variant_id);
 
-    const item = db.prepare(
-      'SELECT stock_quantity, replenished_qty FROM exhibition_items WHERE exhibition_id = ? AND shopify_variant_id = ?'
-    ).get(exhibition_id, shopify_variant_id);
-
-    if (!item) {
+    if (result.changes === 0) {
       return res.status(404).json({ success: false, message: 'Item not found' });
     }
 
-    const replenishedQty = item.replenished_qty || 0;
-    const newStockQty = replenishedQty + newStorageLeft;
-
-    db.prepare(
-      'UPDATE exhibition_items SET stock_quantity = ? WHERE exhibition_id = ? AND shopify_variant_id = ?'
-    ).run(newStockQty, exhibition_id, shopify_variant_id);
-
     res.json({
       success: true,
-      message: `Storage left updated to ${newStorageLeft}`,
-      data: { stock_quantity: newStockQty, storage_left: newStorageLeft },
+      message: stock_available ? '已恢复为有备货' : '已标记为无备货',
+      data: { shopify_variant_id, stock_available },
     });
   } catch (err) {
-    console.error('[update-storage-left] error:', err.message);
+    console.error('[replenishment-stock-status] error:', err.message);
     res.status(500).json({ success: false, message: err.message });
   }
 });

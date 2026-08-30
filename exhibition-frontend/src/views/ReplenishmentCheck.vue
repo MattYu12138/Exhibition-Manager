@@ -53,6 +53,30 @@
         <template #prefix><el-icon><Search /></el-icon></template>
       </el-input>
     </el-card>
+
+    <!-- 人工备货状态分类 -->
+    <el-card class="filter-card stock-status-filter">
+      <div class="filter-card-title">{{ t('replenishment.stockStatusFilter') }}</div>
+      <div class="stock-status-tabs">
+        <button
+          type="button"
+          :class="['stock-status-tab', { active: selectedStockView === 'available' }]"
+          @click="selectedStockView = 'available'"
+        >
+          {{ t('replenishment.stockAvailable') }}
+          <span class="stock-status-count">{{ availableStockCount }}</span>
+        </button>
+        <button
+          type="button"
+          :class="['stock-status-tab', 'empty', { active: selectedStockView === 'unavailable' }]"
+          @click="selectedStockView = 'unavailable'"
+        >
+          {{ t('replenishment.stockUnavailable') }}
+          <span class="stock-status-count">{{ unavailableStockCount }}</span>
+        </button>
+      </div>
+    </el-card>
+
     <!-- Material 独立筛选卡片 -->
     <el-card v-if="materialCategories.length > 0" class="filter-card">
       <div class="filter-card-title">{{ t('replenishment.filterMaterial') }}</div>
@@ -155,37 +179,11 @@
               </template>
             </el-table-column>
 
-            <el-table-column :label="t('replenishment.colStorage')" width="80" align="center">
-              <template #default="{ row }">
-                <span class="qty-badge storage">{{ row.storage }}</span>
-              </template>
-            </el-table-column>
-
-            <el-table-column :label="t('replenishment.colSold')" width="90" align="center">
+            <el-table-column :label="t('replenishment.colSold')" width="110" align="center">
               <template #default="{ row }">
                 <span class="sold-num" :class="{ 'sold-low': row.rack_remaining !== undefined && row.rack_remaining <= Math.ceil(row.rack_quantity / 2) }">
                   {{ row.rack_remaining !== undefined ? row.rack_remaining : '-' }}
                 </span>
-              </template>
-            </el-table-column>
-
-            <el-table-column :label="t('replenishment.colStockRemaining')" width="100" align="center">
-              <template #default="{ row }">
-                <span
-                  v-if="editingStorageId !== row.shopify_variant_id"
-                  :class="[row.storage_left <= 0 ? 'text-danger' : '', 'editable-cell']"
-                  @click="startEditStorage(row)"
-                >{{ row.storage_left }}</span>
-                <el-input-number
-                  v-else
-                  v-model="editingStorageValue"
-                  :min="0"
-                  size="small"
-                  controls-position="right"
-                  @blur="saveStorageLeft(row)"
-                  @keyup.enter="saveStorageLeft(row)"
-                  style="width: 80px"
-                />
               </template>
             </el-table-column>
 
@@ -198,13 +196,32 @@
               </template>
             </el-table-column>
 
+            <el-table-column :label="t('replenishment.stockAction')" width="140" align="center">
+              <template #default="{ row }">
+                <el-button
+                  v-if="row.stock_available"
+                  type="danger"
+                  plain
+                  size="small"
+                  @click="setStockAvailability(row, false)"
+                >{{ t('replenishment.markNoStock') }}</el-button>
+                <el-button
+                  v-else
+                  type="success"
+                  plain
+                  size="small"
+                  @click="setStockAvailability(row, true)"
+                >{{ t('replenishment.restoreStock') }}</el-button>
+              </template>
+            </el-table-column>
+
             <el-table-column :label="t('replenishment.colReplenishQty')" width="120" align="center">
               <template #default="{ row }">
                 <el-input-number
                   v-if="(row.status === 'need' || row.status === 'priority') && row._selected"
                   v-model="row._replenishQty"
                   :min="1"
-                  :max="row.rack_quantity || 99"
+                  :max="999"
                   size="small"
                   controls-position="right"
                 />
@@ -277,14 +294,10 @@
                 {{ statusText(item.status) }}
               </el-tag>
             </div>
-            <div class="mobile-card-body">
+            <div class="mobile-card-body rack-only-stats">
               <div class="mobile-stat">
                 <span class="stat-label">{{ t('replenishment.colRack') }}</span>
                 <span class="qty-badge rack">{{ item.rack_quantity }}</span>
-              </div>
-              <div class="mobile-stat">
-                <span class="stat-label">{{ t('replenishment.colStorage') }}</span>
-                <span class="qty-badge storage">{{ item.storage }}</span>
               </div>
               <div class="mobile-stat">
                 <span class="stat-label">{{ t('replenishment.colSold') }}</span>
@@ -292,31 +305,32 @@
                   {{ item.rack_remaining !== undefined ? item.rack_remaining : '-' }}
                 </span>
               </div>
-              <div class="mobile-stat">
-                <span class="stat-label">{{ t('replenishment.colStockRemaining') }}</span>
-                <span
-                  v-if="editingStorageId !== item.shopify_variant_id"
-                  :class="[item.storage_left <= 0 ? 'text-danger' : '', 'editable-cell']"
-                  @click="startEditStorage(item)"
-                >{{ item.storage_left }}</span>
-                <el-input-number
-                  v-else
-                  v-model="editingStorageValue"
-                  :min="0"
-                  size="small"
-                  controls-position="right"
-                  @blur="saveStorageLeft(item)"
-                  @keyup.enter="saveStorageLeft(item)"
-                  style="width: 70px"
-                />
-              </div>
+            </div>
+            <div class="mobile-stock-action">
+              <span class="stock-state-text" :class="{ unavailable: !item.stock_available }">
+                {{ item.stock_available ? t('replenishment.stockAvailable') : t('replenishment.stockUnavailable') }}
+              </span>
+              <el-button
+                v-if="item.stock_available"
+                type="danger"
+                plain
+                size="small"
+                @click="setStockAvailability(item, false)"
+              >{{ t('replenishment.markNoStock') }}</el-button>
+              <el-button
+                v-else
+                type="success"
+                plain
+                size="small"
+                @click="setStockAvailability(item, true)"
+              >{{ t('replenishment.restoreStock') }}</el-button>
             </div>
             <div v-if="(item.status === 'need' || item.status === 'priority') && item._selected" class="mobile-card-footer">
               <span class="stat-label">{{ t('replenishment.colReplenishQty') }}</span>
               <el-input-number
                 v-model="item._replenishQty"
                 :min="1"
-                :max="item.rack_quantity || 99"
+                :max="999"
                 size="default"
               />
             </div>
@@ -341,17 +355,7 @@
             {{ row.product_title }} - {{ row.variant_title }}
           </template>
         </el-table-column>
-        <el-table-column :label="t('replenishment.logQty')" prop="replenish_qty" width="90" align="center" />
-        <el-table-column :label="t('replenishment.logReplenishedTotal')" width="120" align="center">
-          <template #default="{ row }">
-            {{ row.replenished_total_before }} → {{ row.replenished_total_after }}
-          </template>
-        </el-table-column>
-        <el-table-column label="Storage Left" width="100" align="center">
-          <template #default="{ row }">
-            <span :class="row.storage_left <= 0 ? 'text-danger' : ''">{{ row.storage_left }}</span>
-          </template>
-        </el-table-column>
+        <el-table-column :label="t('replenishment.logQty')" prop="replenish_qty" width="110" align="center" />
       </el-table>
       <!-- 移动端日志列表 -->
       <div class="mobile-list">
@@ -400,6 +404,7 @@ const categories = ref([])
 const selectedMaterial = ref('')
 const selectedStyle = ref('')
 const searchKeyword = ref('')
+const selectedStockView = ref(localStorage.getItem('replenish_stockView') || 'available')
 
 // 补满模式开关（刷新后保留状态）
 const fillUpMode = ref(localStorage.getItem('replenish_fillUpMode') === 'true')
@@ -408,31 +413,40 @@ const fillUpMode = ref(localStorage.getItem('replenish_fillUpMode') === 'true')
 const materialCategories = computed(() => categories.value.filter(c => c.type === 'material'))
 const styleCategories = computed(() => categories.value.filter(c => c.type === 'style'))
 const expandedGroups = ref(new Set())
+const availableStockCount = computed(() => allItems.value.filter(i => i.stock_available).length)
+const unavailableStockCount = computed(() => allItems.value.filter(i => !i.stock_available).length)
 
-// 根据模式计算 effective status
-function getEffectiveStatus(item) {
-  if (!fillUpMode.value) return item._originalStatus
-  // 补满模式：只要 rack_remaining < rack_quantity 且 storage_left > 0，就标记为 need
-  if (item.rack_remaining < item.rack_quantity && item.storage_left > 0) {
-    return 'need'
-  }
-  if (item.rack_remaining < item.rack_quantity && item.storage_left <= 0) {
-    return 'storage_empty'
-  }
+function getNormalStatus(item) {
+  if (!item.stock_available) return 'storage_empty'
+  if (item.rack_quantity > 0 && item.rack_remaining <= 0) return 'priority'
+  if (item.rack_quantity > 0 && item.rack_remaining < Math.ceil(item.rack_quantity / 2)) return 'need'
   return 'ok'
 }
 
-// 当 fillUpMode 切换时，保存到 localStorage 并更新 allItems
-watch(fillUpMode, (val) => {
-  localStorage.setItem('replenish_fillUpMode', val ? 'true' : 'false')
+// 正常模式按半数阈值；补满模式只要衣架未满就提醒；无备货始终不提醒
+function getEffectiveStatus(item) {
+  if (!item.stock_available) return 'storage_empty'
+  if (!fillUpMode.value) return getNormalStatus(item)
+  return item.rack_quantity > 0 && item.rack_remaining < item.rack_quantity ? 'need' : 'ok'
+}
+
+function applyDisplayMode() {
   for (const item of allItems.value) {
     item.status = getEffectiveStatus(item)
-    if (val) {
-      item._replenishQty = Math.max(1, Math.min(item.rack_quantity - item.rack_remaining, item.storage_left))
-    } else {
-      item._replenishQty = item._defaultReplenishQty
-    }
+    item._replenishQty = Math.max(1, item.rack_quantity - item.rack_remaining)
+    if (item.status !== 'need' && item.status !== 'priority') item._selected = false
   }
+  updateSelection()
+}
+
+watch(fillUpMode, (val) => {
+  localStorage.setItem('replenish_fillUpMode', val ? 'true' : 'false')
+  applyDisplayMode()
+})
+watch(selectedStockView, (val) => {
+  localStorage.setItem('replenish_stockView', val)
+  selectAll.value = false
+  isIndeterminate.value = false
 })
 
 const needsCount = computed(() => allItems.value.filter(i => i.status === 'need' || i.status === 'priority').length)
@@ -463,9 +477,10 @@ const groupedItems = computed(() => {
   return Array.from(map.values())
 })
 
-// 过滤后的分组列表（搜索 + Material + Style 两层筛选，AND 逻辑）
+// 过滤后的分组列表（备货状态 + 搜索 + Material + Style，AND 逻辑）
 const filteredGroups = computed(() => {
   let groups = groupedItems.value
+
   if (selectedMaterial.value) {
     groups = groups.filter(g =>
       g.product_title.toLowerCase().includes(selectedMaterial.value.toLowerCase())
@@ -476,18 +491,26 @@ const filteredGroups = computed(() => {
       g.product_title.toLowerCase().includes(selectedStyle.value.toLowerCase())
     )
   }
-  if (searchKeyword.value.trim()) {
-    const kw = searchKeyword.value.trim().toLowerCase()
-    groups = groups
-      .map(g => ({
-        ...g,
-        variants: g.variants.filter(v =>
-          (v.product_title || '').toLowerCase().includes(kw) ||
+
+  const kw = searchKeyword.value.trim().toLowerCase()
+  const showAvailable = selectedStockView.value === 'available'
+  groups = groups
+    .map(g => {
+      const variants = g.variants.filter(v => {
+        if (Boolean(v.stock_available) !== showAvailable) return false
+        if (!kw) return true
+        return (v.product_title || '').toLowerCase().includes(kw) ||
           (v.variant_title || '').toLowerCase().includes(kw)
-        ),
-      }))
-      .filter(g => g.variants.length > 0)
-  }
+      })
+      return {
+        ...g,
+        variants,
+        priorityCount: variants.filter(v => v.status === 'priority').length,
+        needCount: variants.filter(v => v.status === 'need').length,
+      }
+    })
+    .filter(g => g.variants.length > 0)
+
   return groups
 })
 
@@ -554,27 +577,40 @@ function mobileCardClass(item) {
   }
 }
 
-// ─── 手动修改 Storage Left ───
-const editingStorageId = ref(null)
-const editingStorageValue = ref(0)
-
-function startEditStorage(item) {
-  editingStorageId.value = item.shopify_variant_id
-  editingStorageValue.value = item.storage_left
-}
-
-async function saveStorageLeft(item) {
-  const newVal = editingStorageValue.value
-  editingStorageId.value = null
-  if (newVal === item.storage_left) return // 没改动
+// ─── 人工备货状态 ───
+async function setStockAvailability(item, available) {
+  if (!available) {
+    try {
+      await ElMessageBox.confirm(
+        t('replenishment.markNoStockConfirm'),
+        t('replenishment.markNoStock'),
+        {
+          confirmButtonText: t('replenishment.confirmOk'),
+          cancelButtonText: t('replenishment.confirmCancel'),
+          type: 'warning',
+        }
+      )
+    } catch {
+      return
+    }
+  }
 
   try {
-    await squareApi.updateStorageLeft(exhibitionId, item.shopify_variant_id, newVal)
-    item.storage_left = newVal
-    item.storage = (item.replenished_qty || 0) + newVal
-    ElMessage.success(`Storage Left 已更新为 ${newVal}`)
+    await squareApi.updateReplenishmentStockStatus(
+      exhibitionId,
+      item.shopify_variant_id,
+      available
+    )
+    item.stock_available = available
+    item._selected = false
+    item.status = getEffectiveStatus(item)
+    item._replenishQty = Math.max(1, item.rack_quantity - item.rack_remaining)
+    updateSelection()
+    ElMessage.success(available
+      ? t('replenishment.restoreStockSuccess')
+      : t('replenishment.markNoStockSuccess'))
   } catch (err) {
-    ElMessage.error('更新失败: ' + (err.message || ''))
+    ElMessage.error(t('replenishment.stockStatusUpdateFailed') + ': ' + (err.message || ''))
   }
 }
 
@@ -603,21 +639,13 @@ async function fetchData() {
       categoriesApi.getAll().catch(() => ({ data: [] })),
     ])
     const data = checkRes.data || []
-    const defaultQty = (item) => item.suggested_qty || Math.max(1, item.rack_quantity - item.rack_remaining)
     allItems.value = data.map(item => ({
       ...item,
+      stock_available: item.stock_available !== false,
       _selected: false,
-      _originalStatus: item.status,
-      _defaultReplenishQty: defaultQty(item),
-      _replenishQty: defaultQty(item),
+      _replenishQty: Math.max(1, item.rack_quantity - item.rack_remaining),
     }))
-    // 如果当前是补满模式，刷新后重新应用 status
-    if (fillUpMode.value) {
-      for (const item of allItems.value) {
-        item.status = getEffectiveStatus(item)
-        item._replenishQty = Math.max(1, Math.min(item.rack_quantity - item.rack_remaining, item.storage_left))
-      }
-    }
+    applyDisplayMode()
     logs.value = logRes.data || []
     categories.value = catRes.data || []
     // 默认展开有需要补货的分组
@@ -691,9 +719,50 @@ onMounted(fetchData)
 .mode-label { font-size: 12px; color: #999; transition: all 0.3s; cursor: default; }
 .mode-label.active { color: #409eff; font-weight: 600; }
 
-/* 可编辑单元格 */
-.editable-cell { cursor: pointer; border-bottom: 1px dashed #ccc; padding: 2px 4px; transition: all 0.2s; }
-.editable-cell:hover { background: #f0f9ff; border-color: #409eff; }
+/* 人工备货状态分类 */
+.stock-status-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  max-width: 440px;
+}
+.stock-status-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 16px;
+  border: 1px solid #dcdfe6;
+  border-radius: 10px;
+  background: #fff;
+  color: #606266;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.stock-status-tab:hover { border-color: #79bbff; color: #409eff; }
+.stock-status-tab.active {
+  border-color: #409eff;
+  background: #ecf5ff;
+  color: #337ecc;
+  box-shadow: 0 3px 10px rgba(64, 158, 255, 0.12);
+}
+.stock-status-tab.empty.active {
+  border-color: #909399;
+  background: #f4f4f5;
+  color: #606266;
+  box-shadow: 0 3px 10px rgba(96, 98, 102, 0.1);
+}
+.stock-status-count {
+  min-width: 24px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(64, 158, 255, 0.12);
+  font-size: 12px;
+  line-height: 20px;
+}
+.stock-status-tab.empty .stock-status-count { background: rgba(96, 98, 102, 0.12); }
 
 /* 搜索框 */
 .filter-bar { margin-bottom: 12px; }
@@ -801,7 +870,6 @@ onMounted(fetchData)
 /* 数量标签 */
 .qty-badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-weight: 600; font-size: 13px; }
 .qty-badge.rack { background: #ecf5ff; color: #409eff; }
-.qty-badge.storage { background: #f4f4f5; color: #606266; }
 .sold-num { font-weight: 600; color: #409eff; }
 .sold-num.sold-low { color: #f56c6c; }
 .text-danger { color: #f56c6c; font-weight: 600; }
@@ -931,6 +999,26 @@ onMounted(fetchData)
   font-size: 12px;
   color: #909399;
 }
+.mobile-stock-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(144, 147, 153, 0.16);
+}
+.stock-state-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: #67c23a;
+}
+.stock-state-text.unavailable { color: #909399; }
+.mobile-stock-action .el-button {
+  min-height: 34px;
+  border-radius: 9px;
+}
+
 .mobile-card-footer {
   display: flex;
   align-items: center;
@@ -980,13 +1068,17 @@ onMounted(fetchData)
   .filter-card { margin-bottom: 8px; }
   .filter-card :deep(.el-card__body) { padding: 10px 12px; }
   .filter-card-title { font-size: 11px; margin-bottom: 6px; }
+  .stock-status-tabs { max-width: none; gap: 7px; }
+  .stock-status-tab { min-height: 44px; padding: 8px 10px; font-size: 13px; border-radius: 12px; }
   .category-tags { gap: 6px; }
   .cat-tag { font-size: 12px; padding: 4px 10px; }
   .mobile-card-body { grid-template-columns: 1fr 1fr; gap: 10px; }
-  .mobile-stat { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .rack-only-stats { padding: 12px 4px; }
+  .mobile-stat { flex-direction: column; align-items: center; gap: 4px; }
   .stat-label { font-size: 11px; }
-  .mobile-stat .qty-badge { font-size: 16px; }
-  .mobile-stat .editable-cell { font-size: 16px; padding: 4px 8px; }
+  .mobile-stat .qty-badge, .mobile-stat .sold-num { font-size: 18px; }
+  .mobile-stock-action { margin-top: 6px; padding-top: 10px; }
+  .mobile-stock-action .el-button { min-width: 112px; min-height: 38px; }
   .mobile-card-footer .el-input-number { width: 180px; }
 }
 @media (min-width: 769px) {
