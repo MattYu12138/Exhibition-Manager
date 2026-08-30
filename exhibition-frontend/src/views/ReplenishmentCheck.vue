@@ -199,7 +199,7 @@
               </template>
             </el-table-column>
 
-            <el-table-column :label="t('replenishment.stockAction')" width="230" align="center">
+            <el-table-column :label="t('replenishment.stockAction')" width="285" align="center">
               <template #default="{ row }">
                 <el-button
                   v-if="!row.stock_available"
@@ -213,18 +213,20 @@
                   v-model="row._action"
                   size="small"
                   class="action-choice"
+                  @change="handleActionChange(row)"
                 >
                   <el-radio-button value="replenish">{{ t('replenishment.actionReplenish') }}</el-radio-button>
+                  <el-radio-button value="reduce">{{ t('replenishment.actionReduceRack') }}</el-radio-button>
                   <el-radio-button value="no_stock">{{ t('replenishment.markNoStock') }}</el-radio-button>
                 </el-radio-group>
                 <span v-else class="text-muted">{{ t('replenishment.selectFirst') }}</span>
               </template>
             </el-table-column>
 
-            <el-table-column :label="t('replenishment.colReplenishQty')" width="120" align="center">
+            <el-table-column :label="t('replenishment.operationQty')" width="120" align="center">
               <template #default="{ row }">
                 <el-input-number
-                  v-if="row._selected && row._action === 'replenish'"
+                  v-if="row._selected && (row._action === 'replenish' || row._action === 'reduce')"
                   v-model="row._replenishQty"
                   :min="1"
                   :max="999"
@@ -327,8 +329,14 @@
               </template>
               <template v-else-if="item._selected">
                 <span class="stock-state-text">{{ t('replenishment.chooseAction') }}</span>
-                <el-radio-group v-model="item._action" size="small" class="action-choice mobile-action-choice">
+                <el-radio-group
+                  v-model="item._action"
+                  size="small"
+                  class="action-choice mobile-action-choice"
+                  @change="handleActionChange(item)"
+                >
                   <el-radio-button value="replenish">{{ t('replenishment.actionReplenish') }}</el-radio-button>
+                  <el-radio-button value="reduce">{{ t('replenishment.actionReduceRack') }}</el-radio-button>
                   <el-radio-button value="no_stock">{{ t('replenishment.markNoStock') }}</el-radio-button>
                 </el-radio-group>
               </template>
@@ -338,8 +346,15 @@
               </template>
             </div>
             <Transition name="operation-panel" mode="out-in">
-              <div v-if="item._selected && item._action === 'replenish'" key="replenish" class="mobile-card-footer">
-                <span class="replenish-qty-label">{{ t('replenishment.colReplenishQty') }}</span>
+              <div
+                v-if="item._selected && (item._action === 'replenish' || item._action === 'reduce')"
+                :key="item._action"
+                class="mobile-card-footer"
+                :class="{ 'is-reduce': item._action === 'reduce' }"
+              >
+                <span class="replenish-qty-label">
+                  {{ item._action === 'reduce' ? t('replenishment.reduceRackQty') : t('replenishment.colReplenishQty') }}
+                </span>
                 <el-input-number
                   v-model="item._replenishQty"
                   :min="1"
@@ -372,7 +387,16 @@
             {{ row.product_title }} - {{ row.variant_title }}
           </template>
         </el-table-column>
-        <el-table-column :label="t('replenishment.logQty')" prop="replenish_qty" width="110" align="center" />
+        <el-table-column :label="t('replenishment.logAction')" width="110" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.operation_type === 'reduce' ? 'danger' : 'warning'" size="small" effect="plain">
+              {{ row.operation_type === 'reduce' ? t('replenishment.actionReduceRack') : t('replenishment.actionReplenish') }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('replenishment.operationQty')" width="100" align="center">
+          <template #default="{ row }">{{ formatAdjustmentQty(row.replenish_qty) }}</template>
+        </el-table-column>
       </el-table>
       <!-- 移动端日志列表 -->
       <div class="mobile-list">
@@ -380,7 +404,10 @@
           <div class="log-product">{{ log.product_title }} - {{ log.variant_title }}</div>
           <div class="log-meta">
             <span>{{ formatTime(log.created_at) }}</span>
-            <el-tag size="small" type="warning">+{{ log.replenish_qty }}</el-tag>
+            <el-tag size="small" :type="log.operation_type === 'reduce' ? 'danger' : 'warning'">
+              {{ log.operation_type === 'reduce' ? t('replenishment.actionReduceRack') : t('replenishment.actionReplenish') }}
+              {{ formatAdjustmentQty(log.replenish_qty) }}
+            </el-tag>
           </div>
         </div>
       </div>
@@ -450,7 +477,7 @@ function getEffectiveStatus(item) {
 function applyDisplayMode() {
   for (const item of allItems.value) {
     item.status = getEffectiveStatus(item)
-    item._replenishQty = Math.max(1, item.rack_quantity - item.rack_remaining)
+    // 模式切换只改变提醒状态，不覆盖员工已输入的操作数量。
     if (!item.stock_available) item._selected = false
   }
   updateSelection()
@@ -470,6 +497,7 @@ const needsCount = computed(() => allItems.value.filter(i => i.status === 'need'
 const priorityCount = computed(() => allItems.value.filter(i => i.status === 'priority').length)
 const selectedItems = computed(() => allItems.value.filter(i => i._selected))
 const selectedReplenishmentItems = computed(() => selectedItems.value.filter(i => i._action === 'replenish'))
+const selectedRackReduceItems = computed(() => selectedItems.value.filter(i => i._action === 'reduce'))
 const selectedNoStockItems = computed(() => selectedItems.value.filter(i => i._action === 'no_stock'))
 const selectAll = ref(false)
 const isIndeterminate = ref(false)
@@ -597,6 +625,12 @@ function mobileCardClass(item) {
   }
 }
 
+function handleActionChange(item) {
+  item._replenishQty = item._action === 'replenish'
+    ? Math.max(1, item.rack_quantity - item.rack_remaining)
+    : 1
+}
+
 // ─── 人工备货状态 ───
 // 标记无备货随补货统一提交；恢复有货在“没有备货”分类中即时处理。
 async function restoreStockAvailability(item) {
@@ -672,17 +706,20 @@ async function confirmReplenishment() {
     shopify_variant_id: item.shopify_variant_id,
     replenish_qty: item._replenishQty || 1,
   }))
+  const toReduce = selectedRackReduceItems.value.map(item => ({
+    shopify_variant_id: item.shopify_variant_id,
+    reduce_qty: item._replenishQty || 1,
+  }))
   const noStockVariantIds = selectedNoStockItems.value.map(item => item.shopify_variant_id)
 
-  let confirmMessage = t('replenishment.confirmMsg', { n: toReplenish.length })
-  if (noStockVariantIds.length > 0 && toReplenish.length > 0) {
-    confirmMessage = t('replenishment.confirmMixedMsg', {
-      replenish: toReplenish.length,
-      noStock: noStockVariantIds.length,
-    })
-  } else if (noStockVariantIds.length > 0) {
-    confirmMessage = t('replenishment.confirmNoStockMsg', { n: noStockVariantIds.length })
-  }
+  const operationSummary = [
+    toReplenish.length > 0 ? t('replenishment.summaryReplenish', { n: toReplenish.length }) : '',
+    toReduce.length > 0 ? t('replenishment.summaryReduce', { n: toReduce.length }) : '',
+    noStockVariantIds.length > 0 ? t('replenishment.summaryNoStock', { n: noStockVariantIds.length }) : '',
+  ].filter(Boolean).join(' · ')
+  const confirmMessage = noStockVariantIds.length > 0
+    ? t('replenishment.confirmActionsWithNoStock', { summary: operationSummary })
+    : t('replenishment.confirmActionsMsg', { summary: operationSummary })
 
   try {
     await ElMessageBox.confirm(
@@ -704,6 +741,7 @@ async function confirmReplenishment() {
     const res = await squareApi.replenishmentConfirm(
       exhibitionId,
       toReplenish,
+      toReduce,
       noStockVariantIds
     )
     if (res.success) {
@@ -715,6 +753,11 @@ async function confirmReplenishment() {
   } catch (err) {
     ElMessage.error(t('replenishment.failed') + ': ' + (err.message || ''))
   }
+}
+
+function formatAdjustmentQty(qty) {
+  const value = Number(qty) || 0
+  return value > 0 ? `+${value}` : String(value)
 }
 
 function formatTime(ts) {
@@ -1044,6 +1087,7 @@ onMounted(fetchData)
 .select-action-hint { font-size: 11px; color: #a8abb2; }
 .action-choice { white-space: nowrap; transition: opacity 0.2s ease, transform 0.2s ease; }
 .action-choice :deep(.el-radio-button__inner) { padding: 5px 8px; font-size: 11px; line-height: 18px; transition: all 0.2s ease; }
+.action-choice :deep(.el-radio-button:nth-child(2) .el-radio-button__inner) { color: #b88230; }
 .action-choice :deep(.el-radio-button:last-child .el-radio-button__inner) { color: #c45656; }
 .action-choice :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
   color: #fff;
@@ -1081,6 +1125,14 @@ onMounted(fetchData)
   font-size: 13px;
   font-weight: 700;
   white-space: nowrap;
+}
+.mobile-card-footer.is-reduce {
+  border-color: rgba(230, 162, 60, 0.28);
+  background: rgba(253, 246, 236, 0.78);
+}
+.mobile-card-footer.is-reduce .replenish-qty-label,
+.mobile-card-footer.is-reduce :deep(.el-input__inner) {
+  color: #b88230;
 }
 .mobile-card-footer .el-input-number {
   width: 204px;
@@ -1155,7 +1207,7 @@ onMounted(fetchData)
   .mobile-stock-action .el-button { min-width: 88px; min-height: 30px; }
   .mobile-action-choice { width: auto; display: flex; margin-left: auto; }
   .mobile-action-choice :deep(.el-radio-button) { flex: none; }
-  .mobile-action-choice :deep(.el-radio-button__inner) { width: auto; min-height: 30px; display: flex; align-items: center; justify-content: center; padding: 5px 9px; }
+  .mobile-action-choice :deep(.el-radio-button__inner) { width: auto; min-height: 30px; display: flex; align-items: center; justify-content: center; padding: 5px 7px; font-size: 10.5px; }
   .mobile-card-footer .el-input-number { width: min(204px, 62vw); }
   .mobile-card:active { transform: scale(0.995); }
 }
