@@ -741,16 +741,17 @@ router.get('/replenishment-check/:exhibition_id', async (req, res) => {
 });
 
 /**
- * 确认衣架操作 - 统一处理增加和减少衣架
+ * 统一确认操作 - 同一事务处理衣架增减与备货状态
  * POST /api/square/replenishment-confirm
  * Body: {
  *   exhibition_id,
  *   items: [{ shopify_variant_id, replenish_qty }],
- *   rack_reduce_items: [{ shopify_variant_id, reduce_qty }]
+ *   rack_reduce_items: [{ shopify_variant_id, reduce_qty }],
+ *   stock_status_changes: [{ shopify_variant_id, stock_available }]
  * }
  *
  * 衣架调整后：
- * - 不再累计或扣减备货库存，备货状态由独立 Toggle 接口维护
+ * - 不再累计或扣减备货库存；备货状态在界面独立选择，并随本次操作统一提交
  * - replenish_baseline = 实时 Square 库存（后端实时查询，确保精确）
  * - replenish_count += 1（补货计数器递增）
  * 
@@ -763,8 +764,14 @@ router.post('/replenishment-confirm', async (req, res) => {
       exhibition_id,
       items = [],
       rack_reduce_items = [],
+      stock_status_changes = [],
     } = req.body;
-    if (!exhibition_id || !Array.isArray(items) || !Array.isArray(rack_reduce_items)) {
+    if (
+      !exhibition_id ||
+      !Array.isArray(items) ||
+      !Array.isArray(rack_reduce_items) ||
+      !Array.isArray(stock_status_changes)
+    ) {
       return res.status(400).json({ success: false, message: '参数不完整' });
     }
 
@@ -803,7 +810,18 @@ router.post('/replenishment-confirm', async (req, res) => {
       })),
     ];
 
-    if (rackActions.length === 0) {
+    // 备货状态按规格去重；只接受明确的布尔值，避免字符串转换歧义。
+    const stockChangeByVariant = new Map();
+    for (const change of stock_status_changes) {
+      if (!change || !change.shopify_variant_id || typeof change.stock_available !== 'boolean') continue;
+      stockChangeByVariant.set(String(change.shopify_variant_id), change.stock_available);
+    }
+    const stockStatusChanges = Array.from(
+      stockChangeByVariant,
+      ([shopify_variant_id, stock_available]) => ({ shopify_variant_id, stock_available })
+    );
+
+    if (rackActions.length === 0 && stockStatusChanges.length === 0) {
       return res.status(400).json({ success: false, message: '请至少选择一个操作' });
     }
 
@@ -885,7 +903,14 @@ router.post('/replenishment-confirm', async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
+    const updateStockStatusStmt = db.prepare(`
+      UPDATE exhibition_items
+      SET stock_available = ?
+      WHERE exhibition_id = ? AND shopify_variant_id = ?
+    `);
+
     const results = [];
+    const stockStatusResults = [];
     const transaction = db.transaction(() => {
       for (const { shopify_variant_id, quantity, operation_type } of rackActions) {
         const qty = parseInt(quantity, 10);
@@ -910,7 +935,7 @@ router.post('/replenishment-confirm', async (req, res) => {
         const liveSquareQty = vid ? (liveInventory[vid] ?? null) : null;
         const newBaseline = liveSquareQty !== null ? liveSquareQty : oldBaseline;
 
-        // 计算确认补货前的衣架剩余，并只加上员工实际确认的数量。
+        // 计算确认操作前的衣架剩余，并应用员工实际确认的正负调整。
         // rack_quantity 仅作为计划容量和默认补满基准；实际补货后允许超过该数量。
         const previousRackBaseline = before.replenish_count >= 1 && before.replenish_rack_quantity !== null
           ? before.replenish_rack_quantity
@@ -924,7 +949,7 @@ router.post('/replenishment-confirm', async (req, res) => {
         // 只更新新的 Square 基准、实际衣架基准和补货次数；不再累计或扣减备货库存
         updateStmt.run(newBaseline, newRackBaseline, exhibition_id, shopify_variant_id);
 
-        // 保留本次补货历史；旧的库存统计字段写入 NULL，仅用于兼容现有表结构
+        // 保留本次衣架调整历史；旧的库存统计字段写入 NULL，仅用于兼容现有表结构
         logStmt.run(
           exhibition_id, shopify_variant_id, adjustmentQty,
           oldBaseline, newBaseline,
@@ -946,22 +971,39 @@ router.post('/replenishment-confirm', async (req, res) => {
         });
       }
 
+      for (const change of stockStatusChanges) {
+        const updateResult = updateStockStatusStmt.run(
+          change.stock_available ? 1 : 0,
+          exhibition_id,
+          change.shopify_variant_id
+        );
+        if (updateResult.changes > 0) {
+          stockStatusResults.push(change);
+        }
+      }
     });
 
     transaction();
 
     const replenishedCount = results.filter(item => item.operation_type === 'replenish').length;
     const reducedCount = results.filter(item => item.operation_type === 'reduce').length;
+    const markedNoStockCount = stockStatusResults.filter(item => !item.stock_available).length;
+    const restoredStockCount = stockStatusResults.filter(item => item.stock_available).length;
     const messageParts = [];
     if (replenishedCount > 0) messageParts.push(`增加衣架 ${replenishedCount} 个商品`);
     if (reducedCount > 0) messageParts.push(`减少衣架 ${reducedCount} 个商品`);
+    if (markedNoStockCount > 0) messageParts.push(`标记无备货 ${markedNoStockCount} 个商品`);
+    if (restoredStockCount > 0) messageParts.push(`恢复有货 ${restoredStockCount} 个商品`);
 
     res.json({
       success: true,
       data: {
         rack_actions: results,
+        stock_status_changes: stockStatusResults,
         increased_count: replenishedCount,
         reduced_count: reducedCount,
+        marked_no_stock_count: markedNoStockCount,
+        restored_stock_count: restoredStockCount,
       },
       message: messageParts.join('，') || '操作完成',
     });

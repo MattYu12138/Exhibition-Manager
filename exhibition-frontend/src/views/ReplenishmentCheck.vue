@@ -21,6 +21,9 @@
           <el-tag v-if="needsCount === 0 && priorityCount === 0" type="success" size="large">
             {{ t('replenishment.allSufficient') }}
           </el-tag>
+          <el-tag v-if="pendingStockChanges.length > 0" type="warning" effect="plain" size="large">
+            {{ t('replenishment.pendingStockChanges', { n: pendingStockChanges.length }) }}
+          </el-tag>
           <!-- 补满模式开关 -->
           <div class="mode-toggle">
             <span class="mode-label" :class="{ active: !fillUpMode }">{{ t('replenishment.modeNormal') || '正常' }}</span>
@@ -29,15 +32,15 @@
           </div>
         </div>
         <div class="bar-actions">
-          <el-button type="primary" @click="fetchData" :loading="loading">
+          <el-button type="primary" @click="refreshData" :loading="loading">
             <el-icon><Refresh /></el-icon> {{ t('replenishment.refreshSquare') }}
           </el-button>
           <el-button
-            v-if="selectedItems.length > 0"
+            v-if="pendingOperationCount > 0"
             type="success"
             @click="confirmReplenishment"
           >
-            <el-icon><Check /></el-icon> {{ t('replenishment.confirmBtn', { n: selectedItems.length }) }}
+            <el-icon><Check /></el-icon> {{ t('replenishment.confirmBtn', { n: pendingOperationCount }) }}
           </el-button>
         </div>
       </div>
@@ -227,15 +230,15 @@
 
             <el-table-column :label="t('replenishment.stockStatusFilter')" width="170" align="center">
               <template #default="{ row }">
-                <div class="stock-toggle-inline">
-                  <span :class="['stock-state-text', { unavailable: !row.stock_available }]">
-                    {{ row.stock_available ? t('replenishment.stockAvailableShort') : t('replenishment.stockUnavailableShort') }}
+                <div :class="['stock-toggle-inline', { 'is-pending': isStockStatusPending(row) }]">
+                  <span :class="['stock-state-text', { unavailable: !row._pendingStockAvailable }]">
+                    {{ row._pendingStockAvailable ? t('replenishment.stockAvailableShort') : t('replenishment.stockUnavailableShort') }}
                   </span>
                   <el-switch
-                    :model-value="row.stock_available"
-                    :loading="row._stockUpdating"
-                    @change="changeStockAvailability(row, $event)"
+                    :model-value="row._pendingStockAvailable"
+                    @change="stageStockAvailability(row, $event)"
                   />
+                  <span v-if="isStockStatusPending(row)" class="pending-dot" :title="t('replenishment.pendingSave')"></span>
                 </div>
               </template>
             </el-table-column>
@@ -316,15 +319,17 @@
                 </span>
               </div>
             </div>
-            <div class="mobile-stock-action">
-              <span :class="['stock-state-text', { unavailable: !item.stock_available }]">
-                {{ item.stock_available ? t('replenishment.stockAvailableShort') : t('replenishment.stockUnavailableShort') }}
-              </span>
+            <div :class="['mobile-stock-action', { 'is-pending': isStockStatusPending(item) }]">
+              <div class="stock-toggle-label">
+                <span :class="['stock-state-text', { unavailable: !item._pendingStockAvailable }]">
+                  {{ item._pendingStockAvailable ? t('replenishment.stockAvailableShort') : t('replenishment.stockUnavailableShort') }}
+                </span>
+                <span v-if="isStockStatusPending(item)" class="pending-save-text">{{ t('replenishment.pendingSave') }}</span>
+              </div>
               <el-switch
-                :model-value="item.stock_available"
-                :loading="item._stockUpdating"
+                :model-value="item._pendingStockAvailable"
                 size="small"
-                @change="changeStockAvailability(item, $event)"
+                @change="stageStockAvailability(item, $event)"
               />
             </div>
 
@@ -408,16 +413,16 @@
 
     <!-- 移动端固定浮窗按钮 -->
     <div class="fab-container">
-      <div class="fab fab-left" @click="fetchData" :class="{ 'fab-loading': loading }">
+      <div class="fab fab-left" @click="refreshData" :class="{ 'fab-loading': loading }">
         <el-icon :size="24"><Refresh /></el-icon>
       </div>
       <div
         class="fab fab-right"
-        :class="{ 'fab-disabled': selectedItems.length === 0 }"
-        @click="selectedItems.length > 0 && confirmReplenishment()"
+        :class="{ 'fab-disabled': pendingOperationCount === 0 }"
+        @click="pendingOperationCount > 0 && confirmReplenishment()"
       >
         <el-icon :size="24"><Check /></el-icon>
-        <span v-if="selectedItems.length > 0" class="fab-badge">{{ selectedItems.length }}</span>
+        <span v-if="pendingOperationCount > 0" class="fab-badge">{{ pendingOperationCount }}</span>
       </div>
     </div>
   </div>
@@ -492,6 +497,10 @@ const priorityCount = computed(() => allItems.value.filter(i => i.status === 'pr
 const selectedItems = computed(() => allItems.value.filter(i => i._selected))
 const selectedReplenishmentItems = computed(() => selectedItems.value.filter(i => i._action === 'replenish'))
 const selectedRackReduceItems = computed(() => selectedItems.value.filter(i => i._action === 'reduce'))
+const pendingStockChanges = computed(() => allItems.value.filter(item =>
+  item._pendingStockAvailable !== item.stock_available
+))
+const pendingOperationCount = computed(() => selectedItems.value.length + pendingStockChanges.value.length)
 const selectAll = ref(false)
 const isIndeterminate = ref(false)
 
@@ -624,44 +633,13 @@ function handleActionChange(item) {
     : 1
 }
 
-// ─── 人工备货状态 Toggle（与衣架数量调整完全独立） ───
-async function changeStockAvailability(item, available) {
-  const nextAvailable = Boolean(available)
-  if (!nextAvailable) {
-    try {
-      await ElMessageBox.confirm(
-        t('replenishment.markNoStockConfirm'),
-        t('replenishment.markNoStock'),
-        {
-          confirmButtonText: t('replenishment.confirmOk'),
-          cancelButtonText: t('replenishment.confirmCancel'),
-          type: 'warning',
-        }
-      )
-    } catch {
-      return
-    }
-  }
+// ─── 人工备货状态 Toggle（界面独立，最后与衣架调整统一提交） ───
+function isStockStatusPending(item) {
+  return item._pendingStockAvailable !== item.stock_available
+}
 
-  item._stockUpdating = true
-  try {
-    await squareApi.updateReplenishmentStockStatus(
-      exhibitionId,
-      item.shopify_variant_id,
-      nextAvailable
-    )
-    item.stock_available = nextAvailable
-    item._selected = false
-    item.status = getEffectiveStatus(item)
-    updateSelection()
-    ElMessage.success(nextAvailable
-      ? t('replenishment.restoreStockSuccess')
-      : t('replenishment.markNoStockSuccess'))
-  } catch (err) {
-    ElMessage.error(t('replenishment.stockStatusUpdateFailed') + ': ' + (err.message || ''))
-  } finally {
-    item._stockUpdating = false
-  }
+function stageStockAvailability(item, available) {
+  item._pendingStockAvailable = Boolean(available)
 }
 
 function visibleItems() {
@@ -682,6 +660,25 @@ function updateSelection() {
   isIndeterminate.value = checkedCount > 0 && checkedCount < selectableItems.length
 }
 
+async function refreshData() {
+  if (selectedItems.value.length > 0 || pendingStockChanges.value.length > 0) {
+    try {
+      await ElMessageBox.confirm(
+        t('replenishment.discardPendingMsg'),
+        t('replenishment.discardPendingTitle'),
+        {
+          confirmButtonText: t('replenishment.discardAndRefresh'),
+          cancelButtonText: t('replenishment.confirmCancel'),
+          type: 'warning',
+        }
+      )
+    } catch {
+      return
+    }
+  }
+  await fetchData()
+}
+
 async function fetchData() {
   loading.value = true
   try {
@@ -697,7 +694,7 @@ async function fetchData() {
       _selected: false,
       _action: 'replenish',
       _replenishQty: Math.max(1, item.rack_quantity - item.rack_remaining),
-      _stockUpdating: false,
+      _pendingStockAvailable: item.stock_available !== false,
     }))
     applyDisplayMode()
     logs.value = logRes.data || []
@@ -725,20 +722,31 @@ async function confirmReplenishment() {
     shopify_variant_id: item.shopify_variant_id,
     reduce_qty: item._replenishQty || 1,
   }))
+  const stockStatusChanges = pendingStockChanges.value.map(item => ({
+    shopify_variant_id: item.shopify_variant_id,
+    stock_available: item._pendingStockAvailable,
+  }))
+  const markNoStockCount = stockStatusChanges.filter(item => !item.stock_available).length
+  const restoreStockCount = stockStatusChanges.filter(item => item.stock_available).length
+
   const operationSummary = [
     toReplenish.length > 0 ? t('replenishment.summaryReplenish', { n: toReplenish.length }) : '',
     toReduce.length > 0 ? t('replenishment.summaryReduce', { n: toReduce.length }) : '',
+    markNoStockCount > 0 ? t('replenishment.summaryNoStock', { n: markNoStockCount }) : '',
+    restoreStockCount > 0 ? t('replenishment.summaryRestoreStock', { n: restoreStockCount }) : '',
   ].filter(Boolean).join(' · ')
-  const confirmMessage = t('replenishment.confirmActionsMsg', { summary: operationSummary })
+  const confirmMessage = markNoStockCount > 0
+    ? t('replenishment.confirmActionsWithNoStock', { summary: operationSummary })
+    : t('replenishment.confirmActionsMsg', { summary: operationSummary })
 
   try {
     await ElMessageBox.confirm(
       confirmMessage,
-      t('replenishment.confirmTitle'),
+      markNoStockCount > 0 ? t('replenishment.noStockWarningTitle') : t('replenishment.confirmTitle'),
       {
         confirmButtonText: t('replenishment.confirmOk'),
         cancelButtonText: t('replenishment.confirmCancel'),
-        type: 'info',
+        type: markNoStockCount > 0 ? 'warning' : 'info',
       }
     )
   } catch {
@@ -749,7 +757,8 @@ async function confirmReplenishment() {
     const res = await squareApi.replenishmentConfirm(
       exhibitionId,
       toReplenish,
-      toReduce
+      toReduce,
+      stockStatusChanges
     )
     if (res.success) {
       ElMessage.success(res.message || t('replenishment.success'))
@@ -1082,8 +1091,26 @@ onMounted(fetchData)
   justify-content: space-between;
   gap: 8px;
   margin-top: 7px;
-  padding-top: 8px;
-  border-top: 1px solid rgba(144, 147, 153, 0.12);
+  padding: 8px 9px 0;
+  border: 1px solid transparent;
+  border-top-color: rgba(144, 147, 153, 0.12);
+  border-radius: 10px;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.mobile-stock-action.is-pending {
+  padding: 8px 9px;
+  border-color: rgba(230, 162, 60, 0.32);
+  background: rgba(253, 246, 236, 0.72);
+}
+.stock-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pending-save-text {
+  color: #b88230;
+  font-size: 10px;
+  font-weight: 600;
 }
 .stock-state-text {
   font-size: 11px;
@@ -1097,6 +1124,22 @@ onMounted(fetchData)
   justify-content: center;
   gap: 8px;
   min-width: 120px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.stock-toggle-inline.is-pending {
+  border-color: rgba(230, 162, 60, 0.34);
+  background: rgba(253, 246, 236, 0.78);
+}
+.pending-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: #e6a23c;
+  box-shadow: 0 0 0 3px rgba(230, 162, 60, 0.14);
 }
 .action-choice { white-space: nowrap; transition: opacity 0.2s ease, transform 0.2s ease; }
 .action-choice :deep(.el-radio-button__inner) { padding: 5px 9px; font-size: 11px; line-height: 18px; transition: all 0.2s ease; }
