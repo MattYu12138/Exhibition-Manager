@@ -163,7 +163,7 @@
               </template>
               <template #default="{ row }">
                 <el-checkbox
-                  v-if="row.status === 'need' || row.status === 'priority'"
+                  v-if="row.stock_available"
                   v-model="row._selected"
                   @change="updateSelection"
                 />
@@ -234,7 +234,7 @@
                 <el-tag v-else-if="row._selected && row._action === 'no_stock'" type="danger" effect="plain" size="small">
                   {{ t('replenishment.pendingNoStock') }}
                 </el-tag>
-                <span v-else-if="row.status === 'need' || row.status === 'priority'" class="text-muted">-</span>
+                <span v-else-if="row.stock_available" class="text-muted">-</span>
               </template>
             </el-table-column>
           </el-table>
@@ -287,7 +287,7 @@
           >
             <div class="mobile-card-header">
               <el-checkbox
-                v-if="item.status === 'need' || item.status === 'priority'"
+                v-if="item.stock_available"
                 v-model="item._selected"
                 @change="updateSelection"
                 class="mobile-checkbox"
@@ -451,7 +451,7 @@ function applyDisplayMode() {
   for (const item of allItems.value) {
     item.status = getEffectiveStatus(item)
     item._replenishQty = Math.max(1, item.rack_quantity - item.rack_remaining)
-    if (item.status !== 'need' && item.status !== 'priority') item._selected = false
+    if (!item.stock_available) item._selected = false
   }
   updateSelection()
 }
@@ -620,7 +620,7 @@ async function restoreStockAvailability(item) {
 
 function handleSelectAll(val) {
   allItems.value.forEach(item => {
-    if (item.status === 'need' || item.status === 'priority') {
+    if (item.stock_available) {
       item._selected = val
     }
   })
@@ -628,10 +628,10 @@ function handleSelectAll(val) {
 }
 
 function updateSelection() {
-  const replenishableItems = allItems.value.filter(i => i.status === 'need' || i.status === 'priority')
-  const checkedCount = replenishableItems.filter(i => i._selected).length
-  selectAll.value = checkedCount === replenishableItems.length && replenishableItems.length > 0
-  isIndeterminate.value = checkedCount > 0 && checkedCount < replenishableItems.length
+  const selectableItems = allItems.value.filter(i => i.stock_available)
+  const checkedCount = selectableItems.filter(i => i._selected).length
+  selectAll.value = checkedCount === selectableItems.length && selectableItems.length > 0
+  isIndeterminate.value = checkedCount > 0 && checkedCount < selectableItems.length
 }
 
 async function fetchData() {
