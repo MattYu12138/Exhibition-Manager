@@ -878,7 +878,8 @@ router.post('/replenishment-confirm', async (req, res) => {
         const liveSquareQty = vid ? (liveInventory[vid] ?? null) : null;
         const newBaseline = liveSquareQty !== null ? liveSquareQty : oldBaseline;
 
-        // 计算确认补货前的衣架剩余，并只加上员工实际确认的数量
+        // 计算确认补货前的衣架剩余，并只加上员工实际确认的数量。
+        // rack_quantity 仅作为计划容量和默认补满基准；实际补货后允许超过该数量。
         const previousRackBaseline = before.replenish_count >= 1 && before.replenish_rack_quantity !== null
           ? before.replenish_rack_quantity
           : (before.rack_quantity || 0);
@@ -886,7 +887,7 @@ router.post('/replenishment-confirm', async (req, res) => {
           ? Math.max(0, oldBaseline - liveSquareQty)
           : 0;
         const rackRemainingBefore = previousRackBaseline - soldSincePreviousBaseline;
-        const newRackBaseline = Math.min(before.rack_quantity || 0, rackRemainingBefore + qty);
+        const newRackBaseline = rackRemainingBefore + qty;
 
         // 只更新新的 Square 基准、实际衣架基准和补货次数；不再累计或扣减备货库存
         updateStmt.run(newBaseline, newRackBaseline, exhibition_id, shopify_variant_id);
