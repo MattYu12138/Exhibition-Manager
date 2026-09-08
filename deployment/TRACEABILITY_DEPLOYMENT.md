@@ -3,7 +3,7 @@
 **Author:** Manus AI  
 **Proposed host:** `trace.lummiincolour.com.au`
 
-The product traceability service runs as two Docker Compose services and shares the existing `/data/lic/LIC_DB.db` database through `DB_PATH`.
+The product traceability service runs as two Docker Compose services and shares the existing `/data/lic/database/LIC_DB.db` database through `DB_PATH`.
 
 | Service | Container port | Local host binding |
 |---|---:|---:|
@@ -17,7 +17,7 @@ Create `traceability-backend/.env` on the server. Do not commit it.
 ```dotenv
 NODE_ENV=production
 PORT=3004
-DB_PATH=/data/lic/LIC_DB.db
+DB_PATH=/data/lic/database/LIC_DB.db
 FRONTEND_URL=https://trace.lummiincolour.com.au
 SUPPORT_EMAIL=admin@lummiincolour.com.au
 TRACEABILITY_PUBLIC_URL=https://trace.lummiincolour.com.au
