@@ -12,6 +12,10 @@ const usersRouter = require('./routes/users');
 const ssoRouter = require('./routes/sso');
 const dbadminRouter = require('./routes/dbadmin');
 const traceabilityRouter = require('./routes/traceability');
+const { getDb } = require('./db');
+
+// 启动时立即执行共享数据库建表、迁移和系统入口初始化
+getDb();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
