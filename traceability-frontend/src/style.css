@@ -131,7 +131,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
   -webkit-backdrop-filter: blur(26px) saturate(1.12);
   animation: cardReveal 520ms 160ms var(--ease-out) both;
 }
-.search-card, .result-card { padding: 24px; }
+.search-card, .result-card, .pending-card { padding: 24px; }
 .card-heading, .result-topline { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .card-heading { justify-content: flex-start; }
 .leaf-icon { display: grid; width: 46px; height: 46px; place-items: center; flex: 0 0 46px; border-radius: 16px; color: var(--sage-dark); background: rgba(125, 144, 116, 0.13); }
@@ -182,9 +182,11 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .message p { margin: 0; font-size: 11px; line-height: 1.5; }
 .message a { display: inline-block; margin-top: 5px; font-size: 11px; font-weight: 700; }
 
-.result-card { padding: 22px; }
-.verified-pill { display: inline-flex; align-items: center; gap: 5px; padding: 7px 10px; border-radius: 999px; color: #55744f; background: rgba(112, 151, 103, 0.12); font-size: 10px; font-weight: 700; white-space: nowrap; }
-.verified-pill svg { width: 14px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.result-card, .pending-card { padding: 22px; }
+.verified-pill, .pending-pill { display: inline-flex; align-items: center; gap: 5px; padding: 7px 10px; border-radius: 999px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.verified-pill { color: #55744f; background: rgba(112, 151, 103, 0.12); }
+.pending-pill { color: #8a6740; background: rgba(199, 157, 99, 0.15); }
+.verified-pill svg, .pending-pill svg { width: 14px; fill: none; stroke: currentColor; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
 .product-identity { margin: 20px 0 13px; padding: 16px; border: 1px solid var(--line); border-radius: 17px; background: rgba(255, 255, 255, 0.48); }
 .identity-label { display: block; color: #8d918a; font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
 .product-identity strong { display: block; margin-top: 6px; font-family: Georgia, 'Noto Serif SC', serif; font-size: 19px; line-height: 1.32; }
@@ -195,6 +197,10 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .trace-row dt { color: #888d85; font-size: 11px; }
 .trace-row dd { margin: 0; color: #363d36; font-size: 12px; font-weight: 600; text-align: right; overflow-wrap: anywhere; }
 .trace-row dd.numeric { font-variant-numeric: tabular-nums; letter-spacing: 0.035em; }
+.preparing-panel { display: flex; gap: 12px; margin-top: 13px; padding: 15px; border: 1px solid rgba(160, 121, 75, 0.12); border-radius: 17px; color: #67523d; background: linear-gradient(135deg, rgba(245, 232, 212, 0.82), rgba(241, 237, 224, 0.82)); }
+.preparing-icon { display: grid; width: 27px; height: 27px; place-items: center; flex: 0 0 27px; border: 1px solid rgba(111, 81, 49, 0.4); border-radius: 50%; font-family: Georgia, serif; font-size: 14px; font-weight: 700; }
+.preparing-panel strong { display: block; margin-bottom: 4px; font-size: 12px; }
+.preparing-panel p { margin: 0; color: #776755; font-size: 10.5px; line-height: 1.55; }
 .certification-panel { display: flex; align-items: center; gap: 15px; margin-top: 13px; padding: 15px; border-radius: 17px; color: #344334; background: linear-gradient(135deg, rgba(221, 232, 213, 0.85), rgba(239, 235, 219, 0.85)); }
 .gots-seal { display: grid; width: 58px; height: 58px; place-content: center; flex: 0 0 58px; border: 1px solid rgba(71, 98, 65, 0.35); border-radius: 50%; text-align: center; }
 .gots-seal span { font-size: 14px; font-weight: 700; letter-spacing: .07em; }
@@ -224,7 +230,7 @@ footer a { font-weight: 600; }
   .hero-copy > p:last-child { font-size: 13px; }
   .hero-image { object-position: center 34%; }
   .content-shell { margin-top: -146px; }
-  .search-card, .result-card { padding: 34px; }
+  .search-card, .result-card, .pending-card { padding: 34px; }
   .card-heading h2, .result-topline h2 { font-size: 27px; }
   .trace-row { padding: 15px 18px; }
 }
@@ -233,7 +239,7 @@ footer a { font-weight: 600; }
   .hero { min-height: 505px; }
   .hero-copy { top: 82px; }
   .hero-copy h1 { font-size: 32px; }
-  .search-card, .result-card { padding: 19px; border-radius: 24px; }
+  .search-card, .result-card, .pending-card { padding: 19px; border-radius: 24px; }
   .result-actions { grid-template-columns: 1fr; }
   .trace-row { grid-template-columns: 102px 1fr; gap: 10px; }
 }

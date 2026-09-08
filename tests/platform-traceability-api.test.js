@@ -43,7 +43,7 @@ db.exec(`
 `);
 db.prepare('INSERT INTO products (id, title, status) VALUES (?, ?, ?)').run('P1', 'Organic Cotton Growsuit - Avocados', 'active');
 db.prepare('INSERT INTO product_variants (id, product_id, variant_title, sku, gtin) VALUES (?, ?, ?, ?, ?)')
-  .run('V1', 'P1', '000', 'GS26001-000', '9341234567890');
+  .run('V1', 'P1', '000', 'GS26001-000', '52845505');
 db.close();
 
 const server = spawn(process.execPath, ['src/index.js'], {
@@ -97,7 +97,7 @@ async function api(url, options = {}, cookie = '') {
     const systems = await systemsResponse.json();
     assert.ok(systems.some(system => system.name === 'traceability-manager' && system.url === '/admin/traceability'));
 
-    const variantsResponse = await api('/api/traceability/variants?search=934123', {}, cookie);
+    const variantsResponse = await api('/api/traceability/variants?search=528455', {}, cookie);
     const variants = await variantsResponse.json();
     assert.equal(variants.data.length, 1);
     assert.equal(variants.data[0].product_variant_id, 'V1');
@@ -126,7 +126,7 @@ async function api(url, options = {}, cookie = '') {
     const recordsResponse = await api('/api/traceability/records?search=Avocados', {}, cookie);
     const records = await recordsResponse.json();
     assert.equal(records.total, 1);
-    assert.equal(records.data[0].barcode, '9341234567890');
+    assert.equal(records.data[0].barcode, '52845505');
 
     const updateResponse = await api(`/api/traceability/records/${created.data.id}`, {
       method: 'PUT',
@@ -146,7 +146,7 @@ async function api(url, options = {}, cookie = '') {
     testDb.prepare(`
       INSERT INTO traceability_query_log (barcode, traceability_record_id, result_status, language, visitor_hash)
       VALUES (?, ?, ?, ?, ?)
-    `).run('9341234567890', created.data.id, 'found', 'en', 'anonymous-test-hash');
+    `).run('52845505', created.data.id, 'found', 'en', 'anonymous-test-hash');
     testDb.close();
 
     const statsResponse = await api('/api/traceability/stats?days=30', {}, cookie);

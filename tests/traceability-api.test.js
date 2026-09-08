@@ -68,17 +68,17 @@ const insertTrace = db.prepare(`
 `);
 
 insertProduct.run('P1', 'Organic Cotton Baby Wrap', 'active');
-insertVariant.run('V1', 'P1', '110cm x 100cm', 'BW26001', '0123456789012');
+insertVariant.run('V1', 'P1', '110cm x 100cm', 'BW26001', '12345678');
 insertTrace.run('TR1', 'V1', 'BATCH-001', '100% 有机棉', '100% Organic Cotton', 'GOTS organic', 'Test Certifier', 'LIC-001', '中国', 'China', 'https://global-standards.org/suppliers/certified-suppliers', 1);
 
 insertProduct.run('P2', 'Draft Product', 'active');
-insertVariant.run('V2', 'P2', '000', 'DP26001', '2000000000002');
+insertVariant.run('V2', 'P2', '000', 'DP26001', '20000002');
 insertTrace.run('TR2', 'V2', 'BATCH-DRAFT', '100% 有机棉', '100% Organic Cotton', 'GOTS organic', null, null, '中国', 'China', 'https://global-standards.org/suppliers/certified-suppliers', 0);
 
 insertProduct.run('P3', 'Duplicate Product A', 'active');
 insertProduct.run('P4', 'Duplicate Product B', 'active');
-insertVariant.run('V3', 'P3', '00', 'DUP-A', '3000000000003');
-insertVariant.run('V4', 'P4', '00', 'DUP-B', '3000000000003');
+insertVariant.run('V3', 'P3', '00', 'DUP-A', '30000003');
+insertVariant.run('V4', 'P4', '00', 'DUP-B', '30000003');
 insertTrace.run('TR3', 'V3', 'BATCH-A', '100% 有机棉', '100% Organic Cotton', 'GOTS organic', null, null, '中国', 'China', 'https://global-standards.org/suppliers/certified-suppliers', 1);
 insertTrace.run('TR4', 'V4', 'BATCH-B', '100% 有机棉', '100% Organic Cotton', 'GOTS organic', null, null, '中国', 'China', 'https://global-standards.org/suppliers/certified-suppliers', 1);
 db.close();
@@ -121,33 +121,41 @@ async function request(barcode, lang = 'en') {
   try {
     await waitForServer();
 
-    const found = await request('0123456789012', 'zh');
+    const found = await request('12345678', 'zh');
     assert.equal(found.status, 200);
     assert.equal(found.body.data.product_name, 'Organic Cotton Baby Wrap');
     assert.equal(found.body.data.style_number, 'BW26001');
     assert.equal(found.body.data.fiber_composition, '100% 有机棉');
     assert.equal(found.body.support_email, 'admin@lummiincolour.com.au');
 
-    const draft = await request('2000000000002');
+    const draft = await request('20000002');
     assert.equal(draft.status, 404);
     assert.equal(draft.body.code, 'NOT_PUBLISHED');
+    assert.equal(draft.body.data.product_name, 'Draft Product');
+    assert.equal(draft.body.data.style_number, 'DP26001');
+    assert.equal(draft.body.data.variant, '000');
+    assert.equal(draft.body.data.barcode, '20000002');
 
-    const missing = await request('4000000000004');
+    const missing = await request('40000004');
     assert.equal(missing.status, 404);
     assert.equal(missing.body.code, 'NOT_FOUND');
 
-    const duplicate = await request('3000000000003');
+    const duplicate = await request('30000003');
     assert.equal(duplicate.status, 409);
     assert.equal(duplicate.body.code, 'AMBIGUOUS_BARCODE');
 
-    const invalid = await request('###');
+    const invalid = await request('1234567');
     assert.equal(invalid.status, 400);
     assert.equal(invalid.body.code, 'INVALID_BARCODE');
+
+    const invalidLong = await request('123456789');
+    assert.equal(invalidLong.status, 400);
+    assert.equal(invalidLong.body.code, 'INVALID_BARCODE');
 
     const checkDb = new Database(dbPath);
     const logSummary = checkDb.prepare('SELECT result_status, COUNT(*) AS count FROM traceability_query_log GROUP BY result_status').all();
     const statuses = Object.fromEntries(logSummary.map(row => [row.result_status, row.count]));
-    assert.deepEqual(statuses, { ambiguous: 1, found: 1, invalid: 1, not_found: 1, not_published: 1 });
+    assert.deepEqual(statuses, { ambiguous: 1, found: 1, invalid: 2, not_found: 1, not_published: 1 });
     const visitor = checkDb.prepare('SELECT visitor_hash FROM traceability_query_log LIMIT 1').get();
     assert.ok(visitor.visitor_hash && visitor.visitor_hash.length === 32);
     checkDb.close();

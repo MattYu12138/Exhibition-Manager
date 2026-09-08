@@ -54,7 +54,7 @@ db.exec(`
 db.prepare('INSERT INTO products (id, title, vendor, product_type, status) VALUES (?, ?, ?, ?, ?)')
   .run('P1', 'Organic Cotton Baby Swaddle Wrap - Avocados', 'Lummi in Colour', 'Swaddle Wrap', 'active');
 db.prepare('INSERT INTO product_variants (id, product_id, variant_title, sku, gtin) VALUES (?, ?, ?, ?, ?)')
-  .run('V1', 'P1', '110cm x 100cm', 'SW26001-AVO', '9341234567890');
+  .run('V1', 'P1', '110cm x 100cm', 'SW26001-AVO', '52845505');
 db.prepare(`
   INSERT INTO traceability_records (
     id, product_variant_id, batch_no, fiber_composition_zh, fiber_composition_en,
