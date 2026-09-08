@@ -25,6 +25,12 @@ const routes = [
     name: 'DatabaseAdmin',
     component: () => import('../views/DatabaseAdminView.vue'),
     meta: { requiresAuth: true, requiresAdmin: true }
+  },
+  {
+    path: '/admin/traceability',
+    name: 'TraceabilityManager',
+    component: () => import('../views/TraceabilityManagerView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true }
   }
 ]
 

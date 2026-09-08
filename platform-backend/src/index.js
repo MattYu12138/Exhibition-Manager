@@ -11,6 +11,7 @@ const systemsRouter = require('./routes/systems');
 const usersRouter = require('./routes/users');
 const ssoRouter = require('./routes/sso');
 const dbadminRouter = require('./routes/dbadmin');
+const traceabilityRouter = require('./routes/traceability');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -56,6 +57,7 @@ app.use('/api/systems', systemsRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/sso', ssoRouter);
 app.use('/api/dbadmin', dbadminRouter);
+app.use('/api/traceability', traceabilityRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'platform-backend', timestamp: new Date().toISOString() });

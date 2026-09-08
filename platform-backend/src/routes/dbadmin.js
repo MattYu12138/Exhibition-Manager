@@ -20,6 +20,9 @@ const ALLOWED_TABLES = [
   'product_variants',
   'square_products',
   'square_sync_log',
+  'traceability_records',
+  'traceability_query_log',
+  'traceability_audit_log',
 ];
 
 // 获取所有允许的表名及其结构

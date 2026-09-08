@@ -1,10 +1,8 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --legacy-peer-deps
+RUN npm install
 COPY . .
-ARG VITE_TRACEABILITY_URL=https://trace.lummiincolour.com.au
-ENV VITE_TRACEABILITY_URL=$VITE_TRACEABILITY_URL
 RUN npm run build
 
 FROM nginx:alpine

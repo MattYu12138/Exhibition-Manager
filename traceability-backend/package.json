@@ -1,7 +1,8 @@
 {
-  "name": "lummi-platform-backend",
+  "name": "lummi-traceability-backend",
   "version": "1.0.0",
-  "description": "Lummi in Colour Management Platform Backend",
+  "private": true,
+  "description": "Public product traceability API for Lummi in Colour",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
@@ -9,14 +10,9 @@
   },
   "dependencies": {
     "better-sqlite3": "^12.8.0",
-    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "express-session": "^1.17.3",
-    "connect-sqlite3": "^0.9.13",
-    "sqlite3": "^5.1.7",
     "dotenv": "^16.4.5",
-    "svg-captcha": "^1.4.0"
+    "express": "^4.18.2"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
