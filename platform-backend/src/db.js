@@ -30,9 +30,31 @@ function initSchema() {
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'staff',
+      token_version INTEGER NOT NULL DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS app_refresh_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at DATETIME NOT NULL,
+      revoked_at DATETIME,
+      last_used_at DATETIME,
+      user_agent TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_app_refresh_user ON app_refresh_tokens(user_id);
+    CREATE INDEX IF NOT EXISTS idx_app_refresh_expiry ON app_refresh_tokens(expires_at);
+
+    CREATE TABLE IF NOT EXISTS app_revoked_access_tokens (
+      jti TEXT PRIMARY KEY,
+      expires_at DATETIME NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_app_revoked_expiry ON app_revoked_access_tokens(expires_at);
 
     CREATE TABLE IF NOT EXISTS platform_systems (
       id TEXT PRIMARY KEY,
@@ -112,6 +134,13 @@ function initSchema() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  // Existing production user tables predate token_version.
+  try {
+    db.exec('ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0');
+  } catch (_) {
+    // Column already exists.
+  }
 
   // Seed default admin user if not exists
   const adminUser = db.prepare("SELECT COUNT(*) as cnt FROM users WHERE username = 'admin'").get();

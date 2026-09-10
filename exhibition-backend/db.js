@@ -65,9 +65,32 @@ db.exec(`
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'staff',
+    token_version INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  -- iOS 30 天登录刷新令牌（仅保存 SHA-256 哈希）
+  CREATE TABLE IF NOT EXISTS app_refresh_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at DATETIME NOT NULL,
+    revoked_at DATETIME,
+    last_used_at DATETIME,
+    user_agent TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_app_refresh_user ON app_refresh_tokens(user_id);
+  CREATE INDEX IF NOT EXISTS idx_app_refresh_expiry ON app_refresh_tokens(expires_at);
+
+  CREATE TABLE IF NOT EXISTS app_revoked_access_tokens (
+    jti TEXT PRIMARY KEY,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_app_revoked_expiry ON app_revoked_access_tokens(expires_at);
 
   -- 平台系统表（与 platform-backend 共享）
   CREATE TABLE IF NOT EXISTS platform_systems (
@@ -86,12 +109,10 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS platform_permissions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
-    system_id TEXT NOT NULL,
-    can_read INTEGER NOT NULL DEFAULT 0,
-    can_write INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(user_id, system_id)
+    system TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'viewer',
+    granted_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, system)
   );
 
   -- Canonical product table (maintained by inventory-backend, read-only for exhibition-backend)
@@ -269,6 +290,8 @@ const migrations = [
   'ALTER TABLE exhibition_items ADD COLUMN storage_done INTEGER DEFAULT 0',
   // 新增加密密码字段（AES-256-CBC 对称加密）
   'ALTER TABLE users ADD COLUMN password_encrypted TEXT',
+  // iOS JWT 全局失效版本；修改密码时递增
+  'ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0',
   // 展中补货相关字段
   'ALTER TABLE exhibition_items ADD COLUMN replenish_baseline INTEGER DEFAULT NULL',
   'ALTER TABLE exhibition_items ADD COLUMN replenish_count INTEGER DEFAULT 0',

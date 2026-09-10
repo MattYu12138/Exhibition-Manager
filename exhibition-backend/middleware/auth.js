@@ -1,35 +1,51 @@
 /**
- * 认证与权限中间件
+ * Session + iOS Bearer JWT authentication and authorization.
  */
+const { authenticateRequest } = require('../services/appTokens');
 
-// 必须登录
+function authenticationError(res, error) {
+  if (error && error.code === 'JWT_NOT_CONFIGURED') {
+    console.error('[Auth] JWT configuration error:', error.message);
+    return res.status(503).json({ success: false, code: 'JWT_NOT_CONFIGURED', message: 'App 登录服务尚未配置' });
+  }
+  if (error && error.name === 'TokenExpiredError') {
+    return res.status(401).json({ success: false, code: 'TOKEN_EXPIRED', message: '登录已过期，请刷新或重新登录' });
+  }
+  if (error && error.code === 'FORBIDDEN_SYSTEM') {
+    return res.status(403).json({ success: false, code: 'FORBIDDEN_SYSTEM', message: '您没有访问展会管理系统的权限' });
+  }
+  return res.status(401).json({ success: false, code: 'INVALID_TOKEN', message: '登录凭证无效' });
+}
+
 function requireLogin(req, res, next) {
-  if (!req.session.user) {
-    return res.status(401).json({ success: false, message: '未登录' });
+  try {
+    const user = authenticateRequest(req);
+    if (!user) {
+      return res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: '未登录' });
+    }
+    req.authUser = user;
+    next();
+  } catch (error) {
+    return authenticationError(res, error);
   }
-  next();
 }
 
-// 必须是管理员或员工（非游客）
 function requireStaff(req, res, next) {
-  if (!req.session.user) {
-    return res.status(401).json({ success: false, message: '未登录' });
-  }
-  if (req.session.user.role === 'guest') {
-    return res.status(403).json({ success: false, message: '游客无权执行此操作' });
-  }
-  next();
+  requireLogin(req, res, () => {
+    if (req.authUser.role === 'guest') {
+      return res.status(403).json({ success: false, message: '游客无权执行此操作' });
+    }
+    next();
+  });
 }
 
-// 必须是管理员
 function requireAdmin(req, res, next) {
-  if (!req.session.user) {
-    return res.status(401).json({ success: false, message: '未登录' });
-  }
-  if (req.session.user.role !== 'admin') {
-    return res.status(403).json({ success: false, message: '需要管理员权限' });
-  }
-  next();
+  requireLogin(req, res, () => {
+    if (req.authUser.role !== 'admin') {
+      return res.status(403).json({ success: false, message: '需要管理员权限' });
+    }
+    next();
+  });
 }
 
 module.exports = { requireLogin, requireStaff, requireAdmin };

@@ -37,13 +37,15 @@ router.post('/token', requireLogin, (req, res) => {
 
   // 从 DB 重新查询用户最新信息，避免 session 缓存的角色过时
   const db = getDb();
-  const freshUser = db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(req.session.user.id);
+  const freshUser = db.prepare('SELECT id, username, role FROM users WHERE id = ?').get(req.authUser.id);
   if (!freshUser) {
     return res.status(401).json({ success: false, message: '用户不存在' });
   }
   const user = { id: freshUser.id, username: freshUser.username, role: freshUser.role };
-  // 同步更新 session 中的角色
-  req.session.user = { ...req.session.user, ...user };
+  // Browser sessions keep their cached role in sync; Bearer requests do not create a cookie session.
+  if (req.session && req.session.user) {
+    req.session.user = { ...req.session.user, ...user };
+  }
 
   // 生成 32 字节随机 token
   const token = crypto.randomBytes(32).toString('hex');

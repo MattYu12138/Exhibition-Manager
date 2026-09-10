@@ -8,6 +8,7 @@ const { getDb } = require('../db');
 const { requireAdmin, requireLogin } = require('../middleware/auth');
 const { encrypt, decrypt } = require('../utils/crypto');
 const { userId } = require('../utils/snowflake');
+const { revokeAllUserTokens } = require('../auth/appTokens');
 
 const router = express.Router();
 
@@ -16,6 +17,34 @@ router.get('/', requireAdmin, (req, res) => {
   const db = getDb();
   const users = db.prepare('SELECT id, username, role, created_at FROM users ORDER BY created_at ASC').all();
   res.json({ success: true, data: users });
+});
+
+// ─── 员工自助修改密码 ─────────────────────────────────────────
+// Keep this static route before /:id/password so "me" is never treated as a user id.
+router.patch('/me/password', requireLogin, (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+  if (!oldPassword || !newPassword) {
+    return res.status(400).json({ success: false, message: '请填写旧密码和新密码' });
+  }
+  if (newPassword.length < 4) {
+    return res.status(400).json({ success: false, message: '新密码至少4位' });
+  }
+  const db = getDb();
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.authUser.id);
+  if (!user) {
+    return res.status(404).json({ success: false, message: '用户不存在' });
+  }
+  const valid = bcrypt.compareSync(oldPassword, user.password_hash);
+  if (!valid) {
+    return res.status(400).json({ success: false, message: '旧密码错误' });
+  }
+  const hash = bcrypt.hashSync(newPassword, 10);
+  const encrypted = encrypt(newPassword);
+  db.prepare(
+    'UPDATE users SET password_hash = ?, password_encrypted = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+  ).run(hash, encrypted, req.authUser.id);
+  revokeAllUserTokens(req.authUser.id);
+  res.json({ success: true, message: '密码修改成功，请重新登录' });
 });
 
 // ─── 管理员查看指定用户的解密密码 ─────────────────────────────
@@ -66,7 +95,7 @@ router.patch('/:id/role', requireAdmin, (req, res) => {
   if (!['admin', 'staff', 'guest'].includes(role)) {
     return res.status(400).json({ success: false, message: '无效的角色' });
   }
-  if (String(id) === String(req.session.user.id)) {
+  if (String(id) === String(req.authUser.id)) {
     return res.status(400).json({ success: false, message: '不能修改自己的角色' });
   }
   const db = getDb();
@@ -84,42 +113,20 @@ router.patch('/:id/password', requireAdmin, (req, res) => {
   const hash = bcrypt.hashSync(password, 10);
   const encrypted = encrypt(password);
   const db = getDb();
-  db.prepare(
+  const result = db.prepare(
     'UPDATE users SET password_hash = ?, password_encrypted = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
   ).run(hash, encrypted, id);
-  res.json({ success: true });
-});
-
-// ─── 员工自助修改密码 ─────────────────────────────────────────
-router.patch('/me/password', requireLogin, (req, res) => {
-  const { oldPassword, newPassword } = req.body;
-  if (!oldPassword || !newPassword) {
-    return res.status(400).json({ success: false, message: '请填写旧密码和新密码' });
-  }
-  if (newPassword.length < 4) {
-    return res.status(400).json({ success: false, message: '新密码至少4位' });
-  }
-  const db = getDb();
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.user.id);
-  if (!user) {
+  if (result.changes === 0) {
     return res.status(404).json({ success: false, message: '用户不存在' });
   }
-  const valid = bcrypt.compareSync(oldPassword, user.password_hash);
-  if (!valid) {
-    return res.status(400).json({ success: false, message: '旧密码错误' });
-  }
-  const hash = bcrypt.hashSync(newPassword, 10);
-  const encrypted = encrypt(newPassword);
-  db.prepare(
-    'UPDATE users SET password_hash = ?, password_encrypted = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-  ).run(hash, encrypted, req.session.user.id);
-  res.json({ success: true, message: '密码修改成功' });
+  revokeAllUserTokens(id);
+  res.json({ success: true });
 });
 
 // ─── 删除用户（管理员）───────────────────────────────────────
 router.delete('/:id', requireAdmin, (req, res) => {
   const { id } = req.params;
-  if (String(id) === String(req.session.user.id)) {
+  if (String(id) === String(req.authUser.id)) {
     return res.status(400).json({ success: false, message: '不能删除自己' });
   }
   const db = getDb();

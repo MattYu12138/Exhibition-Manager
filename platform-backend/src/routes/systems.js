@@ -9,7 +9,7 @@ const router = express.Router();
 // role: 'admin' = read+write, 'viewer' = read-only
 router.get('/', requireLogin, (req, res) => {
   const db = getDb();
-  const { id: userId, role } = req.session.user;
+  const { id: userId, role } = req.authUser;
 
   const systems = db.prepare('SELECT * FROM platform_systems WHERE is_active = 1 ORDER BY sort_order').all();
 
