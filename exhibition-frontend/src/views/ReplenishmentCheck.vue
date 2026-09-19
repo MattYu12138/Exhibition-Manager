@@ -690,11 +690,11 @@ async function fetchData() {
     const data = checkRes.data || []
     allItems.value = data.map(item => ({
       ...item,
-      stock_available: item.stock_available !== false,
+      stock_available: item.stock_available === true || item.stock_available === 1,
       _selected: false,
       _action: 'replenish',
       _replenishQty: Math.max(1, item.rack_quantity - item.rack_remaining),
-      _pendingStockAvailable: item.stock_available !== false,
+      _pendingStockAvailable: item.stock_available === true || item.stock_available === 1,
     }))
     applyDisplayMode()
     logs.value = logRes.data || []

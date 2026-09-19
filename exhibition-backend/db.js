@@ -21,6 +21,7 @@ db.exec(`
     date TEXT,
     location TEXT,
     status TEXT DEFAULT 'preparing',
+    square_synced_at DATETIME DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -40,6 +41,8 @@ db.exec(`
     hanger_done INTEGER DEFAULT 0,
     storage_done INTEGER DEFAULT 0,
     last_synced_quantity INTEGER DEFAULT NULL,
+    stock_available INTEGER NOT NULL DEFAULT 1,
+    stock_status_manually_set INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(exhibition_id, shopify_variant_id),
     FOREIGN KEY (exhibition_id) REFERENCES exhibitions(id) ON DELETE CASCADE
@@ -153,40 +156,48 @@ db.exec(`
   );
 `);
 
-// Create exhibition_items_view (encapsulates JOIN logic, provides product info via product_variants)
-try {
-  db.exec(`DROP VIEW IF EXISTS exhibition_items_view`);
-  db.exec(`
-    CREATE VIEW exhibition_items_view AS
-    SELECT
-      ei.id,
-      ei.exhibition_id,
-      ei.shopify_product_id,
-      ei.shopify_variant_id,
-      ei.product_id,
-      ei.variant_id,
-      ei.rack_quantity,
-      ei.stock_quantity,
-      ei.planned_quantity,
-      ei.checked,
-      ei.hanger_done,
-      ei.storage_done,
-      ei.last_synced_quantity,
-      ei.created_at,
-      pv.variant_title,
-      pv.sku,
-      pv.gtin,
-      pv.price,
-      pv.image_url,
-      p.title AS product_title,
-      p.vendor,
-      p.product_type,
-      p.status AS product_status
-    FROM exhibition_items ei
-    LEFT JOIN product_variants pv ON pv.shopify_variant_id = ei.shopify_variant_id
-    LEFT JOIN products p ON p.id = pv.product_id
-  `);
-} catch (e) { console.error('[DB] VIEW creation failed:', e.message); }
+// Created after column migrations so fresh and existing databases expose the same API fields.
+function createExhibitionItemsView() {
+  try {
+    db.exec(`DROP VIEW IF EXISTS exhibition_items_view`);
+    db.exec(`
+      CREATE VIEW exhibition_items_view AS
+      SELECT
+        ei.id,
+        ei.exhibition_id,
+        ei.shopify_product_id,
+        ei.shopify_variant_id,
+        ei.product_id,
+        ei.variant_id,
+        ei.rack_quantity,
+        ei.stock_quantity,
+        ei.planned_quantity,
+        ei.checked,
+        ei.hanger_done,
+        ei.storage_done,
+        ei.last_synced_quantity,
+        ei.stock_available,
+        ei.created_at,
+        pv.variant_title,
+        pv.sku,
+        pv.gtin,
+        pv.price,
+        pv.image_url,
+        p.title AS product_title,
+        p.vendor,
+        p.product_type,
+        p.status AS product_status
+      FROM exhibition_items ei
+      LEFT JOIN product_variants pv ON pv.shopify_variant_id = ei.shopify_variant_id
+      LEFT JOIN products p ON p.id = pv.product_id
+    `);
+  } catch (e) {
+    console.error('[DB] VIEW creation failed:', e.message);
+  }
+}
+
+// Remove a previous persistent definition before a possible legacy table-id rebuild.
+try { db.exec('DROP VIEW IF EXISTS exhibition_items_view'); } catch (e) { /* 不影响表迁移 */ }
 
 // 自动迁移：将旧 INTEGER id 表迁移为 TEXT id（兼容旧数据库）
 function migrateTableIdToText(tableName, idPrefix, padLength, fkUpdateSql) {
@@ -293,6 +304,7 @@ const migrations = [
   // iOS JWT 全局失效版本；修改密码时递增
   'ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0',
   // 展中补货相关字段
+  'ALTER TABLE exhibitions ADD COLUMN square_synced_at DATETIME DEFAULT NULL',
   'ALTER TABLE exhibition_items ADD COLUMN replenish_baseline INTEGER DEFAULT NULL',
   'ALTER TABLE exhibition_items ADD COLUMN replenish_count INTEGER DEFAULT 0',
   'ALTER TABLE exhibition_items ADD COLUMN replenished_qty INTEGER DEFAULT 0',
@@ -308,6 +320,27 @@ const migrations = [
 for (const sql of migrations) {
   try { db.exec(sql); } catch (e) { /* 字段已存在，忽略 */ }
 }
+
+// Tracks whether stock_available has entered the employee-owned manual lifecycle.
+// Existing false values predate quantity-derived initialization, so preserve them as manual.
+let manualStockFlagAdded = false;
+try {
+  db.exec('ALTER TABLE exhibition_items ADD COLUMN stock_status_manually_set INTEGER NOT NULL DEFAULT 0');
+  manualStockFlagAdded = true;
+} catch (e) { /* 字段已存在，忽略 */ }
+if (manualStockFlagAdded) {
+  // Preserve all legacy false values as potentially manual. Apply the preparation quantity once
+  // to every remaining legacy row so existing exhibitions also place zero-storage variants in
+  // No Back Stock. Future employee toggles set stock_status_manually_set and are never re-derived.
+  db.prepare('UPDATE exhibition_items SET stock_status_manually_set = 1 WHERE stock_available = 0').run();
+  db.prepare(`
+    UPDATE exhibition_items
+    SET stock_available = CASE WHEN COALESCE(stock_quantity, 0) > 0 THEN 1 ELSE 0 END
+    WHERE stock_status_manually_set = 0
+  `).run();
+}
+
+createExhibitionItemsView();
 
 // 初始化 admin 账号（若不存在）
 const adminExists = db.prepare("SELECT id FROM users WHERE username = 'admin'").get();

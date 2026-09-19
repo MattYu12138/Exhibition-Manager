@@ -91,12 +91,12 @@ router.post('/:id/copy-to/:targetId', requireStaff, (req, res) => {
     }
 
     // 批量插入到目标展会（已存在的变体用 INSERT OR IGNORE 跳过）
-    // 复制 rack_quantity、stock_quantity、planned_quantity 实际值（以 Checklist 实际数量为准）
+    // 新展会只复制准备数量，不继承源展会的人工备货状态；初始状态由 stock_quantity 派生。
     const insertItem = db.prepare(`
       INSERT OR IGNORE INTO exhibition_items
       (id, exhibition_id, shopify_product_id, shopify_variant_id, product_id, variant_id,
-       rack_quantity, stock_quantity, planned_quantity, checked)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+       rack_quantity, stock_quantity, planned_quantity, checked, stock_available, stock_status_manually_set)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0)
     `);
 
     const copyMany = db.transaction((items) => {
@@ -113,7 +113,8 @@ router.post('/:id/copy-to/:targetId', requireStaff, (req, res) => {
           item.variant_id || null,
           rack,
           stock,
-          planned
+          planned,
+          stock > 0 ? 1 : 0
         );
       }
     });
@@ -154,12 +155,36 @@ router.post('/:id/items', requireStaff, (req, res) => {
     const insertItem = db.prepare(`
       INSERT INTO exhibition_items
       (id, exhibition_id, shopify_product_id, shopify_variant_id, product_id, variant_id,
-       rack_quantity, stock_quantity, planned_quantity, checked)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+       rack_quantity, stock_quantity, planned_quantity, checked, stock_available, stock_status_manually_set)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0)
     `);
-    const updateQty = db.prepare(
-      'UPDATE exhibition_items SET rack_quantity = ?, stock_quantity = ?, planned_quantity = ? WHERE id = ?'
-    );
+    const updateQty = db.prepare(`
+      UPDATE exhibition_items
+      SET rack_quantity = ?,
+          stock_quantity = ?,
+          planned_quantity = ?,
+          stock_available = CASE
+            -- Preparation quantities may seed availability only before Square/replenishment activity
+            -- and before an employee has explicitly used the manual stock-status workflow.
+            WHEN COALESCE(stock_status_manually_set, 0) = 0
+              AND COALESCE(replenish_count, 0) = 0
+              AND replenish_baseline IS NULL
+              AND replenish_rack_quantity IS NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM exhibitions exhibition
+                WHERE exhibition.id = exhibition_items.exhibition_id
+                  AND exhibition.square_synced_at IS NOT NULL
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM inventory_snapshots snapshot
+                WHERE snapshot.exhibition_id = exhibition_items.exhibition_id
+                  AND snapshot.shopify_variant_id = exhibition_items.shopify_variant_id
+              )
+            THEN ?
+            ELSE stock_available
+          END
+      WHERE id = ?
+    `);
     // 数量变动时，重置清点状态和同步快照
     const resetChecked = db.prepare(
       'UPDATE exhibition_items SET checked = 0, last_synced_quantity = NULL WHERE id = ?'
@@ -179,13 +204,14 @@ router.post('/:id/items', requireStaff, (req, res) => {
         } else if (action === 'update') {
           // 更新数量（覆盖绝对値）
           if (existing) {
-            const newRack = item.rack_quantity !== undefined ? item.rack_quantity : (existing.rack_quantity || 5);
-            const newStock = item.stock_quantity !== undefined ? item.stock_quantity : (existing.stock_quantity || 5);
+            const newRack = item.rack_quantity !== undefined ? item.rack_quantity : (existing.rack_quantity ?? 5);
+            const newStock = item.stock_quantity !== undefined ? item.stock_quantity : (existing.stock_quantity ?? 5);
             const newQty = newRack + newStock;
             updateQty.run(
               newRack,
               newStock,
               newQty,
+              newStock > 0 ? 1 : 0,
               existing.id
             );
             // 若数量发生变动，重置清点状态和同步快照
@@ -210,7 +236,8 @@ router.post('/:id/items', requireStaff, (req, res) => {
               pv ? pv.id : null,
               addRack,
               addStock,
-              addTotal
+              addTotal,
+              addStock > 0 ? 1 : 0
             );
           }
         }
@@ -246,13 +273,15 @@ router.put('/:id/items/product/:productId/check', requireStaff, (req, res) => {
 router.put('/:id/items/:itemId', requireStaff, (req, res) => {
   try {
     const { checked, planned_quantity, rack_quantity, stock_quantity, hanger_done, storage_done } = req.body;
+    const existing = db.prepare('SELECT * FROM exhibition_items WHERE id = ? AND exhibition_id = ?')
+      .get(req.params.itemId, req.params.id);
+    if (!existing) return res.status(404).json({ success: false, message: '商品不存在' });
 
     // 如果传入 rack_quantity 或 stock_quantity，自动重算 planned_quantity
     let computedTotal = null;
     if (rack_quantity !== undefined || stock_quantity !== undefined) {
-      const existing = db.prepare('SELECT * FROM exhibition_items WHERE id = ?').get(req.params.itemId);
-      const newRack = rack_quantity !== undefined ? rack_quantity : (existing?.rack_quantity || 5);
-      const newStock = stock_quantity !== undefined ? stock_quantity : (existing?.stock_quantity || 5);
+      const newRack = rack_quantity !== undefined ? rack_quantity : (existing.rack_quantity ?? 5);
+      const newStock = stock_quantity !== undefined ? stock_quantity : (existing.stock_quantity ?? 5);
       computedTotal = newRack + newStock;
     }
 
@@ -278,7 +307,27 @@ router.put('/:id/items/:itemId', requireStaff, (req, res) => {
         storage_done = COALESCE(?, storage_done),
         rack_quantity = COALESCE(?, rack_quantity),
         stock_quantity = COALESCE(?, stock_quantity),
-        planned_quantity = COALESCE(?, planned_quantity)
+        planned_quantity = COALESCE(?, planned_quantity),
+        stock_available = CASE
+          -- Square/replenishment activity or a manual toggle makes stock_available employee-owned.
+          WHEN ? IS NOT NULL
+            AND COALESCE(stock_status_manually_set, 0) = 0
+            AND COALESCE(replenish_count, 0) = 0
+            AND replenish_baseline IS NULL
+            AND replenish_rack_quantity IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM exhibitions exhibition
+              WHERE exhibition.id = exhibition_items.exhibition_id
+                AND exhibition.square_synced_at IS NOT NULL
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM inventory_snapshots snapshot
+              WHERE snapshot.exhibition_id = exhibition_items.exhibition_id
+                AND snapshot.shopify_variant_id = exhibition_items.shopify_variant_id
+            )
+          THEN ?
+          ELSE stock_available
+        END
       WHERE id = ? AND exhibition_id = ?`
     ).run(
       finalChecked,
@@ -287,6 +336,8 @@ router.put('/:id/items/:itemId', requireStaff, (req, res) => {
       rack_quantity !== undefined ? rack_quantity : null,
       stock_quantity !== undefined ? stock_quantity : null,
       computedTotal !== null ? computedTotal : (planned_quantity !== undefined ? planned_quantity : null),
+      stock_quantity !== undefined ? stock_quantity : null,
+      stock_quantity > 0 ? 1 : 0,
       req.params.itemId,
       req.params.id
     );

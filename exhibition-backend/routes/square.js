@@ -905,7 +905,8 @@ router.post('/replenishment-confirm', async (req, res) => {
 
     const updateStockStatusStmt = db.prepare(`
       UPDATE exhibition_items
-      SET stock_available = ?
+      SET stock_available = ?,
+          stock_status_manually_set = 1
       WHERE exhibition_id = ? AND shopify_variant_id = ?
     `);
 
@@ -1052,7 +1053,8 @@ router.put('/replenishment-stock-status/:exhibition_id', (req, res) => {
 
     const result = db.prepare(`
       UPDATE exhibition_items
-      SET stock_available = ?
+      SET stock_available = ?,
+          stock_status_manually_set = 1
       WHERE exhibition_id = ? AND shopify_variant_id = ?
     `).run(stock_available ? 1 : 0, exhibition_id, shopify_variant_id);
 
