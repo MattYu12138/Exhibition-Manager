@@ -14,7 +14,6 @@
           </div>
         </div>
         <div class="header-actions">
-          <button class="lang-button" @click="toggleLang">{{ locale === 'zh' ? 'EN' : '中文' }}</button>
           <a class="preview-link" :href="publicUrl" target="_blank" rel="noopener noreferrer">
             <el-icon><TopRight /></el-icon>{{ t('traceability.previewPublic') }}
           </a>
@@ -163,12 +162,10 @@
         <div class="form-grid">
           <el-form-item :label="t('traceability.batchNumber')" prop="batch_no"><el-input v-model="form.batch_no" /></el-form-item>
           <el-form-item :label="t('traceability.certification')"><el-input v-model="form.certification_standard" /></el-form-item>
-          <el-form-item :label="t('traceability.fibreZh')" prop="fiber_composition_zh"><el-input v-model="form.fiber_composition_zh" /></el-form-item>
-          <el-form-item :label="t('traceability.fibreEn')" prop="fiber_composition_en"><el-input v-model="form.fiber_composition_en" /></el-form-item>
+          <el-form-item :label="t('traceability.fibreComposition')" prop="fiber_composition_en"><el-input v-model="form.fiber_composition_en" /></el-form-item>
           <el-form-item :label="t('traceability.certifyingBody')"><el-input v-model="form.certifying_body" /></el-form-item>
           <el-form-item :label="t('traceability.licenceNumber')"><el-input v-model="form.licence_no" /></el-form-item>
-          <el-form-item :label="t('traceability.originZh')"><el-input v-model="form.production_origin_zh" /></el-form-item>
-          <el-form-item :label="t('traceability.originEn')"><el-input v-model="form.production_origin_en" /></el-form-item>
+          <el-form-item :label="t('traceability.productionOrigin')"><el-input v-model="form.production_origin_en" /></el-form-item>
         </div>
         <el-form-item :label="t('traceability.verificationUrl')"><el-input v-model="form.gots_verification_url" /></el-form-item>
         <el-form-item :label="t('traceability.traceCode')"><el-input v-model="form.trace_code" /></el-form-item>
@@ -187,7 +184,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -214,19 +211,19 @@ const stats = reactive({ total_records: 0, published_records: 0, total_queries: 
 const daily = ref([])
 const topBarcodes = ref([])
 const recentQueries = ref([])
+const previousLocale = locale.value
+locale.value = 'en'
 
 const blankForm = () => ({
   product_variant_id: '',
   batch_no: '',
   trace_code: '',
   is_default: true,
-  fiber_composition_zh: t('traceability.defaultFibreZh'),
-  fiber_composition_en: t('traceability.defaultFibreEn'),
+  fiber_composition_en: t('traceability.defaultFibre'),
   certification_standard: 'GOTS organic',
   certifying_body: '',
   licence_no: '',
-  production_origin_zh: t('traceability.defaultOriginZh'),
-  production_origin_en: t('traceability.defaultOriginEn'),
+  production_origin_en: t('traceability.defaultOrigin'),
   gots_verification_url: 'https://global-standards.org/suppliers/certified-suppliers',
   is_published: false,
 })
@@ -234,23 +231,18 @@ const form = reactive(blankForm())
 const rules = computed(() => ({
   product_variant_id: [{ required: true, message: t('traceability.selectProduct'), trigger: 'change' }],
   batch_no: [{ required: true, message: t('traceability.batchNumber'), trigger: 'blur' }],
-  fiber_composition_zh: [{ required: true, message: t('traceability.fibreZh'), trigger: 'blur' }],
-  fiber_composition_en: [{ required: true, message: t('traceability.fibreEn'), trigger: 'blur' }],
+  fiber_composition_en: [{ required: true, message: t('traceability.fibreComposition'), trigger: 'blur' }],
 }))
 
-function toggleLang() {
-  locale.value = locale.value === 'zh' ? 'en' : 'zh'
-  localStorage.setItem('lang', locale.value)
-}
 function variantLabel(option) {
   return `${option.product_name} · ${option.variant_title || '—'} · ${option.barcode}`
 }
 function shortDate(date) {
-  return new Date(`${date}T00:00:00Z`).toLocaleDateString(locale.value === 'zh' ? 'zh-CN' : 'en-AU', { month: 'short', day: 'numeric' })
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString('en-AU', { month: 'short', day: 'numeric' })
 }
 function formatDate(value) {
   if (!value) return '—'
-  return new Date(`${value.replace(' ', 'T')}Z`).toLocaleString(locale.value === 'zh' ? 'zh-CN' : 'en-AU')
+  return new Date(`${value.replace(' ', 'T')}Z`).toLocaleString('en-AU')
 }
 function resultTagType(status) {
   return status === 'found' ? 'success' : status === 'not_published' ? 'warning' : 'danger'
@@ -332,12 +324,10 @@ function openEdit(row) {
     batch_no: row.batch_no || '',
     trace_code: row.trace_code || '',
     is_default: Boolean(row.is_default),
-    fiber_composition_zh: row.fiber_composition_zh || '',
     fiber_composition_en: row.fiber_composition_en || '',
     certification_standard: row.certification_standard || 'GOTS organic',
     certifying_body: row.certifying_body || '',
     licence_no: row.licence_no || '',
-    production_origin_zh: row.production_origin_zh || '',
     production_origin_en: row.production_origin_en || '',
     gots_verification_url: row.gots_verification_url || '',
     is_published: Boolean(row.is_published),
@@ -378,6 +368,7 @@ async function removeRecord(row) {
 }
 
 onMounted(() => Promise.all([loadRecords(1), loadStats()]))
+onUnmounted(() => { locale.value = previousLocale })
 </script>
 
 <style scoped>
@@ -393,7 +384,7 @@ onMounted(() => Promise.all([loadRecords(1), loadStats()]))
 .header-divider { width: 1px; height: 32px; background: #e2e4df; }
 .back-link { display: inline-flex; align-items: center; gap: 4px; color: #737972; text-decoration: none; font-size: 13px; }
 .header-actions { gap: 10px; }
-.lang-button, .preview-link { height: 36px; border-radius: 10px; padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid #dfe4dc; background: #fff; color: #566056; text-decoration: none; cursor: pointer; font-size: 12px; }
+.preview-link { height: 36px; border-radius: 10px; padding: 0 12px; display: inline-flex; align-items: center; gap: 6px; border: 1px solid #dfe4dc; background: #fff; color: #566056; text-decoration: none; cursor: pointer; font-size: 12px; }
 .preview-link { color: #fff; border-color: #61795d; background: #61795d; }
 .trace-main { max-width: 1320px; margin: 0 auto; padding: 28px 24px 54px; }
 .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px; }

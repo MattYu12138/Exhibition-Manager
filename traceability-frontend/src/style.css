@@ -1,7 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
 
 :root {
-  font-family: 'DM Sans', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   color: #2f352f;
   background: #eeeae2;
   font-synthesis: none;
@@ -58,21 +58,6 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .brand-mark { display: grid; width: 34px; height: 34px; place-items: center; border: 1px solid rgba(52, 64, 54, 0.22); border-radius: 50%; backdrop-filter: blur(8px); }
 .brand-mark svg { width: 23px; fill: none; stroke: currentColor; stroke-width: 1.35; stroke-linecap: round; stroke-linejoin: round; }
 
-.lang-button {
-  min-width: 50px;
-  height: 34px;
-  padding: 0 12px;
-  border: 1px solid rgba(52, 64, 54, 0.2);
-  border-radius: 999px;
-  color: #344036;
-  background: rgba(255, 255, 255, 0.42);
-  backdrop-filter: blur(14px);
-  cursor: pointer;
-  transition: transform 140ms var(--ease-out), background 180ms var(--ease-out);
-}
-.lang-button:hover { background: rgba(255, 255, 255, 0.65); }
-.lang-button:active { transform: scale(0.96); }
-
 .hero {
   position: relative;
   height: min(67svh, 760px);
@@ -112,7 +97,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
   animation: copyReveal 680ms 100ms var(--ease-out) both;
 }
 .hero-copy .eyebrow { margin: 0 0 10px; font-size: 10px; font-weight: 700; letter-spacing: 0.25em; }
-.hero-copy h1 { margin: 0; max-width: 390px; font-family: Georgia, 'Noto Serif SC', serif; font-size: clamp(30px, 8vw, 58px); font-weight: 400; line-height: 0.98; letter-spacing: -0.035em; }
+.hero-copy h1 { margin: 0; max-width: 390px; font-family: Georgia, serif; font-size: clamp(30px, 8vw, 58px); font-weight: 400; line-height: 0.98; letter-spacing: -0.035em; }
 .hero-copy > p:last-child { max-width: 390px; margin: 18px 0 0; font-size: 11.5px; line-height: 1.62; }
 
 .content-shell {
@@ -189,7 +174,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .verified-pill svg, .pending-pill svg { width: 14px; fill: none; stroke: currentColor; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
 .product-identity { margin: 20px 0 13px; padding: 16px; border: 1px solid var(--line); border-radius: 17px; background: rgba(255, 255, 255, 0.48); }
 .identity-label { display: block; color: #8d918a; font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
-.product-identity strong { display: block; margin-top: 6px; font-family: Georgia, 'Noto Serif SC', serif; font-size: 19px; line-height: 1.32; }
+.product-identity strong { display: block; margin-top: 6px; font-family: Georgia, serif; font-size: 19px; line-height: 1.32; }
 .product-identity small { display: block; margin-top: 5px; color: var(--muted); }
 .trace-grid { margin: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 17px; background: rgba(255,255,255,.4); }
 .trace-row { display: grid; grid-template-columns: minmax(110px, 0.82fr) 1.4fr; gap: 16px; padding: 13px 15px; border-bottom: 1px solid var(--line); }
@@ -228,7 +213,7 @@ footer a { font-weight: 600; }
   .hero-copy { left: max(8vw, 60px); top: 150px; width: min(82%, 430px); }
   .hero-copy h1 { font-size: clamp(34px, 5vw, 58px); }
   .hero-copy > p:last-child { font-size: 13px; }
-  /* 宽屏裁切时将画面内容向下移动，让宝宝头部更完整地进入首屏 */
+  /* On wide screens, lower the crop so the baby's head remains visible in the hero. */
   .hero-image { object-position: center 20%; }
   .content-shell { margin-top: -146px; }
   .search-card, .result-card, .pending-card { padding: 34px; }

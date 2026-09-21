@@ -54,7 +54,7 @@ setInterval(() => {
   }
 }, RATE_LIMIT_WINDOW_MS).unref();
 
-function recordQuery({ req, barcode, recordId = null, status, language }) {
+function recordQuery({ req, barcode, recordId = null, status }) {
   try {
     const db = getDb();
     db.prepare(`
@@ -66,7 +66,7 @@ function recordQuery({ req, barcode, recordId = null, status, language }) {
       barcode,
       recordId,
       status,
-      language,
+      'en',
       visitorHash(req),
       String(req.headers['user-agent'] || '').slice(0, 500),
       String(req.headers.referer || req.headers.referrer || '').slice(0, 1000)
@@ -78,14 +78,13 @@ function recordQuery({ req, barcode, recordId = null, status, language }) {
 
 function performLookup(req, res) {
   const barcode = normalizeBarcode(req.params.barcode || req.query.barcode);
-  const language = req.query.lang === 'zh' ? 'zh' : 'en';
 
   if (!/^\d{8}$/.test(barcode)) {
-    recordQuery({ req, barcode: barcode || '(empty)', status: 'invalid', language });
+    recordQuery({ req, barcode: barcode || '(empty)', status: 'invalid' });
     return res.status(400).json({
       success: false,
       code: 'INVALID_BARCODE',
-      message: language === 'zh' ? '请输入 8 位数字商品条码' : 'Please enter an 8-digit product barcode.',
+      message: 'Please enter an 8-digit product barcode.',
       support_email: SUPPORT_EMAIL,
     });
   }
@@ -104,12 +103,10 @@ function performLookup(req, res) {
       tr.id AS traceability_record_id,
       tr.batch_no,
       tr.trace_code,
-      tr.fiber_composition_zh,
       tr.fiber_composition_en,
       tr.certification_standard,
       tr.certifying_body,
       tr.licence_no,
-      tr.production_origin_zh,
       tr.production_origin_en,
       tr.gots_verification_url,
       tr.updated_at
@@ -124,11 +121,11 @@ function performLookup(req, res) {
   `).all(barcode);
 
   if (rows.length === 0) {
-    recordQuery({ req, barcode, status: 'not_found', language });
+    recordQuery({ req, barcode, status: 'not_found' });
     return res.status(404).json({
       success: false,
       code: 'NOT_FOUND',
-      message: language === 'zh' ? '未找到该条码对应的产品' : 'No product was found for this barcode.',
+      message: 'No product was found for this barcode.',
       support_email: SUPPORT_EMAIL,
     });
   }
@@ -136,25 +133,21 @@ function performLookup(req, res) {
   const publishedRows = rows.filter(row => row.traceability_record_id);
   if (publishedRows.length === 0) {
     if (rows.length > 1) {
-      recordQuery({ req, barcode, status: 'ambiguous', language });
+      recordQuery({ req, barcode, status: 'ambiguous' });
       return res.status(409).json({
         success: false,
         code: 'AMBIGUOUS_BARCODE',
-        message: language === 'zh'
-          ? '该条码对应多个产品，请联系客服核实'
-          : 'This barcode matches multiple products. Please contact support.',
+        message: 'This barcode matches multiple products. Please contact support.',
         support_email: SUPPORT_EMAIL,
       });
     }
 
     const matchedProduct = rows[0];
-    recordQuery({ req, barcode, status: 'not_published', language });
+    recordQuery({ req, barcode, status: 'not_published' });
     return res.status(404).json({
       success: false,
       code: 'NOT_PUBLISHED',
-      message: language === 'zh'
-        ? '已识别该产品，详细溯源资料正在准备中'
-        : 'Product identified. Detailed traceability information is being prepared.',
+      message: 'Product identified. Detailed traceability information is being prepared.',
       data: {
         barcode: matchedProduct.barcode,
         product_name: matchedProduct.product_name,
@@ -166,13 +159,11 @@ function performLookup(req, res) {
   }
 
   if (publishedRows.length > 1) {
-    recordQuery({ req, barcode, status: 'ambiguous', language });
+    recordQuery({ req, barcode, status: 'ambiguous' });
     return res.status(409).json({
       success: false,
       code: 'AMBIGUOUS_BARCODE',
-      message: language === 'zh'
-        ? '该条码对应多个产品，请联系客服核实'
-        : 'This barcode matches multiple products. Please contact support.',
+      message: 'This barcode matches multiple products. Please contact support.',
       support_email: SUPPORT_EMAIL,
     });
   }
@@ -183,7 +174,6 @@ function performLookup(req, res) {
     barcode,
     recordId: row.traceability_record_id,
     status: 'found',
-    language,
   });
 
   return res.json({
@@ -194,19 +184,11 @@ function performLookup(req, res) {
       style_number: row.sku,
       variant: row.variant_title,
       batch_no: row.batch_no,
-      fiber_composition: language === 'zh'
-        ? row.fiber_composition_zh
-        : row.fiber_composition_en,
-      fiber_composition_zh: row.fiber_composition_zh,
-      fiber_composition_en: row.fiber_composition_en,
+      fiber_composition: row.fiber_composition_en,
       certification_standard: row.certification_standard,
       certifying_body: row.certifying_body,
       licence_no: row.licence_no,
-      production_origin: language === 'zh'
-        ? row.production_origin_zh
-        : row.production_origin_en,
-      production_origin_zh: row.production_origin_zh,
-      production_origin_en: row.production_origin_en,
+      production_origin: row.production_origin_en,
       gots_verification_url: row.gots_verification_url || DEFAULT_GOTS_URL,
       updated_at: row.updated_at,
     },

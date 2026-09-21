@@ -13,9 +13,6 @@
           <small>{{ copy.brandLine }}</small>
         </span>
       </a>
-      <button class="lang-button" type="button" @click="toggleLanguage">
-        {{ language === 'zh' ? 'EN' : '中文' }}
-      </button>
     </header>
 
     <section class="hero" aria-label="Lummi in Colour product">
@@ -216,90 +213,47 @@
 import { computed, onMounted, ref } from 'vue'
 import axios from 'axios'
 
-const translations = {
-  en: {
-    brandLine: 'Naturally considered essentials',
-    heroTitle: 'Know the story behind every piece.',
-    heroSubtitle: 'Enter the barcode on your Lummi in Colour product to view its origin, materials and certification details.',
-    verifiedTitle: 'Made with care. Verified with clarity.',
-    verifiedSubtitle: 'A transparent record of the materials and certification behind your product.',
-    identifiedHeroTitle: 'Product found. Its story is coming soon.',
-    identifiedHeroSubtitle: 'We identified your product and are preparing its detailed traceability record.',
-    searchTitle: 'Trace your product',
-    searchDescription: 'Find the barcode printed on the product label or packaging, then enter it below.',
-    barcodeLabel: 'Product barcode',
-    barcodePlaceholder: 'Enter 8-digit barcode',
-    invalidBarcode: 'Please enter the 8-digit number printed below the barcode.',
-    searchButton: 'View traceability',
-    searching: 'Searching…',
-    notFoundTitle: 'We could not verify this barcode',
-    contactSupport: 'Contact customer care',
-    privacyNote: 'Your search is used only to retrieve product information and improve this service.',
-    traceabilityEnglish: 'PRODUCT TRACEABILITY',
-    traceabilityTitle: 'Product traceability',
-    verified: 'Verified record',
-    productIdentified: 'Product identified',
-    preparing: 'Preparing',
-    pendingTitle: 'Traceability details are being prepared',
-    pendingDescription: 'The product has been identified successfully. Its origin, materials and certification details will appear here once published.',
-    productName: 'Product name',
-    styleNumber: 'Style number',
-    variant: 'Product variant',
-    barcode: 'Barcode',
-    batchNumber: 'Product batch',
-    fibreComposition: 'Fibre composition',
-    productionOrigin: 'Made in',
-    certifiedBy: 'Certified by',
-    licenceNumber: 'Licence No.',
-    verifyCertificate: 'Verify in the official GOTS database',
-    searchAnother: 'Search another product',
-    needHelp: 'Need help?',
-    customerCare: 'Customer care',
-    emptyValue: 'To be confirmed',
-  },
-  zh: {
-    brandLine: '自然、安心、用心制作',
-    heroTitle: '了解每一件产品背后的故事',
-    heroSubtitle: '输入 Lummi in Colour 产品上的条码，查看产品来源、材质与认证信息。',
-    verifiedTitle: '用心制作，清晰可溯',
-    verifiedSubtitle: '透明呈现产品背后的材质、生产与认证信息。',
-    identifiedHeroTitle: '产品已识别，溯源资料即将呈现',
-    identifiedHeroSubtitle: '我们已经找到对应商品，正在准备详细的产品溯源记录。',
-    searchTitle: '查询产品溯源',
-    searchDescription: '请查找产品标签或包装上的条码，并在下方输入。',
-    barcodeLabel: '产品条码',
-    barcodePlaceholder: '请输入 8 位 Barcode',
-    invalidBarcode: '请输入条形码下方印刷的 8 位数字。',
-    searchButton: '查询溯源信息',
-    searching: '正在查询…',
-    notFoundTitle: '暂时无法核验该条码',
-    contactSupport: '联系客服',
-    privacyNote: '查询信息仅用于获取产品资料及改善本服务。',
-    traceabilityEnglish: 'PRODUCT TRACEABILITY',
-    traceabilityTitle: '产品溯源',
-    verified: '已核验记录',
-    productIdentified: '已识别商品',
-    preparing: '资料准备中',
-    pendingTitle: '详细溯源资料正在准备中',
-    pendingDescription: '商品已成功识别。资料发布后，这里将展示产品来源、材质及认证信息。',
-    productName: '产品名称',
-    styleNumber: '产品款号',
-    variant: '产品规格',
-    barcode: '产品条码',
-    batchNumber: '产品批次',
-    fibreComposition: '纤维成分',
-    productionOrigin: '生产地',
-    certifiedBy: '认证机构',
-    licenceNumber: '许可证编号',
-    verifyCertificate: '前往 GOTS 官方数据库核验',
-    searchAnother: '查询其他产品',
-    needHelp: '需要帮助？',
-    customerCare: '客户服务',
-    emptyValue: '待确认',
-  },
+const copy = {
+  brandLine: 'Naturally considered essentials',
+  heroTitle: 'Know the story behind every piece.',
+  heroSubtitle: 'Enter the barcode on your Lummi in Colour product to view its origin, materials and certification details.',
+  verifiedTitle: 'Made with care. Verified with clarity.',
+  verifiedSubtitle: 'A transparent record of the materials and certification behind your product.',
+  identifiedHeroTitle: 'Product found. Its story is coming soon.',
+  identifiedHeroSubtitle: 'We identified your product and are preparing its detailed traceability record.',
+  searchTitle: 'Trace your product',
+  searchDescription: 'Find the barcode printed on the product label or packaging, then enter it below.',
+  barcodeLabel: 'Product barcode',
+  barcodePlaceholder: 'Enter 8-digit barcode',
+  invalidBarcode: 'Please enter the 8-digit number printed below the barcode.',
+  searchButton: 'View traceability',
+  searching: 'Searching…',
+  notFoundTitle: 'We could not verify this barcode',
+  contactSupport: 'Contact customer care',
+  privacyNote: 'Your search is used only to retrieve product information and improve this service.',
+  traceabilityEnglish: 'PRODUCT TRACEABILITY',
+  traceabilityTitle: 'Product traceability',
+  verified: 'Verified record',
+  productIdentified: 'Product identified',
+  preparing: 'Preparing',
+  pendingTitle: 'Traceability details are being prepared',
+  pendingDescription: 'The product has been identified successfully. Its origin, materials and certification details will appear here once published.',
+  productName: 'Product name',
+  styleNumber: 'Style number',
+  variant: 'Product variant',
+  barcode: 'Barcode',
+  batchNumber: 'Product batch',
+  fibreComposition: 'Fibre composition',
+  productionOrigin: 'Made in',
+  certifiedBy: 'Certified by',
+  licenceNumber: 'Licence No.',
+  verifyCertificate: 'Verify in the official GOTS database',
+  searchAnother: 'Search another product',
+  needHelp: 'Need help?',
+  customerCare: 'Customer care',
+  emptyValue: 'To be confirmed',
 }
 
-const language = ref(localStorage.getItem('trace-language') || (navigator.language?.startsWith('zh') ? 'zh' : 'en'))
 const barcode = ref('')
 const loading = ref(false)
 const inputFocused = ref(false)
@@ -308,18 +262,17 @@ const pendingProduct = ref(null)
 const error = ref('')
 const supportEmail = ref('admin@lummiincolour.com.au')
 const currentYear = new Date().getFullYear()
-const copy = computed(() => translations[language.value])
 const supportLink = computed(() => `mailto:${supportEmail.value}?subject=${encodeURIComponent('Product traceability enquiry')}`)
 
 function displayValue(value) {
-  return value || copy.value.emptyValue
+  return value || copy.emptyValue
 }
 
 async function lookup() {
   const normalized = String(barcode.value || '').trim().replace(/\s+/g, '')
   if (loading.value) return
   if (!/^\d{8}$/.test(normalized)) {
-    error.value = copy.value.invalidBarcode
+    error.value = copy.invalidBarcode
     return
   }
 
@@ -329,7 +282,7 @@ async function lookup() {
   pendingProduct.value = null
   try {
     const response = await axios.get('/api/public/traceability', {
-      params: { barcode: normalized, lang: language.value },
+      params: { barcode: normalized },
     })
     result.value = response.data.data
     supportEmail.value = response.data.support_email || supportEmail.value
@@ -344,7 +297,7 @@ async function lookup() {
       window.history.replaceState({}, '', `?barcode=${encodeURIComponent(normalized)}`)
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } else {
-      error.value = payload?.message || (language.value === 'zh' ? '查询暂时不可用，请稍后重试。' : 'The lookup service is temporarily unavailable. Please try again.')
+      error.value = payload?.message || 'The lookup service is temporarily unavailable. Please try again.'
     }
   } finally {
     loading.value = false
@@ -360,15 +313,8 @@ function resetSearch() {
   requestAnimationFrame(() => document.getElementById('barcode')?.focus())
 }
 
-async function toggleLanguage() {
-  language.value = language.value === 'zh' ? 'en' : 'zh'
-  localStorage.setItem('trace-language', language.value)
-  document.documentElement.lang = language.value === 'zh' ? 'zh-CN' : 'en'
-  if ((result.value || pendingProduct.value) && barcode.value) await lookup()
-}
-
 onMounted(() => {
-  document.documentElement.lang = language.value === 'zh' ? 'zh-CN' : 'en'
+  document.documentElement.lang = 'en'
   const initialBarcode = new URLSearchParams(window.location.search).get('barcode')
   if (initialBarcode) {
     barcode.value = initialBarcode

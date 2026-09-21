@@ -23,19 +23,17 @@ function normalizeRecordInput(body) {
     batch_no: cleanText(body.batch_no, 120),
     trace_code: cleanText(body.trace_code, 160) || null,
     is_default: body.is_default === undefined ? true : booleanValue(body.is_default),
-    fiber_composition_zh: cleanText(body.fiber_composition_zh, 500),
     fiber_composition_en: cleanText(body.fiber_composition_en, 500),
     certification_standard: cleanText(body.certification_standard, 160) || 'GOTS organic',
     certifying_body: cleanText(body.certifying_body, 240) || null,
     licence_no: cleanText(body.licence_no, 160) || null,
-    production_origin_zh: cleanText(body.production_origin_zh, 240) || null,
     production_origin_en: cleanText(body.production_origin_en, 240) || null,
     gots_verification_url: cleanText(body.gots_verification_url, 1000) || DEFAULT_GOTS_URL,
     is_published: booleanValue(body.is_published),
   };
 
-  if (!data.product_variant_id || !data.batch_no || !data.fiber_composition_zh || !data.fiber_composition_en) {
-    const error = new Error('请填写商品规格、产品批次和中英文纤维成分');
+  if (!data.product_variant_id || !data.batch_no || !data.fiber_composition_en) {
+    const error = new Error('Product variant, product batch and fibre composition are required.');
     error.statusCode = 400;
     throw error;
   }
@@ -44,7 +42,7 @@ function normalizeRecordInput(body) {
     const parsed = new URL(data.gots_verification_url);
     if (!['https:', 'http:'].includes(parsed.protocol)) throw new Error('invalid protocol');
   } catch {
-    const error = new Error('GOTS 核验链接必须是有效的 HTTP/HTTPS 地址');
+    const error = new Error('The GOTS verification URL must be a valid HTTP/HTTPS address.');
     error.statusCode = 400;
     throw error;
   }
@@ -167,7 +165,7 @@ router.get('/records/:id', (req, res) => {
     WHERE tr.id = ?
   `).get(req.params.id);
 
-  if (!row) return res.status(404).json({ success: false, message: '溯源记录不存在' });
+  if (!row) return res.status(404).json({ success: false, message: 'Traceability record not found.' });
   res.json({ success: true, data: row });
 });
 
@@ -182,9 +180,9 @@ router.post('/records', (req, res) => {
       WHERE pv.id = ?
     `).get(data.product_variant_id);
 
-    if (!variant) return res.status(404).json({ success: false, message: '商品规格不存在' });
+    if (!variant) return res.status(404).json({ success: false, message: 'Product variant not found.' });
     if (!variant.gtin || !String(variant.gtin).trim()) {
-      return res.status(400).json({ success: false, message: '该商品规格没有 Barcode，无法用于公开查询' });
+      return res.status(400).json({ success: false, message: 'This product variant has no barcode and cannot be used for public lookup.' });
     }
 
     const id = `TR${snowflakeId()}`;
@@ -203,15 +201,15 @@ router.post('/records', (req, res) => {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id, data.product_variant_id, data.batch_no, data.trace_code, data.is_default ? 1 : 0,
-        data.fiber_composition_zh, data.fiber_composition_en, data.certification_standard,
-        data.certifying_body, data.licence_no, data.production_origin_zh, data.production_origin_en,
+        data.fiber_composition_en, data.fiber_composition_en, data.certification_standard,
+        data.certifying_body, data.licence_no, data.production_origin_en, data.production_origin_en,
         data.gots_verification_url, data.is_published ? 1 : 0, actorId, actorId
       );
       audit(db, id, 'create', actorId, data);
     });
     create();
 
-    res.status(201).json({ success: true, data: { id }, message: '溯源记录已创建' });
+    res.status(201).json({ success: true, data: { id }, message: 'Traceability record created.' });
   } catch (error) {
     const status = error.statusCode || (String(error.message).includes('UNIQUE constraint failed') ? 409 : 500);
     res.status(status).json({ success: false, message: error.message });
@@ -222,13 +220,13 @@ router.put('/records/:id', (req, res) => {
   const db = getDb();
   try {
     const existing = db.prepare('SELECT * FROM traceability_records WHERE id = ?').get(req.params.id);
-    if (!existing) return res.status(404).json({ success: false, message: '溯源记录不存在' });
+    if (!existing) return res.status(404).json({ success: false, message: 'Traceability record not found.' });
 
     const data = normalizeRecordInput(req.body);
     const variant = db.prepare('SELECT id, gtin FROM product_variants WHERE id = ?').get(data.product_variant_id);
-    if (!variant) return res.status(404).json({ success: false, message: '商品规格不存在' });
+    if (!variant) return res.status(404).json({ success: false, message: 'Product variant not found.' });
     if (!variant.gtin || !String(variant.gtin).trim()) {
-      return res.status(400).json({ success: false, message: '该商品规格没有 Barcode，无法用于公开查询' });
+      return res.status(400).json({ success: false, message: 'This product variant has no barcode and cannot be used for public lookup.' });
     }
 
     const actorId = getActorId(req);
@@ -246,15 +244,15 @@ router.put('/records/:id', (req, res) => {
         WHERE id = ?
       `).run(
         data.product_variant_id, data.batch_no, data.trace_code, data.is_default ? 1 : 0,
-        data.fiber_composition_zh, data.fiber_composition_en, data.certification_standard,
-        data.certifying_body, data.licence_no, data.production_origin_zh, data.production_origin_en,
+        data.fiber_composition_en, data.fiber_composition_en, data.certification_standard,
+        data.certifying_body, data.licence_no, data.production_origin_en, data.production_origin_en,
         data.gots_verification_url, data.is_published ? 1 : 0, actorId, req.params.id
       );
       audit(db, req.params.id, 'update', actorId, { before: existing, after: data });
     });
     update();
 
-    res.json({ success: true, message: '溯源记录已更新' });
+    res.json({ success: true, message: 'Traceability record updated.' });
   } catch (error) {
     const status = error.statusCode || (String(error.message).includes('UNIQUE constraint failed') ? 409 : 500);
     res.status(status).json({ success: false, message: error.message });
@@ -264,7 +262,7 @@ router.put('/records/:id', (req, res) => {
 router.delete('/records/:id', (req, res) => {
   const db = getDb();
   const existing = db.prepare('SELECT * FROM traceability_records WHERE id = ?').get(req.params.id);
-  if (!existing) return res.status(404).json({ success: false, message: '溯源记录不存在' });
+  if (!existing) return res.status(404).json({ success: false, message: 'Traceability record not found.' });
 
   const actorId = getActorId(req);
   const remove = db.transaction(() => {
@@ -272,7 +270,7 @@ router.delete('/records/:id', (req, res) => {
     db.prepare('DELETE FROM traceability_records WHERE id = ?').run(req.params.id);
   });
   remove();
-  res.json({ success: true, message: '溯源记录已删除' });
+  res.json({ success: true, message: 'Traceability record deleted.' });
 });
 
 router.get('/stats', (req, res) => {
