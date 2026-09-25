@@ -8,6 +8,7 @@ const express = require('express')
 const router = express.Router()
 const db = require('../db')
 const { requireLogin } = require('../middleware/auth')
+const { buildDashboard } = require('../services/analyticsEngine')
 
 // ─── OpenAI 客户端（懒加载，仅当 OPENAI_API_KEY 存在时初始化）────
 let openaiClient = null
@@ -34,7 +35,7 @@ exhibitions (id, name, date TEXT 'YYYY-MM-DD', location, status TEXT 'preparing'
 
 exhibition_items (id, exhibition_id, shopify_variant_id, planned_quantity, rack_quantity, stock_quantity, checked INTEGER 0|1, hanger_done INTEGER 0|1, storage_done INTEGER 0|1)
 
-inventory_snapshots (id, exhibition_id, shopify_variant_id, square_quantity_before, sold_quantity, remaining_quantity, synced_at)
+inventory_snapshots (id, exhibition_id, shopify_variant_id, square_quantity_before, square_quantity_after, sold_quantity, remaining_quantity, planned_quantity_at_sync, unit_price_at_sync, after_synced_at, synced_at)
 
 products (id, shopify_product_id, title, product_type, status, vendor, created_at)
 
@@ -46,18 +47,142 @@ Common JOINs:
 - product_variants LEFT JOIN products ON products.id = product_variants.product_id
 - exhibition_items JOIN exhibitions ON exhibitions.id = exhibition_items.exhibition_id
 
-Sell rate formula: ROUND(CAST(SUM(sold_quantity) AS FLOAT) / NULLIF(SUM(square_quantity_before), 0) * 100, 1)
+Sell rate formula for finalized rows: ROUND(CAST(SUM(sold_quantity) AS FLOAT) / NULLIF(SUM(planned_quantity_at_sync), 0) * 100, 1)
 
 Rules:
 - Return ONLY the SQL query, no explanation, no markdown code blocks
 - Only SELECT statements
 - Use COALESCE for nullable fields
+- For historical sales analysis, include inventory_snapshots.after_synced_at IS NOT NULL
 - Add ORDER BY for better readability
 - Limit results to 100 rows unless user specifies otherwise
 `.trim()
 
 // 所有接口均需登录
 router.use(requireLogin)
+
+// ─── 决策仪表盘：销售、需求趋势、市场表现与数据质量 ───────────
+router.get('/dashboard', (req, res) => {
+  try {
+    const exhibitionId = String(req.query.exhibition_id || '').trim()
+    const completedEvents = db.prepare(`
+      SELECT
+        e.id,
+        e.name,
+        e.date,
+        e.location,
+        e.status,
+        COUNT(DISTINCT CASE
+          WHEN COALESCE(ei.planned_quantity, 0) > 0 THEN ei.shopify_variant_id
+        END) AS expected_variants,
+        COUNT(DISTINCT CASE
+          WHEN COALESCE(ei.planned_quantity, 0) > 0
+            AND s.after_synced_at IS NOT NULL
+          THEN ei.shopify_variant_id
+        END) AS finalized_variants
+      FROM exhibitions e
+      LEFT JOIN exhibition_items ei ON ei.exhibition_id = e.id
+      LEFT JOIN inventory_snapshots s
+        ON s.exhibition_id = ei.exhibition_id
+        AND s.shopify_variant_id = ei.shopify_variant_id
+      WHERE e.status = 'completed'
+      GROUP BY e.id
+      ORDER BY e.date ASC, e.id ASC
+    `).all()
+    const events = completedEvents.filter(event => (
+      event.expected_variants > 0 && event.finalized_variants >= event.expected_variants
+    ))
+
+    const requestedEvent = exhibitionId ? completedEvents.find(event => event.id === exhibitionId) : null
+    if (exhibitionId && !requestedEvent) {
+      return res.status(404).json({ success: false, message: '未找到已完成的展会' })
+    }
+    if (requestedEvent && !events.some(event => event.id === exhibitionId)) {
+      return res.status(409).json({
+        success: false,
+        code: 'ANALYTICS_DATA_INCOMPLETE',
+        message: `该展会的展后数据尚未完整同步（${requestedEvent.finalized_variants}/${requestedEvent.expected_variants} 个规格）`,
+      })
+    }
+
+    const rows = db.prepare(`
+      SELECT
+        e.id AS exhibition_id,
+        e.name AS exhibition_name,
+        e.date,
+        e.location,
+        e.status AS exhibition_status,
+        p.id AS product_id,
+        p.title AS product_title,
+        p.product_type,
+        p.tags,
+        p.vendor,
+        p.status AS product_status,
+        pv.id AS variant_id,
+        pv.shopify_variant_id,
+        pv.variant_title,
+        pv.sku,
+        COALESCE(s.unit_price_at_sync, CAST(pv.price AS REAL)) AS price,
+        s.square_quantity_after,
+        s.sold_quantity,
+        s.after_synced_at,
+        COALESCE(s.remaining_quantity, 0) AS remaining_quantity,
+        COALESCE(s.square_quantity_before, 0) AS square_quantity_before,
+        COALESCE(
+          s.planned_quantity_at_sync,
+          s.sold_quantity + s.remaining_quantity,
+          s.square_quantity_before
+        ) AS allocated_quantity,
+        ei.planned_quantity AS current_planned_quantity
+      FROM inventory_snapshots s
+      JOIN exhibitions e ON e.id = s.exhibition_id
+      LEFT JOIN product_variants pv ON pv.shopify_variant_id = s.shopify_variant_id
+      LEFT JOIN products p ON p.id = pv.product_id
+      LEFT JOIN exhibition_items ei
+        ON ei.exhibition_id = s.exhibition_id
+        AND ei.shopify_variant_id = s.shopify_variant_id
+      WHERE e.status = 'completed'
+      ORDER BY e.date ASC, e.id ASC, p.title COLLATE NOCASE, pv.variant_title COLLATE NOCASE
+    `).all()
+    const categoryRules = db.prepare(`
+      SELECT id, name, keyword, type, sort_order
+      FROM product_categories
+      ORDER BY CASE type WHEN 'material' THEN 0 ELSE 1 END, sort_order ASC, id ASC
+    `).all()
+    const catalogProducts = db.prepare(`
+      SELECT
+        id AS product_id,
+        title AS product_title,
+        product_type,
+        tags,
+        vendor,
+        status AS product_status
+      FROM products
+      WHERE status IS NULL OR status != 'archived'
+      ORDER BY title COLLATE NOCASE
+    `).all()
+
+    const dashboard = buildDashboard({ rows, events, categoryRules, catalogProducts, exhibitionId })
+    dashboard.scope.total_completed_exhibitions = completedEvents.length
+    dashboard.scope.excluded_exhibitions = completedEvents
+      .filter(event => !events.some(eligible => eligible.id === event.id))
+      .map(event => ({
+        id: event.id,
+        name: event.name,
+        date: event.date,
+        expected_variants: event.expected_variants,
+        finalized_variants: event.finalized_variants,
+      }))
+    res.json({
+      success: true,
+      generated_at: new Date().toISOString(),
+      data: dashboard,
+    })
+  } catch (err) {
+    console.error('[Analytics dashboard]', err)
+    res.status(500).json({ success: false, message: err.message })
+  }
+})
 
 // ─── 1. 展会总览（跨展会对比）─────────────────────────────────
 router.get('/overview', (req, res) => {

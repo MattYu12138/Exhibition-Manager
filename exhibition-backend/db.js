@@ -58,6 +58,9 @@ db.exec(`
     square_quantity_after INTEGER DEFAULT 0,
     sold_quantity INTEGER DEFAULT 0,
     remaining_quantity INTEGER DEFAULT 0,
+    planned_quantity_at_sync INTEGER DEFAULT NULL,
+    unit_price_at_sync REAL DEFAULT NULL,
+    after_synced_at DATETIME DEFAULT NULL,
     synced_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (exhibition_id) REFERENCES exhibitions(id) ON DELETE CASCADE
   );
@@ -316,10 +319,52 @@ const migrations = [
   // 衣架操作历史类型：replenish=增加衣架，reduce=减少衣架
   "ALTER TABLE replenishment_log ADD COLUMN operation_type TEXT NOT NULL DEFAULT 'replenish'",
   "ALTER TABLE product_categories ADD COLUMN type TEXT NOT NULL DEFAULT 'style'",
+  'ALTER TABLE inventory_snapshots ADD COLUMN planned_quantity_at_sync INTEGER DEFAULT NULL',
+  'ALTER TABLE inventory_snapshots ADD COLUMN unit_price_at_sync REAL DEFAULT NULL',
+  'ALTER TABLE inventory_snapshots ADD COLUMN after_synced_at DATETIME DEFAULT NULL',
 ];
 for (const sql of migrations) {
   try { db.exec(sql); } catch (e) { /* 字段已存在，忽略 */ }
 }
+
+// Historical rows can reconstruct the immutable event allocation from the finalized equation.
+db.prepare(`
+  UPDATE inventory_snapshots
+  SET planned_quantity_at_sync = sold_quantity + remaining_quantity
+  WHERE planned_quantity_at_sync IS NULL
+    AND sold_quantity IS NOT NULL
+    AND remaining_quantity IS NOT NULL
+    AND (
+      COALESCE(square_quantity_after, 0) != 0
+      OR COALESCE(sold_quantity, 0) != 0
+      OR COALESCE(remaining_quantity, 0) != 0
+    )
+`).run();
+
+// Legacy before-sync rows used zero defaults for every final quantity. A row with any non-zero
+// final value is safe to mark as historically finalized; ambiguous all-zero rows stay excluded.
+db.prepare(`
+  UPDATE inventory_snapshots
+  SET after_synced_at = synced_at
+  WHERE after_synced_at IS NULL
+    AND (
+      COALESCE(square_quantity_after, 0) != 0
+      OR COALESCE(sold_quantity, 0) != 0
+      OR COALESCE(remaining_quantity, 0) != 0
+    )
+`).run();
+
+// Existing snapshots did not retain price. Backfill once from the current catalogue; new
+// snapshots capture the price at sync time so later catalogue edits do not rewrite history.
+db.prepare(`
+  UPDATE inventory_snapshots
+  SET unit_price_at_sync = (
+    SELECT CAST(pv.price AS REAL)
+    FROM product_variants pv
+    WHERE pv.shopify_variant_id = inventory_snapshots.shopify_variant_id
+  )
+  WHERE unit_price_at_sync IS NULL
+`).run();
 
 // Tracks whether stock_available has entered the employee-owned manual lifecycle.
 // Existing false values predate quantity-derived initialization, so preserve them as manual.

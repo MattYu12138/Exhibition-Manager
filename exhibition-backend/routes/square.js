@@ -5,6 +5,11 @@ const db = require('../db');
 const { snapshotId } = require('../utils/snowflake');
 const crypto = require('crypto');
 
+function catalogUnitPrice(value) {
+  const parsed = Number.parseFloat(String(value ?? '').replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
 // ─────────────────────────────────────────────
 // 内存任务存储（用于异步同步任务的进度追踪）
 // ─────────────────────────────────────────────
@@ -229,6 +234,7 @@ router.post('/sync', async (req, res) => {
             const plannedQty = item.planned_quantity;
             const lastSyncedQty = item.last_synced_quantity;
             const currentQty = inventoryCounts[match.variationId] ?? 0;
+            const unitPriceAtSync = catalogUnitPrice(item.price);
 
             const deltaQty = (lastSyncedQty !== null && lastSyncedQty !== undefined)
               ? plannedQty - lastSyncedQty
@@ -246,12 +252,12 @@ router.post('/sync', async (req, res) => {
 
               if (existing) {
                 db.prepare(
-                  'UPDATE inventory_snapshots SET square_catalog_variation_id = ?, square_quantity_before = ?, square_quantity_after = NULL, sold_quantity = NULL, remaining_quantity = NULL, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
-                ).run(match.variationId, newTotalQty, existing.id);
+                  'UPDATE inventory_snapshots SET square_catalog_variation_id = ?, square_quantity_before = ?, square_quantity_after = NULL, sold_quantity = NULL, remaining_quantity = NULL, planned_quantity_at_sync = ?, unit_price_at_sync = ?, after_synced_at = NULL, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
+                ).run(match.variationId, newTotalQty, plannedQty, unitPriceAtSync, existing.id);
               } else {
                 db.prepare(
-                  'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before) VALUES (?, ?, ?, ?, ?)'
-                ).run(snapshotId(db), exhibition_id, item.shopify_variant_id, match.variationId, newTotalQty);
+                  'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before, planned_quantity_at_sync, unit_price_at_sync) VALUES (?, ?, ?, ?, ?, ?, ?)'
+                ).run(snapshotId(db), exhibition_id, item.shopify_variant_id, match.variationId, newTotalQty, plannedQty, unitPriceAtSync);
               }
 
               db.prepare(
@@ -310,16 +316,18 @@ router.post('/sync', async (req, res) => {
 
             const qtyBefore = snapshot ? snapshot.square_quantity_before : item.planned_quantity;
             const soldQty = Math.max(0, qtyBefore - squareRemaining);
-            const remainingQty = Math.max(0, item.planned_quantity - soldQty);
+            const allocatedAtSync = snapshot?.planned_quantity_at_sync ?? item.planned_quantity;
+            const remainingQty = Math.max(0, allocatedAtSync - soldQty);
+            const unitPriceAtSync = snapshot?.unit_price_at_sync ?? catalogUnitPrice(item.price);
 
             if (snapshot) {
               db.prepare(
-                'UPDATE inventory_snapshots SET square_quantity_after = ?, sold_quantity = ?, remaining_quantity = ?, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
-              ).run(squareRemaining, soldQty, remainingQty, snapshot.id);
+                'UPDATE inventory_snapshots SET square_quantity_after = ?, sold_quantity = ?, remaining_quantity = ?, planned_quantity_at_sync = COALESCE(planned_quantity_at_sync, ?), unit_price_at_sync = COALESCE(unit_price_at_sync, ?), after_synced_at = CURRENT_TIMESTAMP, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
+              ).run(squareRemaining, soldQty, remainingQty, allocatedAtSync, unitPriceAtSync, snapshot.id);
             } else {
               db.prepare(
-                'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before, square_quantity_after, sold_quantity, remaining_quantity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-              ).run(snapshotId(db), exhibition_id, item.shopify_variant_id, match.variationId, qtyBefore, squareRemaining, soldQty, remainingQty);
+                'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before, square_quantity_after, sold_quantity, remaining_quantity, planned_quantity_at_sync, unit_price_at_sync, after_synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)'
+              ).run(snapshotId(db), exhibition_id, item.shopify_variant_id, match.variationId, qtyBefore, squareRemaining, soldQty, remainingQty, allocatedAtSync, unitPriceAtSync);
             }
 
             task.synced++;
@@ -433,6 +441,7 @@ router.post('/create-items', async (req, res) => {
           const item = groupItems[i];
           const variationId = variationResults[i]?.variationId;
           const plannedQty = item.planned_quantity || 0;
+          const unitPriceAtSync = Number.isFinite(Number(item.priceCents)) ? Number(item.priceCents) / 100 : null;
 
           if (!variationId) {
             results.push({
@@ -456,12 +465,12 @@ router.post('/create-items', async (req, res) => {
 
             if (existing) {
               db.prepare(
-                'UPDATE inventory_snapshots SET square_catalog_variation_id = ?, square_quantity_before = ?, square_quantity_after = NULL, sold_quantity = NULL, remaining_quantity = NULL, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
-              ).run(variationId, plannedQty, existing.id);
+                'UPDATE inventory_snapshots SET square_catalog_variation_id = ?, square_quantity_before = ?, square_quantity_after = NULL, sold_quantity = NULL, remaining_quantity = NULL, planned_quantity_at_sync = ?, unit_price_at_sync = ?, after_synced_at = NULL, synced_at = CURRENT_TIMESTAMP WHERE id = ?'
+              ).run(variationId, plannedQty, plannedQty, unitPriceAtSync, existing.id);
             } else {
               db.prepare(
-                'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before) VALUES (?, ?, ?, ?, ?)'
-              ).run(snapshotId(db), exhibition_id, item.shopify_variant_id, variationId, plannedQty);
+                'INSERT INTO inventory_snapshots (id, exhibition_id, shopify_variant_id, square_catalog_variation_id, square_quantity_before, planned_quantity_at_sync, unit_price_at_sync) VALUES (?, ?, ?, ?, ?, ?, ?)'
+              ).run(snapshotId(db), exhibition_id, item.shopify_variant_id, variationId, plannedQty, plannedQty, unitPriceAtSync);
             }
 
             db.prepare(

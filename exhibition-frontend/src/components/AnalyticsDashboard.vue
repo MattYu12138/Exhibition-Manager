@@ -1,1379 +1,888 @@
 <template>
-  <!-- 折叠触发按钮 -->
-  <div class="analytics-toggle" @click="toggle">
-    <div class="toggle-inner">
-      <div class="toggle-left">
-        <div class="toggle-icon-wrap">
-          <el-icon size="16"><DataAnalysis /></el-icon>
-        </div>
-        <span class="toggle-label">数据分析</span>
-        <el-tag v-if="hasData" size="small" type="success" round style="margin-left:8px;font-size:11px">
-          {{ completedCount }} 场已完成
-        </el-tag>
-      </div>
-      <el-icon class="toggle-arrow" :class="{ open: isOpen }" size="14"><ArrowDown /></el-icon>
-    </div>
-  </div>
+  <section class="analytics-shell">
+    <button class="analytics-toggle" type="button" :aria-expanded="isOpen" @click="toggle">
+      <span class="toggle-leading">
+        <span class="toggle-icon"><el-icon><DataAnalysis /></el-icon></span>
+        <span>
+          <strong>销售与市场分析</strong>
+          <small>展会表现、商品需求、市场趋势与数据质量</small>
+        </span>
+      </span>
+      <span class="toggle-trailing">
+        <span v-if="hasData" class="coverage-pill">{{ dashboard.kpis.classification_coverage }}% 已分类</span>
+        <el-icon class="toggle-arrow" :class="{ open: isOpen }"><ArrowDown /></el-icon>
+      </span>
+    </button>
 
-  <!-- 面板主体（动画展开） -->
-  <Transition name="dashboard-slide">
-    <div v-if="isOpen" class="analytics-panel">
-      <!-- 加载中 -->
-      <div v-if="loading" class="panel-loading">
-        <el-icon class="spin" size="24"><Loading /></el-icon>
-        <span>加载数据中…</span>
-      </div>
-
-      <template v-else>
-        <!-- Tab 切换 -->
-        <div class="panel-tabs">
-          <button
-            v-for="tab in tabs"
-            :key="tab.key"
-            class="ptab"
-            :class="{ active: activeTab === tab.key }"
-            @click="activeTab = tab.key"
-          >
-            <el-icon size="13"><component :is="tab.icon" /></el-icon>
-            {{ tab.label }}
-          </button>
-          <div class="tab-spacer" />
-          <button class="ptab custom-tab" :class="{ active: activeTab === 'custom' }" @click="activeTab = 'custom'">
-            <el-icon size="13"><MagicStick /></el-icon>
-            自定义查询
-          </button>
-        </div>
-
-        <!-- ── Tab: 展会总览 ── -->
-        <div v-if="activeTab === 'overview'" class="tab-content">
-          <div class="chart-grid two-col">
-            <!-- 销售量对比柱状图 -->
-            <div class="chart-card">
-              <div class="chart-title">各展会销售量对比</div>
-              <v-chart class="chart" :option="soldBarOption" autoresize />
-            </div>
-            <!-- 销售率趋势 -->
-            <div class="chart-card">
-              <div class="chart-title">整体销售率趋势</div>
-              <v-chart class="chart" :option="sellRateOption" autoresize />
-            </div>
+    <Transition name="dashboard-expand">
+      <div v-if="isOpen" class="dashboard-panel">
+        <header class="dashboard-header">
+          <div>
+            <p class="eyebrow">EXHIBITION INTELLIGENCE</p>
+            <h2>用历史展会数据指导下一次备货</h2>
+            <p class="header-copy">销售量用于判断需求，销售率用于判断配置效率；两者结合后再决定增加或减少带货量。</p>
           </div>
-          <!-- 带去 vs 卖出 vs 剩余 堆叠图 -->
-          <div class="chart-card full-width">
-            <div class="chart-title">带去数量 / 卖出 / 剩余 对比</div>
-            <v-chart class="chart chart-tall" :option="stackedBarOption" autoresize />
-          </div>
-        </div>
-
-        <!-- ── Tab: 品类分析 ── -->
-        <div v-if="activeTab === 'category'" class="tab-content">
-          <div class="filter-row">
-            <span class="filter-label">选择展会：</span>
-            <div class="filter-btns">
-              <button
-                v-for="ex in completedExhibitions"
-                :key="ex"
-                class="filter-btn"
-                :class="{ active: selectedExhibition === ex }"
-                @click="selectedExhibition = ex; drilldownCategory = null"
-              >{{ ex }}</button>
-            </div>
-          </div>
-
-          <!-- 下钻面板：点击品类后展示具体产品 -->
-          <Transition name="drilldown-slide">
-            <div v-if="drilldownCategory" class="drilldown-panel">
-              <div class="drilldown-header">
-                <button class="drilldown-back" @click="drilldownCategory = null">
-                  <el-icon size="13"><ArrowLeft /></el-icon> 返回品类列表
-                </button>
-                <div class="drilldown-title">
-                  <span class="drilldown-category-tag">{{ drilldownCategory }}</span>
-                  <span class="drilldown-subtitle">具体产品销售排行</span>
-                  <span v-if="selectedExhibition" class="drilldown-scope">· {{ selectedExhibition }}</span>
-                </div>
-              </div>
-              <div v-if="drilldownLoading" class="drilldown-loading">
-                <el-icon class="spin" size="18"><Loading /></el-icon> 加载中…
-              </div>
-              <div v-else-if="drilldownData.length === 0" class="drilldown-empty">
-                该展会暂无该品类销售数据
-              </div>
-              <div v-else class="drilldown-chart-wrap">
-                <v-chart class="chart drilldown-chart" :option="drilldownChartOption" autoresize />
-                <!-- 详细表格 -->
-                <div class="drilldown-table-wrap">
-                  <table class="drilldown-table">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>产品</th>
-                        <th>规格</th>
-                        <th>销售量</th>
-                        <th>带去量</th>
-                        <th>销售率</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="(row, i) in drilldownData" :key="i" :class="{ 'top-row': i < 3 }">
-                        <td class="rank-cell">
-                          <span v-if="i === 0" class="rank-medal gold">🥇</span>
-                          <span v-else-if="i === 1" class="rank-medal silver">🥈</span>
-                          <span v-else-if="i === 2" class="rank-medal bronze">🥉</span>
-                          <span v-else class="rank-num">{{ i + 1 }}</span>
-                        </td>
-                        <td class="product-title-cell">{{ row.product_title || '未知产品' }}</td>
-                        <td class="variant-cell">{{ row.variant_title || '—' }}</td>
-                        <td class="num-cell sold">{{ row.sold }}</td>
-                        <td class="num-cell">{{ row.brought }}</td>
-                        <td class="rate-cell">
-                          <div class="rate-bar-wrap">
-                            <div class="rate-bar" :style="{ width: Math.min(row.sell_rate || 0, 100) + '%', background: rateColor(row.sell_rate) }"></div>
-                            <span class="rate-text">{{ row.sell_rate != null ? row.sell_rate + '%' : '—' }}</span>
-                          </div>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </Transition>
-
-          <!-- 品类图表（未下钻时显示）-->
-          <Transition name="drilldown-slide">
-            <div v-if="!drilldownCategory" class="chart-grid two-col">
-              <div class="chart-card clickable-chart">
-                <div class="chart-title">
-                  品类销售量排行
-                  <span class="chart-hint">👆 点击某个品类可查看详细产品</span>
-                </div>
-                <v-chart
-                  class="chart chart-tall"
-                  :option="categoryBarOption"
-                  autoresize
-                  @click="onCategoryClick"
-                />
-              </div>
-              <div class="chart-card">
-                <div class="chart-title">品类销售率排行</div>
-                <v-chart class="chart chart-tall" :option="categoryRateOption" autoresize />
-              </div>
-            </div>
-          </Transition>
-        </div>
-
-        <!-- ── Tab: Checklist 进度 ── -->
-        <div v-if="activeTab === 'checklist'" class="tab-content">
-          <div class="checklist-grid">
-            <div
-              v-for="ex in checklistData"
-              :key="ex.id"
-              class="checklist-card"
-              :class="ex.status"
+          <div class="header-controls">
+            <label for="analytics-scope">分析范围</label>
+            <el-select
+              id="analytics-scope"
+              v-model="selectedExhibitionId"
+              class="scope-select"
+              placeholder="全部已完成展会"
+              :disabled="loading"
+              @change="loadDashboard"
             >
-              <div class="cl-header">
-                <span class="cl-name">{{ ex.name }}</span>
-                <el-tag :type="statusTagType(ex.status)" size="small" round>{{ statusLabel(ex.status) }}</el-tag>
-              </div>
-              <div class="cl-date">{{ ex.date }}</div>
-              <div class="cl-rings">
-                <div v-for="ring in ringsFor(ex)" :key="ring.label" class="ring-wrap">
-                  <svg class="ring-svg" viewBox="0 0 44 44">
-                    <circle class="ring-bg" cx="22" cy="22" r="18" />
-                    <circle
-                      class="ring-fg"
-                      cx="22" cy="22" r="18"
-                      :stroke="ring.color"
-                      :stroke-dasharray="`${ring.pct * 1.131} 113.1`"
-                    />
-                  </svg>
-                  <div class="ring-pct">{{ ring.pct }}%</div>
-                  <div class="ring-label">{{ ring.label }}</div>
-                </div>
-              </div>
-              <div class="cl-total">共 {{ ex.total }} 件商品</div>
-            </div>
-          </div>
-        </div>
-
-        <!-- ── Tab: Top 商品 ── -->
-        <div v-if="activeTab === 'top'" class="tab-content">
-          <div class="filter-row">
-            <span class="filter-label">展会：</span>
-            <div class="filter-btns">
-              <button
-                v-for="ex in completedExhibitions"
-                :key="ex"
-                class="filter-btn"
-                :class="{ active: topExhibition === ex }"
-                @click="topExhibition = ex; loadTopProducts()"
-              >{{ ex }}</button>
-            </div>
-          </div>
-          <div class="chart-grid two-col">
-            <div class="chart-card">
-              <div class="chart-title">Top 10 销售量商品</div>
-              <v-chart class="chart chart-tall" :option="topSoldOption" autoresize />
-            </div>
-            <div class="chart-card">
-              <div class="chart-title">Top 10 销售率商品</div>
-              <v-chart class="chart chart-tall" :option="topRateOption" autoresize />
-            </div>
-          </div>
-        </div>
-
-        <!-- ── Tab: 自定义查询 ── -->
-        <div v-if="activeTab === 'custom'" class="tab-content custom-query-panel">
-          <!-- 左侧：Schema 提示 -->
-          <div class="schema-sidebar">
-            <div class="schema-title">
-              <el-icon size="13"><DataBoard /></el-icon> 可用表
-            </div>
-            <div v-for="tbl in schemaData" :key="tbl.name" class="schema-table">
-              <div class="schema-tbl-name" @click="toggleSchema(tbl.name)">
-                <el-icon size="11"><ArrowRight :class="{ 'rotate-90': openSchemas.has(tbl.name) }" /></el-icon>
-                {{ tbl.name }}
-              </div>
-              <div v-if="openSchemas.has(tbl.name)" class="schema-cols">
-                <div
-                  v-for="col in tbl.columns"
-                  :key="col.name"
-                  class="schema-col"
-                  @click="insertCol(tbl.name, col.name)"
-                >
-                  <span class="col-name">{{ col.name }}</span>
-                  <span class="col-type">{{ col.type }}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 右侧：查询编辑器 + 结果 -->
-          <div class="query-main">
-
-            <!-- AI 自然语言输入框 -->
-            <div class="ai-input-section">
-              <div class="ai-header">
-                <div class="ai-badge">
-                  <span class="ai-spark">✦</span>
-                  <span>AI 查询生成</span>
-                </div>
-                <span v-if="!aiAvailable" class="ai-unavailable-tip">（未配置 API Key，功能不可用）</span>
-              </div>
-              <div class="ai-input-row">
-                <input
-                  v-model="aiPrompt"
-                  class="ai-input"
-                  :placeholder="aiAvailable ? '用自然语言描述你想查询的内容，例如：各展会的销售率是多少？哪些品类卖得最好？' : 'AI 功能未启用'"
-                  :disabled="!aiAvailable"
-                  @keydown.enter.prevent="generateSql"
-                />
-                <button
-                  class="ai-gen-btn"
-                  :class="{ loading: aiLoading }"
-                  :disabled="!aiAvailable || aiLoading || !aiPrompt.trim()"
-                  @click="generateSql"
-                >
-                  <span v-if="aiLoading" class="ai-spin">◌</span>
-                  <span v-else>生成 SQL</span>
-                </button>
-              </div>
-              <Transition name="ai-result">
-                <div v-if="aiError" class="ai-error">
-                  <span>⚠ {{ aiError }}</span>
-                </div>
-              </Transition>
-              <Transition name="ai-result">
-                <div v-if="aiGeneratedSql" class="ai-preview">
-                  <div class="ai-preview-header">
-                    <span class="ai-preview-label">✦ AI 生成的 SQL</span>
-                    <button class="ai-use-btn" @click="useGeneratedSql">使用此 SQL ↓</button>
-                  </div>
-                  <pre class="ai-preview-sql">{{ aiGeneratedSql }}</pre>
-                </div>
-              </Transition>
-            </div>
-
-            <!-- 快捷模版 -->
-            <div class="query-templates">
-              <span class="tmpl-label">快捷模板：</span>
-              <button
-                v-for="tmpl in queryTemplates"
-                :key="tmpl.label"
-                class="tmpl-btn"
-                @click="customSql = tmpl.sql"
-              >{{ tmpl.label }}</button>
-            </div>
-
-            <!-- SQL 编辑器 -->
-            <div class="sql-editor-wrap">
-              <textarea
-                ref="sqlInput"
-                v-model="customSql"
-                class="sql-editor"
-                placeholder="输入 SELECT 语句，例如：&#10;SELECT e.name, COUNT(ei.id) as items FROM exhibitions e LEFT JOIN exhibition_items ei ON e.id = ei.exhibition_id GROUP BY e.id"
-                spellcheck="false"
-                @keydown.ctrl.enter.prevent="runQuery"
-                @keydown.meta.enter.prevent="runQuery"
+              <el-option label="全部已完成展会" value="" />
+              <el-option
+                v-for="event in dashboard.scope.completed_exhibitions"
+                :key="event.id"
+                :label="event.name"
+                :value="event.id"
               />
-              <div class="sql-hint">Ctrl+Enter 运行</div>
-            </div>
+            </el-select>
+            <button class="refresh-button" type="button" :disabled="loading" @click="loadDashboard">
+              <el-icon :class="{ spin: loading }"><Refresh /></el-icon>
+              刷新
+            </button>
+          </div>
+        </header>
 
-            <!-- 图表类型 + 运行 -->
-            <div class="query-actions">
-              <div class="chart-type-row">
-                <span class="filter-label">图表类型：</span>
-                <div class="filter-btns">
-                  <button
-                    v-for="ct in chartTypes"
-                    :key="ct.value"
-                    class="filter-btn"
-                    :class="{ active: customChartType === ct.value }"
-                    @click="customChartType = ct.value"
-                  >
-                    <el-icon size="12"><component :is="ct.icon" /></el-icon>
-                    {{ ct.label }}
+        <div v-if="loading && !hasData" class="dashboard-loading">
+          <div v-for="item in 4" :key="item" class="skeleton-card">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+
+        <div v-else-if="loadError && !hasData" class="state-card error-state">
+          <el-icon><Warning /></el-icon>
+          <div>
+            <strong>分析数据暂时无法加载</strong>
+            <p>{{ loadError }}</p>
+          </div>
+          <button type="button" @click="loadDashboard">重新加载</button>
+        </div>
+
+        <div v-else-if="!hasData" class="state-card">
+          <el-icon><DataAnalysis /></el-icon>
+          <div>
+            <strong>还没有可分析的展会销售记录</strong>
+            <p>完成展会结束后的 Square 同步后，销售和趋势数据会显示在这里。</p>
+          </div>
+        </div>
+
+        <template v-else>
+          <div v-if="loadError" class="inline-warning">
+            <el-icon><Warning /></el-icon>{{ loadError }}，当前显示上一次成功加载的数据。
+          </div>
+          <div v-if="dashboard.scope.excluded_exhibitions?.length" class="inline-warning eligibility-warning">
+            <el-icon><Warning /></el-icon>
+            已排除 {{ dashboard.scope.excluded_exhibitions.length }} 场尚未完成全部规格展后同步的展会，避免把缺失记录误算为零销量。
+          </div>
+
+          <div class="kpi-grid">
+            <article class="kpi-card primary">
+              <span class="kpi-label">预估销售额</span>
+              <strong>{{ formatCurrency(dashboard.kpis.estimated_revenue) }}</strong>
+              <small>按快照保存的商品价格估算，不等同 Square 实收</small>
+            </article>
+            <article class="kpi-card">
+              <span class="kpi-label">售出件数</span>
+              <strong>{{ formatNumber(dashboard.kpis.units_sold) }}</strong>
+              <small>{{ dashboard.kpis.exhibition_count }} 场 · 平均 {{ formatNumber(dashboard.kpis.average_units_per_event, 1) }} 件/场</small>
+            </article>
+            <article class="kpi-card">
+              <span class="kpi-label">整体销售率</span>
+              <strong>{{ formatPercent(dashboard.kpis.sell_through) }}</strong>
+              <small>售出 {{ formatNumber(dashboard.kpis.units_sold) }} / 计划带去 {{ formatNumber(dashboard.kpis.allocated_units) }}</small>
+            </article>
+            <article class="kpi-card quality">
+              <span class="kpi-label">分类覆盖率</span>
+              <strong>{{ formatPercent(dashboard.kpis.classification_coverage) }}</strong>
+              <small>自动恢复 {{ dashboard.kpis.recovered_products }} 个空类型商品</small>
+            </article>
+          </div>
+
+          <div class="comparison-strip" v-if="dashboard.comparison">
+            <div class="comparison-heading">
+              <span>最近一场表现</span>
+              <strong>{{ dashboard.comparison.current_event }}</strong>
+              <small v-if="dashboard.comparison.previous_event">对比 {{ dashboard.comparison.previous_event }}</small>
+            </div>
+            <MetricDelta label="销售量" :value="dashboard.comparison.units_delta_pct" suffix="%" />
+            <MetricDelta label="销售率" :value="dashboard.comparison.sell_through_delta_pp" suffix="pp" />
+            <MetricDelta label="预估销售额" :value="dashboard.comparison.revenue_delta_pct" suffix="%" />
+            <div class="comparison-best">
+              <span>最佳品类</span>
+              <strong>{{ dashboard.comparison.best_category }}</strong>
+            </div>
+          </div>
+
+          <nav class="dashboard-tabs" aria-label="分析视图">
+            <button
+              v-for="tab in tabs"
+              :key="tab.key"
+              type="button"
+              :class="{ active: activeTab === tab.key }"
+              @click="activeTab = tab.key"
+            >
+              <el-icon><component :is="tab.icon" /></el-icon>
+              <span>{{ tab.label }}</span>
+              <span v-if="tab.key === 'quality' && dashboard.quality.issues.length" class="issue-count">{{ dashboard.quality.issues.length }}</span>
+            </button>
+          </nav>
+
+          <Transition name="tab-fade" mode="out-in">
+            <div :key="activeTab" class="tab-content">
+              <template v-if="activeTab === 'overview'">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">EXECUTIVE VIEW</p>
+                    <h3>本轮应优先关注的三个信号</h3>
+                  </div>
+                  <span>{{ dashboard.scope.exhibition_name }}</span>
+                </div>
+
+                <div class="insight-grid">
+                  <article v-for="insight in insightCards" :key="insight.title" class="insight-card" :class="insight.tone">
+                    <span class="insight-icon"><el-icon><component :is="insight.icon" /></el-icon></span>
+                    <div>
+                      <small>{{ insight.kicker }}</small>
+                      <strong>{{ insight.title }}</strong>
+                      <p>{{ insight.body }}</p>
+                    </div>
+                  </article>
+                </div>
+
+                <div class="chart-grid wide-left">
+                  <ChartCard title="展会销售表现" subtitle="柱状为售出件数，折线为销售率；避免只看销量忽略带货规模">
+                    <v-chart class="chart chart-large" :option="eventTrendOption" autoresize />
+                  </ChartCard>
+                  <ChartCard title="款式大类贡献" subtitle="适合决定展位空间和总体货盘结构">
+                    <v-chart class="chart chart-large" :option="familyShareOption" autoresize />
+                  </ChartCard>
+                </div>
+
+                <div class="chart-grid equal">
+                  <ChartCard title="具体品类表现" subtitle="同看售出量和销售率，识别高需求与高效率品类">
+                    <v-chart class="chart" :option="categoryPerformanceOption" autoresize />
+                  </ChartCard>
+                  <ChartCard title="市场效率" subtitle="按城市计算每场平均销量，降低参展次数差异造成的误判">
+                    <v-chart class="chart" :option="marketPerformanceOption" autoresize />
+                  </ChartCard>
+                </div>
+              </template>
+
+              <template v-else-if="activeTab === 'demand'">
+                <div class="section-heading demand-heading">
+                  <div>
+                    <p class="eyebrow">PRODUCT DEMAND</p>
+                    <h3>下一场备货与陈列建议</h3>
+                    <p>建议数量以当前范围内最近三场销量加权，并以约 70% 目标销售率反推；仅供计划，不会自动改动展会数量。</p>
+                  </div>
+                  <div class="signal-filter">
+                    <button
+                      v-for="filter in signalFilters"
+                      :key="filter.value"
+                      type="button"
+                      :class="{ active: activeSignal === filter.value }"
+                      @click="activeSignal = filter.value"
+                    >{{ filter.label }}</button>
+                  </div>
+                </div>
+
+                <div class="demand-layout">
+                  <div class="table-card demand-table-card">
+                    <div class="card-heading">
+                      <div><strong>商品需求排行</strong><span>销量、效率与趋势的组合判断</span></div>
+                      <small>显示 {{ filteredDemandSignals.length }} 个商品</small>
+                    </div>
+                    <div class="table-scroll">
+                      <table class="analytics-table demand-table">
+                        <thead>
+                          <tr>
+                            <th>商品</th><th>品类</th><th class="numeric">售出</th><th class="numeric">平均/场</th>
+                            <th class="numeric">销售率</th><th class="numeric">趋势</th><th class="numeric">计划参考</th><th>建议</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr v-for="row in filteredDemandSignals" :key="row.product_key">
+                            <td><strong>{{ row.product_title }}</strong><small>{{ row.collection }} · {{ row.material }}</small></td>
+                            <td><span class="soft-tag">{{ row.category }}</span></td>
+                            <td class="numeric emph">{{ row.sold }}</td>
+                            <td class="numeric">{{ formatNumber(row.average_sold, 1) }}</td>
+                            <td class="numeric">{{ formatPercent(row.sell_through) }}</td>
+                            <td class="numeric"><TrendValue :value="row.trend_pct" /></td>
+                            <td class="numeric"><template v-if="row.recommended_units != null"><strong>{{ row.recommended_units }}</strong> 件</template><span v-else>—</span></td>
+                            <td><span class="signal-badge" :class="row.signal">{{ signalLabel(row.signal) }}</span></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <aside class="planning-note">
+                    <span class="note-icon"><el-icon><Opportunity /></el-icon></span>
+                    <strong>使用建议</strong>
+                    <p>优先增加“销量高且销售率高”的款式；“销售率高但销量小”的商品先小幅测试，避免因原本带货太少而高估需求。</p>
+                    <ul>
+                      <li>增加：销售率 ≥ 65% 且平均销量稳定</li>
+                      <li>上升：近期销量较早期明显增加</li>
+                      <li>减少：销售率 &lt; 25% 且有足够陈列量</li>
+                      <li>少于 2 场有效样本时只展示结果，不给数量建议</li>
+                    </ul>
+                  </aside>
+                </div>
+
+                <div class="chart-grid equal">
+                  <ChartCard title="尺码需求结构" subtitle="用于调整同款各尺码的配比，不把 One size 与婴童尺码混在一起">
+                    <v-chart class="chart" :option="sizeDemandOption" autoresize />
+                  </ChartCard>
+                  <ChartCard title="系列销售贡献" subtitle="按 Shopify Season 标签识别；无标签归入 Core / Unassigned">
+                    <v-chart class="chart" :option="collectionSalesOption" autoresize />
+                  </ChartCard>
+                </div>
+              </template>
+
+              <template v-else-if="activeTab === 'market'">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">MARKET TRENDS</p>
+                    <h3>城市、展会类型与产品属性</h3>
+                    <p>城市使用展会名称与地点自动归一；PBC / OFB 单独汇总，方便判断不同客群的货盘差异。</p>
+                  </div>
+                </div>
+
+                <div class="chart-grid wide-left">
+                  <ChartCard title="城市表现" subtitle="每场平均销量比累计销量更适合跨城市比较">
+                    <v-chart class="chart chart-large" :option="marketPerformanceOption" autoresize />
+                  </ChartCard>
+                  <div class="table-card market-summary-card">
+                    <div class="card-heading"><div><strong>展会类型</strong><span>不同活动类型的平均表现</span></div></div>
+                    <div class="format-list">
+                      <article v-for="row in dashboard.event_formats" :key="row.key">
+                        <div><strong>{{ row.label }}</strong><small>{{ row.exhibition_count }} 场</small></div>
+                        <div><strong>{{ formatNumber(row.sold_per_event, 1) }}</strong><small>件 / 场</small></div>
+                        <div><strong>{{ formatPercent(row.sell_through) }}</strong><small>销售率</small></div>
+                      </article>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="chart-grid thirds">
+                  <ChartCard title="材质需求" subtitle="按商品名称、标签与分类规则识别">
+                    <v-chart class="chart small-chart" :option="materialOption" autoresize />
+                  </ChartCard>
+                  <ChartCard title="客群标签" subtitle="来自 Shopify Gender 标签">
+                    <v-chart class="chart small-chart" :option="genderOption" autoresize />
+                  </ChartCard>
+                  <div class="table-card market-ranking-card">
+                    <div class="card-heading"><div><strong>市场排行</strong><span>按每场平均销量排序</span></div></div>
+                    <ol class="ranking-list">
+                      <li v-for="(row, index) in dashboard.markets" :key="row.key">
+                        <span class="rank">{{ index + 1 }}</span>
+                        <div><strong>{{ row.label }}</strong><small>{{ row.exhibition_count }} 场 · {{ formatPercent(row.sell_through) }}</small></div>
+                        <b>{{ formatNumber(row.sold_per_event, 1) }}</b>
+                      </li>
+                    </ol>
+                  </div>
+                </div>
+
+                <ChartCard title="逐场趋势" subtitle="用于判断变化是市场趋势，还是单场带货量变化造成">
+                  <v-chart class="chart chart-large" :option="eventTrendOption" autoresize />
+                </ChartCard>
+              </template>
+
+              <template v-else>
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">DATA QUALITY</p>
+                    <h3>分类覆盖与需要人工确认的数据</h3>
+                    <p>分类覆盖按当前商品目录统计；表内已售数量跟随上方分析范围。分析分类不会写回 Shopify 商品类型。</p>
+                  </div>
+                  <button v-if="authStore.isAdmin" class="manage-rules-button" type="button" @click="router.push('/dbadmin')">
+                    <el-icon><Setting /></el-icon> 管理分类规则 <el-icon><ArrowRight /></el-icon>
                   </button>
                 </div>
-              </div>
-              <el-button
-                type="primary"
-                :loading="queryLoading"
-                @click="runQuery"
-                class="run-btn"
-              >
-                <el-icon><VideoPlay /></el-icon> 运行查询
-              </el-button>
-            </div>
 
-            <!-- 错误提示 -->
-            <div v-if="queryError" class="query-error">
-              <el-icon><WarningFilled /></el-icon> {{ queryError }}
-            </div>
-
-            <!-- 结果区域 -->
-            <div v-if="queryResult" class="query-result">
-              <!-- 图表视图 -->
-              <div v-if="customChartType !== 'table' && queryResult.data.length > 0" class="result-chart-wrap">
-                <v-chart class="chart chart-tall" :option="customChartOption" autoresize />
-              </div>
-              <!-- 表格视图 -->
-              <div class="result-table-wrap">
-                <div class="result-meta">
-                  <span>共 {{ queryResult.count }} 行</span>
-                  <el-button size="small" plain @click="exportCsv">导出 CSV</el-button>
+                <div class="quality-grid">
+                  <article class="quality-card good">
+                    <span><el-icon><CircleCheck /></el-icon></span>
+                    <div><small>分析分类覆盖率</small><strong>{{ formatPercent(dashboard.kpis.classification_coverage) }}</strong><p>{{ dashboard.kpis.classified_products }} / {{ dashboard.quality.source_product_count }} 个当前商品</p></div>
+                  </article>
+                  <article class="quality-card recovered">
+                    <span><el-icon><DataAnalysis /></el-icon></span>
+                    <div><small>空类型已自动恢复</small><strong>{{ dashboard.quality.recovered_from_missing_type }}</strong><p>原有空 Shopify 类型 {{ dashboard.quality.missing_shopify_type }} 个</p></div>
+                  </article>
+                  <article class="quality-card" :class="dashboard.quality.unclassified_count ? 'warning' : 'good'">
+                    <span><el-icon><Warning /></el-icon></span>
+                    <div><small>仍未识别</small><strong>{{ dashboard.quality.unclassified_count }}</strong><p>需要添加关键词规则的商品</p></div>
+                  </article>
+                  <article class="quality-card warning">
+                    <span><el-icon><Warning /></el-icon></span>
+                    <div><small>类型疑似错误</small><strong>{{ dashboard.quality.type_mismatch_count }}</strong><p>名称/标签与 Shopify 类型不一致</p></div>
+                  </article>
                 </div>
-                <el-table
-                  :data="queryResult.data.slice(0, 200)"
-                  size="small"
-                  stripe
-                  border
-                  max-height="320"
-                  style="width:100%"
-                >
-                  <el-table-column
-                    v-for="col in queryResult.columns"
-                    :key="col"
-                    :prop="col"
-                    :label="col"
-                    min-width="120"
-                    show-overflow-tooltip
-                  />
-                </el-table>
-              </div>
+
+                <div class="classification-flow">
+                  <div><span>1</span><strong>具体款式</strong><p>标题与标签的最长关键词优先，例如 Zip Romper 不会被归到普通 Romper。</p></div>
+                  <i></i>
+                  <div><span>2</span><strong>销售大类</strong><p>One-piece、Separates、Accessories、Sleep & Bedding 等，用于总体货盘。</p></div>
+                  <i></i>
+                  <div><span>3</span><strong>独立属性</strong><p>材质、系列、尺码和客群分别分析，避免把多个维度混成一个分类。</p></div>
+                </div>
+
+                <div class="table-card quality-table-card">
+                  <div class="card-heading">
+                    <div><strong>待复核项目</strong><span>按影响优先级和已售数量排序</span></div>
+                    <small>{{ dashboard.quality.issues.length }} 项</small>
+                  </div>
+                  <div v-if="!dashboard.quality.issues.length" class="all-clear">
+                    <el-icon><CircleCheck /></el-icon> 当前范围内没有需要人工复核的数据。
+                  </div>
+                  <div v-else class="table-scroll">
+                    <table class="analytics-table">
+                      <thead><tr><th>商品</th><th>Shopify 类型</th><th>分析分类</th><th class="numeric">已售</th><th>问题</th></tr></thead>
+                      <tbody>
+                        <tr v-for="row in dashboard.quality.issues" :key="row.product_key">
+                          <td><strong>{{ row.product_title }}</strong><small>{{ row.exhibition_count }} 场有销售记录</small></td>
+                          <td>{{ row.shopify_product_type || '空' }}</td>
+                          <td><span class="soft-tag">{{ row.inferred_category }}</span></td>
+                          <td class="numeric emph">{{ row.sold }}</td>
+                          <td><span v-for="reason in row.reasons" :key="reason" class="reason-tag" :class="reason">{{ reasonLabel(reason) }}</span></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </template>
             </div>
-          </div>
-        </div>
-      </template>
-    </div>
-  </Transition>
+          </Transition>
+
+          <footer class="dashboard-footer">
+            <span>销售额为快照保存价格 × 售出件数的估算值，不包含折扣、退款和 Square 实际支付差异。</span>
+            <span v-if="generatedAt">更新于 {{ formatDateTime(generatedAt) }}</span>
+          </footer>
+        </template>
+      </div>
+    </Transition>
+  </section>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { computed, defineComponent, h, onMounted, ref } from 'vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { BarChart, LineChart, PieChart, ScatterChart } from 'echarts/charts'
-import {
-  TitleComponent, TooltipComponent, LegendComponent,
-  GridComponent, DataZoomComponent
-} from 'echarts/components'
+import { BarChart, LineChart, PieChart } from 'echarts/charts'
+import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import {
-  DataAnalysis, ArrowDown, Loading, MagicStick, DataBoard,
-  ArrowRight, ArrowLeft, VideoPlay, WarningFilled
+  ArrowDown, ArrowRight, CircleCheck, DataAnalysis, Goods, Location,
+  Opportunity, Refresh, Setting, TrendCharts, Trophy, Warning,
 } from '@element-plus/icons-vue'
 import { analyticsApi } from '@/api'
+import { useAuthStore } from '@/stores/auth'
+import { useRouter } from 'vue-router'
 
-use([
-  CanvasRenderer, BarChart, LineChart, PieChart, ScatterChart,
-  TitleComponent, TooltipComponent, LegendComponent, GridComponent, DataZoomComponent
-])
+use([CanvasRenderer, BarChart, LineChart, PieChart, GridComponent, LegendComponent, TooltipComponent])
 
-// ── 状态 ──────────────────────────────────────────────────────
-const isOpen = ref(false)
+const authStore = useAuthStore()
+const router = useRouter()
+const isOpen = ref(true)
 const loading = ref(false)
+const loadError = ref('')
+const generatedAt = ref('')
 const activeTab = ref('overview')
+const activeSignal = ref('all')
+const selectedExhibitionId = ref('')
+const reduceMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-const overviewData = ref([])
-const categoryData = ref([])
-const checklistData = ref([])
-const topData = ref([])
-const schemaData = ref([])
-
-const selectedExhibition = ref('')
-const topExhibition = ref('')
-const openSchemas = ref(new Set())
-
-const customSql = ref('')
-const customChartType = ref('bar')
-const queryLoading = ref(false)
-const queryError = ref('')
-const queryResult = ref(null)
-const sqlInput = ref(null)
-
-// 品类下钻
-const drilldownCategory = ref(null)
-const drilldownLoading = ref(false)
-const drilldownData = ref([])
-
-// AI 自然语言转 SQL
-const aiAvailable = ref(false)
-const aiPrompt = ref('')
-const aiLoading = ref(false)
-const aiError = ref('')
-const aiGeneratedSql = ref('')
-
-// ── 计算属性 ──────────────────────────────────────────────────
-const hasData = computed(() => overviewData.value.length > 0)
-const completedCount = computed(() => overviewData.value.filter(e => e.status === 'completed').length)
-const completedExhibitions = computed(() =>
-  overviewData.value.filter(e => e.status === 'completed').map(e => e.name)
-)
-
-// ── Tabs ──────────────────────────────────────────────────────
-const tabs = [
-  { key: 'overview', label: '展会总览', icon: 'DataAnalysis' },
-  { key: 'category', label: '品类分析', icon: 'PieChart' },
-  { key: 'checklist', label: 'Checklist', icon: 'CircleCheck' },
-  { key: 'top', label: 'Top 商品', icon: 'Trophy' },
-]
-
-const chartTypes = [
-  { value: 'bar', label: '柱状图', icon: 'DataAnalysis' },
-  { value: 'line', label: '折线图', icon: 'TrendCharts' },
-  { value: 'pie', label: '饼图', icon: 'PieChart' },
-  { value: 'table', label: '仅表格', icon: 'Grid' },
-]
-
-// ── 快捷模板 ──────────────────────────────────────────────────
-const queryTemplates = [
-  {
-    label: '各展会销售汇总',
-    sql: `SELECT e.name, e.date,
-  SUM(s.sold_quantity) AS sold,
-  SUM(s.square_quantity_before) AS brought,
-  ROUND(CAST(SUM(s.sold_quantity) AS FLOAT) / NULLIF(SUM(s.square_quantity_before),0) * 100, 1) AS sell_rate_pct
-FROM inventory_snapshots s
-JOIN exhibitions e ON e.id = s.exhibition_id
-GROUP BY e.id
-ORDER BY e.date`
-  },
-  {
-    label: '品类销售排行',
-    sql: `SELECT p.product_type, SUM(s.sold_quantity) AS sold
-FROM inventory_snapshots s
-LEFT JOIN product_variants pv ON pv.shopify_variant_id = s.shopify_variant_id
-LEFT JOIN products p ON p.id = pv.product_id
-GROUP BY p.product_type
-ORDER BY sold DESC`
-  },
-  {
-    label: 'Top 20 商品',
-    sql: `SELECT p.title, pv.variant_title, SUM(s.sold_quantity) AS sold
-FROM inventory_snapshots s
-LEFT JOIN product_variants pv ON pv.shopify_variant_id = s.shopify_variant_id
-LEFT JOIN products p ON p.id = pv.product_id
-GROUP BY s.shopify_variant_id
-ORDER BY sold DESC
-LIMIT 20`
-  },
-  {
-    label: 'Checklist 完成率',
-    sql: `SELECT e.name,
-  COUNT(ei.id) AS total,
-  SUM(ei.checked) AS checked,
-  ROUND(CAST(SUM(ei.checked) AS FLOAT) / NULLIF(COUNT(ei.id),0) * 100, 1) AS pct
-FROM exhibitions e
-LEFT JOIN exhibition_items ei ON e.id = ei.exhibition_id
-GROUP BY e.id`
-  },
-]
-
-// ── ECharts 主题色 ─────────────────────────────────────────────
-const COLORS = ['#5470c6','#91cc75','#fac858','#ee6666','#73c0de','#3ba272','#fc8452','#9a60b4','#ea7ccc']
-
-const baseGrid = { top: 36, right: 16, bottom: 40, left: 60, containLabel: true }
-const baseTip = { trigger: 'axis', backgroundColor: '#1e2235', borderColor: '#3a3f5c', textStyle: { color: '#e0e6f0', fontSize: 12 } }
-
-// ── 展会总览图表 ──────────────────────────────────────────────
-const soldBarOption = computed(() => {
-  const data = overviewData.value.filter(e => e.status === 'completed')
+function emptyDashboard() {
   return {
-    color: COLORS,
-    tooltip: baseTip,
-    grid: baseGrid,
-    xAxis: { type: 'category', data: data.map(e => e.name), axisLabel: { fontSize: 11, interval: 0, rotate: data.length > 3 ? 15 : 0 } },
-    yAxis: { type: 'value', name: '件数', nameTextStyle: { fontSize: 11 } },
-    series: [{
-      type: 'bar', data: data.map(e => e.total_sold),
-      barMaxWidth: 48,
-      itemStyle: { borderRadius: [6, 6, 0, 0] },
-      label: { show: true, position: 'top', fontSize: 12, fontWeight: 600 },
-    }]
+    scope: { exhibition_id: null, exhibition_name: '全部已完成展会', completed_exhibitions: [], excluded_exhibitions: [] },
+    kpis: {
+      units_sold: 0, allocated_units: 0, sell_through: null, estimated_revenue: 0,
+      average_selling_price: 0, average_units_per_event: 0, exhibition_count: 0,
+      classification_coverage: 0, classified_products: 0, unclassified_products: 0, recovered_products: 0,
+    },
+    comparison: null,
+    trend: [], categories: [], families: [], collections: [], materials: [], genders: [], sizes: [], markets: [], event_formats: [],
+    demand_signals: [],
+    quality: {
+      source_product_count: 0, missing_shopify_type: 0, recovered_from_missing_type: 0,
+      unclassified_count: 0, type_mismatch_count: 0, missing_product_matches: 0, issues: [],
+    },
   }
-})
-
-const sellRateOption = computed(() => {
-  const data = overviewData.value.filter(e => e.status === 'completed')
-  const rates = data.map(e =>
-    e.total_brought > 0 ? Math.round(e.total_sold / e.total_brought * 1000) / 10 : 0
-  )
-  return {
-    color: ['#5470c6'],
-    tooltip: { ...baseTip, formatter: (p) => `${p[0].name}<br/>销售率：${p[0].value}%` },
-    grid: baseGrid,
-    xAxis: { type: 'category', data: data.map(e => e.name), axisLabel: { fontSize: 11 } },
-    yAxis: { type: 'value', name: '%', max: 100, nameTextStyle: { fontSize: 11 } },
-    series: [{
-      type: 'line', data: rates, smooth: true,
-      symbol: 'circle', symbolSize: 8,
-      lineStyle: { width: 3 },
-      areaStyle: { opacity: 0.15 },
-      label: { show: true, formatter: '{c}%', fontSize: 12, fontWeight: 600 },
-    }]
-  }
-})
-
-const stackedBarOption = computed(() => {
-  const data = overviewData.value.filter(e => e.status === 'completed')
-  return {
-    color: ['#5470c6', '#91cc75', '#fac858'],
-    tooltip: { ...baseTip, trigger: 'axis' },
-    legend: { data: ['带去', '卖出', '剩余'], top: 4, textStyle: { fontSize: 12 } },
-    grid: { ...baseGrid, top: 48 },
-    xAxis: { type: 'category', data: data.map(e => e.name), axisLabel: { fontSize: 11 } },
-    yAxis: { type: 'value', name: '件数', nameTextStyle: { fontSize: 11 } },
-    series: [
-      { name: '带去', type: 'bar', data: data.map(e => e.total_brought), barMaxWidth: 56, itemStyle: { borderRadius: [0,0,0,0] } },
-      { name: '卖出', type: 'bar', data: data.map(e => e.total_sold), barMaxWidth: 56 },
-      { name: '剩余', type: 'bar', data: data.map(e => e.total_remaining), barMaxWidth: 56, itemStyle: { borderRadius: [6,6,0,0] } },
-    ]
-  }
-})
-
-// ── 品类分析图表 ──────────────────────────────────────────────
-const filteredCategoryData = computed(() => {
-  if (!selectedExhibition.value) return []
-  return categoryData.value.filter(d => d.exhibition_name === selectedExhibition.value)
-    .sort((a, b) => b.sold - a.sold)
-})
-
-const categoryBarOption = computed(() => {
-  const data = filteredCategoryData.value.slice(0, 12)
-  return {
-    color: COLORS,
-    tooltip: { ...baseTip, trigger: 'axis' },
-    grid: { top: 20, right: 16, bottom: 16, left: 16, containLabel: true },
-    xAxis: { type: 'value', name: '件数', nameTextStyle: { fontSize: 11 } },
-    yAxis: { type: 'category', data: data.map(d => d.product_type).reverse(), axisLabel: { fontSize: 11 } },
-    series: [{
-      type: 'bar', data: data.map(d => d.sold).reverse(),
-      barMaxWidth: 28,
-      itemStyle: { borderRadius: [0, 6, 6, 0] },
-      label: { show: true, position: 'right', fontSize: 11 },
-    }]
-  }
-})
-
-const categoryRateOption = computed(() => {
-  const data = [...filteredCategoryData.value]
-    .sort((a, b) => (b.sell_rate || 0) - (a.sell_rate || 0))
-    .slice(0, 12)
-  return {
-    color: ['#91cc75'],
-    tooltip: { ...baseTip, formatter: (p) => `${p[0].name}<br/>销售率：${p[0].value}%` },
-    grid: { top: 20, right: 16, bottom: 16, left: 16, containLabel: true },
-    xAxis: { type: 'value', name: '%', max: 100, nameTextStyle: { fontSize: 11 } },
-    yAxis: { type: 'category', data: data.map(d => d.product_type).reverse(), axisLabel: { fontSize: 11 } },
-    series: [{
-      type: 'bar', data: data.map(d => d.sell_rate || 0).reverse(),
-      barMaxWidth: 28,
-      itemStyle: { borderRadius: [0, 6, 6, 0] },
-      label: { show: true, position: 'right', formatter: '{c}%', fontSize: 11 },
-    }]
-  }
-})
-
-// ── Checklist 环形图 ──────────────────────────────────────────
-function ringsFor(ex) {
-  const t = ex.total || 1
-  return [
-    { label: 'Checked', pct: Math.round(ex.checked / t * 100), color: '#5470c6' },
-    { label: 'Hanger', pct: Math.round(ex.hanger_done / t * 100), color: '#91cc75' },
-    { label: 'Storage', pct: Math.round(ex.storage_done / t * 100), color: '#fac858' },
-  ]
 }
 
-// ── Top 商品图表 ──────────────────────────────────────────────
-const topSoldOption = computed(() => {
-  const data = topData.value.slice(0, 10)
-  const labels = data.map(d => d.product_title ? `${d.product_title}${d.variant_title ? ' · ' + d.variant_title : ''}` : '未知')
+const dashboard = ref(emptyDashboard())
+const hasData = computed(() => dashboard.value.kpis.exhibition_count > 0 && dashboard.value.trend.length > 0)
+
+const tabs = [
+  { key: 'overview', label: '经营总览', icon: DataAnalysis },
+  { key: 'demand', label: '商品需求', icon: Goods },
+  { key: 'market', label: '市场趋势', icon: Location },
+  { key: 'quality', label: '数据质量', icon: CircleCheck },
+]
+const signalFilters = [
+  { value: 'all', label: '全部' },
+  { value: 'scale', label: '建议增加' },
+  { value: 'rising', label: '趋势上升' },
+  { value: 'steady', label: '保持' },
+  { value: 'reduce', label: '建议减少' },
+  { value: 'insufficient', label: '数据不足' },
+]
+
+const filteredDemandSignals = computed(() => {
+  const rows = activeSignal.value === 'all'
+    ? dashboard.value.demand_signals
+    : dashboard.value.demand_signals.filter(row => row.signal === activeSignal.value)
+  return rows.slice(0, 24)
+})
+
+const insightCards = computed(() => {
+  const bestCategory = dashboard.value.categories[0]
+  const scaleCandidate = dashboard.value.demand_signals.find(row => row.signal === 'scale' || row.signal === 'rising')
+  const topMarket = dashboard.value.markets[0]
+  return [
+    {
+      kicker: '货盘核心',
+      title: bestCategory?.label || '等待更多销售记录',
+      body: bestCategory
+        ? `售出 ${bestCategory.sold} 件，占销售 ${formatPercent(bestCategory.sales_share)}，销售率 ${formatPercent(bestCategory.sell_through)}。`
+        : '完成展后同步后将识别核心品类。',
+      icon: Trophy,
+      tone: 'gold',
+    },
+    {
+      kicker: '下一场机会',
+      title: scaleCandidate?.product_title || '暂未识别明显增量机会',
+      body: scaleCandidate
+        ? `近期计划参考 ${scaleCandidate.recommended_units} 件/场；当前销售率 ${formatPercent(scaleCandidate.sell_through)}。`
+        : '当前商品表现较稳定，可继续积累两到三场数据。',
+      icon: TrendCharts,
+      tone: 'sage',
+    },
+    {
+      kicker: '市场效率',
+      title: topMarket?.label || '等待市场数据',
+      body: topMarket
+        ? `平均 ${formatNumber(topMarket.sold_per_event, 1)} 件/场，销售率 ${formatPercent(topMarket.sell_through)}，共 ${topMarket.exhibition_count} 场。`
+        : '展会地点会自动归一为城市进行比较。',
+      icon: Location,
+      tone: 'blue',
+    },
+  ]
+})
+
+const CHART = {
+  ink: '#2f302d',
+  muted: '#7c7a72',
+  grid: '#ece8df',
+  navy: '#334b5f',
+  terracotta: '#b96d4b',
+  sage: '#738b78',
+  gold: '#c79a4a',
+  sand: '#dfcbb0',
+  mist: '#9aafae',
+}
+const palette = [CHART.navy, CHART.terracotta, CHART.sage, CHART.gold, '#806d8a', CHART.mist, '#b08274']
+const baseAnimation = { animation: !reduceMotion, animationDuration: 720, animationEasing: 'cubicOut' }
+const axisLabel = { color: CHART.muted, fontSize: 11 }
+const splitLine = { lineStyle: { color: CHART.grid, type: 'dashed' } }
+const tooltip = {
+  trigger: 'axis',
+  backgroundColor: 'rgba(42, 43, 40, .96)',
+  borderWidth: 0,
+  padding: [10, 12],
+  textStyle: { color: '#fff', fontSize: 12 },
+  extraCssText: 'border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.16);',
+}
+
+const eventTrendOption = computed(() => {
+  const rows = dashboard.value.trend
   return {
-    color: COLORS,
-    tooltip: { ...baseTip, trigger: 'axis' },
-    grid: { top: 20, right: 16, bottom: 16, left: 16, containLabel: true },
-    xAxis: { type: 'value', name: '件数', nameTextStyle: { fontSize: 11 } },
-    yAxis: { type: 'category', data: labels.reverse(), axisLabel: { fontSize: 10, width: 140, overflow: 'truncate' } },
+    ...baseAnimation,
+    color: [CHART.navy, CHART.terracotta],
+    tooltip,
+    legend: { top: 0, right: 0, itemWidth: 12, itemHeight: 8, textStyle: axisLabel },
+    grid: { top: 46, right: 48, bottom: rows.length > 6 ? 72 : 42, left: 52, containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: rows.map(row => row.name),
+      axisLabel: { ...axisLabel, rotate: rows.length > 5 ? 24 : 0, width: 105, overflow: 'truncate' },
+      axisLine: { lineStyle: { color: CHART.grid } },
+      axisTick: { show: false },
+    },
+    yAxis: [
+      { type: 'value', name: '件数', nameTextStyle: axisLabel, axisLabel, splitLine },
+      { type: 'value', name: '%', min: 0, max: 100, nameTextStyle: axisLabel, axisLabel: { ...axisLabel, formatter: '{value}%' }, splitLine: { show: false } },
+    ],
+    series: [
+      {
+        name: '售出件数', type: 'bar', data: rows.map(row => row.sold), barMaxWidth: 34,
+        itemStyle: { color: CHART.navy, borderRadius: [7, 7, 2, 2] },
+      },
+      {
+        name: '销售率', type: 'line', yAxisIndex: 1, data: rows.map(row => row.sell_through),
+        smooth: 0.35, symbol: 'circle', symbolSize: 7,
+        lineStyle: { width: 3, color: CHART.terracotta }, itemStyle: { color: CHART.terracotta },
+        areaStyle: { color: 'rgba(185,109,75,.09)' },
+      },
+    ],
+  }
+})
+
+const familyShareOption = computed(() => ({
+  ...baseAnimation,
+  color: palette,
+  tooltip: { trigger: 'item', formatter: '{b}<br/><b>{c}</b> 件 · {d}%' },
+  legend: { type: 'scroll', bottom: 0, left: 'center', itemWidth: 10, itemHeight: 8, textStyle: axisLabel },
+  series: [{
+    type: 'pie', radius: ['50%', '72%'], center: ['50%', '44%'],
+    data: dashboard.value.families.map(row => ({ name: row.label, value: row.sold })),
+    itemStyle: { borderColor: '#fff', borderWidth: 3, borderRadius: 5 },
+    label: { show: true, color: CHART.ink, fontSize: 11, formatter: '{b}\n{d}%' },
+    labelLine: { length: 10, length2: 8, lineStyle: { color: '#c8c2b7' } },
+    emphasis: { scaleSize: 8 },
+  }],
+}))
+
+const categoryPerformanceOption = computed(() => {
+  const rows = dashboard.value.categories.slice(0, 9).reverse()
+  return {
+    ...baseAnimation,
+    color: [CHART.sage, CHART.terracotta],
+    tooltip,
+    legend: { top: 0, right: 0, itemWidth: 12, itemHeight: 8, textStyle: axisLabel },
+    grid: { top: 42, right: 50, bottom: 22, left: 18, containLabel: true },
+    xAxis: [
+      { type: 'value', name: '件数', axisLabel, splitLine },
+      { type: 'value', name: '%', min: 0, max: 100, axisLabel: { ...axisLabel, formatter: '{value}%' }, splitLine: { show: false } },
+    ],
+    yAxis: { type: 'category', data: rows.map(row => row.label), axisLabel: { ...axisLabel, width: 130, overflow: 'truncate' }, axisLine: { show: false }, axisTick: { show: false } },
+    series: [
+      { name: '售出件数', type: 'bar', data: rows.map(row => row.sold), barMaxWidth: 20, itemStyle: { borderRadius: [0, 6, 6, 0] } },
+      { name: '销售率', type: 'line', xAxisIndex: 1, data: rows.map(row => row.sell_through), symbolSize: 7, lineStyle: { width: 2 } },
+    ],
+  }
+})
+
+const marketPerformanceOption = computed(() => {
+  const rows = dashboard.value.markets.slice(0, 8).reverse()
+  return {
+    ...baseAnimation,
+    color: [CHART.gold],
+    tooltip: { ...tooltip, formatter: params => {
+      const row = rows[params[0]?.dataIndex]
+      return row ? `${row.label}<br/><b>${formatNumber(row.sold_per_event, 1)}</b> 件/场<br/>销售率 ${formatPercent(row.sell_through)}<br/>${row.exhibition_count} 场展会` : ''
+    } },
+    grid: { top: 18, right: 58, bottom: 24, left: 20, containLabel: true },
+    xAxis: { type: 'value', axisLabel, splitLine },
+    yAxis: { type: 'category', data: rows.map(row => row.label), axisLabel, axisLine: { show: false }, axisTick: { show: false } },
     series: [{
-      type: 'bar', data: data.map(d => d.sold_quantity).reverse(),
-      barMaxWidth: 24,
-      itemStyle: { borderRadius: [0, 6, 6, 0] },
-      label: { show: true, position: 'right', fontSize: 11 },
-    }]
+      type: 'bar', data: rows.map(row => row.sold_per_event), barMaxWidth: 26,
+      itemStyle: { color: CHART.gold, borderRadius: [0, 7, 7, 0] },
+      label: { show: true, position: 'right', color: CHART.ink, fontWeight: 700, formatter: '{c}' },
+    }],
   }
 })
 
-const topRateOption = computed(() => {
-  const data = [...topData.value].sort((a, b) => (b.sell_rate || 0) - (a.sell_rate || 0)).slice(0, 10)
-  const labels = data.map(d => d.product_title ? `${d.product_title}${d.variant_title ? ' · ' + d.variant_title : ''}` : '未知')
+const sizeDemandOption = computed(() => ({
+  ...baseAnimation,
+  color: [CHART.navy],
+  tooltip,
+  grid: { top: 18, right: 44, bottom: 26, left: 18, containLabel: true },
+  xAxis: { type: 'value', axisLabel, splitLine },
+  yAxis: { type: 'category', data: dashboard.value.sizes.map(row => row.label), axisLabel, axisLine: { show: false }, axisTick: { show: false } },
+  series: [{
+    type: 'bar', data: dashboard.value.sizes.map(row => row.sold), barMaxWidth: 22,
+    itemStyle: { color: CHART.navy, borderRadius: [0, 6, 6, 0] },
+    label: { show: true, position: 'right', color: CHART.ink, fontWeight: 700 },
+  }],
+}))
+
+const collectionSalesOption = computed(() => {
+  const rows = dashboard.value.collections.slice(0, 10).reverse()
   return {
-    color: ['#91cc75'],
-    tooltip: { ...baseTip, formatter: (p) => `${p[0].name}<br/>销售率：${p[0].value}%` },
-    grid: { top: 20, right: 16, bottom: 16, left: 16, containLabel: true },
-    xAxis: { type: 'value', name: '%', max: 100, nameTextStyle: { fontSize: 11 } },
-    yAxis: { type: 'category', data: labels.reverse(), axisLabel: { fontSize: 10, width: 140, overflow: 'truncate' } },
+    ...baseAnimation,
+    color: [CHART.terracotta], tooltip,
+    grid: { top: 18, right: 44, bottom: 26, left: 18, containLabel: true },
+    xAxis: { type: 'value', axisLabel, splitLine },
+    yAxis: { type: 'category', data: rows.map(row => row.label), axisLabel: { ...axisLabel, width: 125, overflow: 'truncate' }, axisLine: { show: false }, axisTick: { show: false } },
     series: [{
-      type: 'bar', data: data.map(d => d.sell_rate || 0).reverse(),
-      barMaxWidth: 24,
-      itemStyle: { borderRadius: [0, 6, 6, 0] },
-      label: { show: true, position: 'right', formatter: '{c}%', fontSize: 11 },
-    }]
+      type: 'bar', data: rows.map(row => row.sold), barMaxWidth: 22,
+      itemStyle: { color: CHART.terracotta, borderRadius: [0, 6, 6, 0] },
+      label: { show: true, position: 'right', color: CHART.ink, fontWeight: 700 },
+    }],
   }
 })
 
-// ── 自定义图表 ────────────────────────────────────────────────
-const customChartOption = computed(() => {
-  if (!queryResult.value || !queryResult.value.data.length) return {}
-  const cols = queryResult.value.columns
-  const rows = queryResult.value.data
-  const xCol = cols[0]
-  const yCols = cols.slice(1).filter(c => {
-    const v = rows[0][c]
-    return typeof v === 'number' || (!isNaN(parseFloat(v)) && v !== null && v !== '')
-  })
-  if (!yCols.length) return {}
-
-  const xData = rows.map(r => String(r[xCol] ?? ''))
-
-  if (customChartType.value === 'pie') {
-    const yCol = yCols[0]
-    return {
-      color: COLORS,
-      tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-      legend: { type: 'scroll', bottom: 0, textStyle: { fontSize: 11 } },
-      series: [{
-        type: 'pie', radius: ['35%', '65%'],
-        data: rows.map(r => ({ name: String(r[xCol] ?? ''), value: parseFloat(r[yCol]) || 0 })),
-        label: { fontSize: 11 },
-        emphasis: { itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.5)' } },
-      }]
-    }
-  }
-
+function donutOption(rows, colors) {
   return {
-    color: COLORS,
-    tooltip: { ...baseTip, trigger: 'axis' },
-    legend: yCols.length > 1 ? { data: yCols, top: 4, textStyle: { fontSize: 11 } } : undefined,
-    grid: { ...baseGrid, top: yCols.length > 1 ? 48 : 36 },
-    xAxis: { type: 'category', data: xData, axisLabel: { fontSize: 11, rotate: xData.length > 6 ? 20 : 0 } },
-    yAxis: { type: 'value', nameTextStyle: { fontSize: 11 } },
-    dataZoom: xData.length > 12 ? [{ type: 'inside' }, { type: 'slider', height: 20, bottom: 0 }] : undefined,
-    series: yCols.map((col, i) => ({
-      name: col,
-      type: customChartType.value === 'line' ? 'line' : 'bar',
-      data: rows.map(r => parseFloat(r[col]) || 0),
-      smooth: customChartType.value === 'line',
-      barMaxWidth: 48,
-      itemStyle: { borderRadius: customChartType.value === 'bar' ? [6, 6, 0, 0] : 0 },
-      areaStyle: customChartType.value === 'line' ? { opacity: 0.1 } : undefined,
-      label: yCols.length === 1 ? { show: true, position: 'top', fontSize: 11, fontWeight: 600 } : undefined,
-    }))
+    ...baseAnimation,
+    color: colors,
+    tooltip: { trigger: 'item', formatter: '{b}<br/><b>{c}</b> 件 · {d}%' },
+    legend: { type: 'scroll', bottom: 0, itemWidth: 10, itemHeight: 8, textStyle: axisLabel },
+    series: [{
+      type: 'pie', radius: ['48%', '70%'], center: ['50%', '43%'],
+      data: rows.map(row => ({ name: row.label, value: row.sold })),
+      label: { show: false }, itemStyle: { borderColor: '#fff', borderWidth: 3, borderRadius: 4 },
+      emphasis: { label: { show: true, formatter: '{b}\n{d}%', fontWeight: 700, color: CHART.ink } },
+    }],
   }
+}
+const materialOption = computed(() => donutOption(dashboard.value.materials, [CHART.sage, CHART.sand, CHART.gold, CHART.mist, CHART.navy]))
+const genderOption = computed(() => donutOption(dashboard.value.genders, [CHART.terracotta, CHART.navy, CHART.gold, CHART.mist]))
+
+const MetricDelta = defineComponent({
+  props: { label: String, value: Number, suffix: String },
+  setup(props) {
+    return () => h('div', { class: 'comparison-metric' }, [
+      h('span', props.label),
+      props.value == null
+        ? h('strong', '—')
+        : h('strong', { class: props.value > 0 ? 'positive' : props.value < 0 ? 'negative' : '' }, `${props.value > 0 ? '+' : ''}${props.value}${props.suffix || ''}`),
+    ])
+  },
 })
 
-// ── 方法 ──────────────────────────────────────────────────────
+const TrendValue = defineComponent({
+  props: { value: Number },
+  setup(props) {
+    return () => props.value == null
+      ? h('span', { class: 'trend-value neutral' }, '—')
+      : h('span', { class: ['trend-value', props.value > 0 ? 'positive' : props.value < 0 ? 'negative' : 'neutral'] }, `${props.value > 0 ? '↑ ' : props.value < 0 ? '↓ ' : ''}${Math.abs(props.value)}%`)
+  },
+})
+
+const ChartCard = defineComponent({
+  props: { title: String, subtitle: String },
+  setup(props, { slots }) {
+    return () => h('article', { class: 'chart-card' }, [
+      h('div', { class: 'card-heading' }, [h('div', [h('strong', props.title), h('span', props.subtitle)])]),
+      slots.default?.(),
+    ])
+  },
+})
+
 async function toggle() {
   isOpen.value = !isOpen.value
-  if (isOpen.value && !overviewData.value.length) await loadAll()
+  if (isOpen.value && !hasData.value) await loadDashboard()
 }
 
-async function loadAll() {
+async function loadDashboard() {
+  if (loading.value) return
   loading.value = true
+  loadError.value = ''
   try {
-    const [ov, cat, cl, schema, aiStatus] = await Promise.all([
-      analyticsApi.overview(),
-      analyticsApi.byCategory(),
-      analyticsApi.checklistProgress(),
-      analyticsApi.schema(),
-      analyticsApi.aiStatus(),
-    ])
-    aiAvailable.value = aiStatus?.available ?? false
-    overviewData.value = ov.data || []
-    categoryData.value = cat.data || []
-    checklistData.value = cl.data || []
-    schemaData.value = schema.data || []
-
-    if (completedExhibitions.value.length) {
-      selectedExhibition.value = completedExhibitions.value[completedExhibitions.value.length - 1]
-      topExhibition.value = completedExhibitions.value[completedExhibitions.value.length - 1]
-      await loadTopProducts()
-    }
-  } catch (e) {
-    console.error('[Analytics]', e)
+    const response = await analyticsApi.dashboard(selectedExhibitionId.value)
+    dashboard.value = response.data || emptyDashboard()
+    generatedAt.value = response.generated_at || ''
+  } catch (error) {
+    loadError.value = error.message || '请求失败'
   } finally {
     loading.value = false
   }
 }
 
-async function loadTopProducts() {
-  const ex = overviewData.value.find(e => e.name === topExhibition.value)
-  if (!ex) return
-  const res = await analyticsApi.topProducts({ exhibition_id: ex.id, limit: 20 })
-  topData.value = res.data || []
+function formatNumber(value, decimals = 0) {
+  return new Intl.NumberFormat('en-AU', { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(Number(value || 0))
 }
-
-async function runQuery() {
-  if (!customSql.value.trim()) return
-  queryLoading.value = true
-  queryError.value = ''
-  queryResult.value = null
-  try {
-    const res = await analyticsApi.query(customSql.value)
-    queryResult.value = res
-  } catch (e) {
-    queryError.value = e.message || '查询失败'
-  } finally {
-    queryLoading.value = false
-  }
+function formatCurrency(value) {
+  return new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD', maximumFractionDigits: 0 }).format(Number(value || 0))
 }
-
-function toggleSchema(name) {
-  const s = new Set(openSchemas.value)
-  s.has(name) ? s.delete(name) : s.add(name)
-  openSchemas.value = s
+function formatPercent(value) {
+  return value == null ? '—' : `${formatNumber(value, 1)}%`
 }
-
-function insertCol(table, col) {
-  const pos = sqlInput.value?.selectionStart ?? customSql.value.length
-  const text = customSql.value
-  customSql.value = text.slice(0, pos) + col + text.slice(pos)
+function formatDateTime(value) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { timeZone: 'Australia/Melbourne', hour12: false })
 }
-
-// ── 品类下钻图表 computed ──────────────────────────────────────────────
-const drilldownChartOption = computed(() => {
-  const data = drilldownData.value.slice(0, 15)
-  const labels = data.map(d => {
-    const title = d.product_title || '未知'
-    const variant = d.variant_title ? ` · ${d.variant_title}` : ''
-    return title + variant
-  })
+function signalLabel(signal) {
+  return { scale: '建议增加', rising: '趋势上升', steady: '保持', reduce: '建议减少', insufficient: '数据不足' }[signal] || '保持'
+}
+function reasonLabel(reason) {
   return {
-    color: ['#5470c6'],
-    tooltip: {
-      trigger: 'axis',
-      formatter: (params) => {
-        const p = params[0]
-        const row = data[data.length - 1 - p.dataIndex]
-        return `${p.name}<br/>销售量：<b>${row.sold}</b>件<br/>销售率：<b>${row.sell_rate != null ? row.sell_rate + '%' : '—'}</b>`
-      }
-    },
-    grid: { top: 16, right: 60, bottom: 16, left: 16, containLabel: true },
-    xAxis: { type: 'value', name: '件数', nameTextStyle: { fontSize: 11 } },
-    yAxis: {
-      type: 'category',
-      data: labels.slice().reverse(),
-      axisLabel: { fontSize: 10, width: 180, overflow: 'truncate' }
-    },
-    series: [{
-      type: 'bar',
-      data: data.map(d => d.sold).reverse(),
-      barMaxWidth: 22,
-      itemStyle: { borderRadius: [0, 6, 6, 0] },
-      label: { show: true, position: 'right', fontSize: 11 },
-    }]
-  }
-})
-
-function rateColor(rate) {
-  if (rate == null) return '#d9d9d9'
-  if (rate >= 70) return '#52c41a'
-  if (rate >= 40) return '#faad14'
-  return '#ff7875'
+    unclassified: '未分类', type_mismatch: '类型疑似错误', missing_product_match: '商品未匹配',
+    sold_above_plan: '销量高于计划量', snapshot_mismatch: '快照数量不平', missing_price: '缺少价格',
+  }[reason] || reason
 }
 
-async function onCategoryClick(params) {
-  if (!params || !params.name) return
-  const category = params.name
-  drilldownCategory.value = category
-  drilldownLoading.value = true
-  drilldownData.value = []
-  try {
-    const ex = overviewData.value.find(e => e.name === selectedExhibition.value)
-    const res = await analyticsApi.categoryDrilldown(category, ex?.id)
-    drilldownData.value = res.data || []
-  } catch (e) {
-    console.error('[Drilldown]', e)
-  } finally {
-    drilldownLoading.value = false
-  }
-}
-
-async function generateSql() {
-  if (!aiPrompt.value.trim() || aiLoading.value) return
-  aiLoading.value = true
-  aiError.value = ''
-  aiGeneratedSql.value = ''
-  try {
-    const res = await analyticsApi.aiToSql(aiPrompt.value)
-    aiGeneratedSql.value = res.sql || ''
-  } catch (e) {
-    aiError.value = e.message || 'AI 生成失败'
-  } finally {
-    aiLoading.value = false
-  }
-}
-
-function useGeneratedSql() {
-  if (aiGeneratedSql.value) {
-    customSql.value = aiGeneratedSql.value
-    aiGeneratedSql.value = ''
-    // 自动滚动到 SQL 编辑器
-    setTimeout(() => sqlInput.value?.focus(), 100)
-  }
-}
-
-function exportCsv() {
-  if (!queryResult.value) return
-  const cols = queryResult.value.columns
-  const rows = queryResult.value.data
-  const csv = [cols.join(','), ...rows.map(r => cols.map(c => JSON.stringify(r[c] ?? '')).join(','))].join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a'); a.href = url; a.download = 'query_result.csv'; a.click()
-  URL.revokeObjectURL(url)
-}
-
-function statusTagType(s) {
-  return { preparing: 'info', active: 'warning', completed: 'success' }[s] || 'info'
-}
-function statusLabel(s) {
-  return { preparing: '备展中', active: '进行中', completed: '已完成' }[s] || s
-}
+onMounted(loadDashboard)
 </script>
 
 <style scoped>
-/* ── 折叠触发器 ─────────────────────────────────────────────── */
+.analytics-shell {
+  --paper: #fbfaf7;
+  --surface: #ffffff;
+  --ink: #2f302d;
+  --muted: #78766f;
+  --line: #e8e2d8;
+  --sand: #f2eadf;
+  --navy: #334b5f;
+  --terracotta: #b96d4b;
+  --sage: #738b78;
+  --gold: #c79a4a;
+  margin-bottom: 22px;
+  color: var(--ink);
+}
+
+button { font: inherit; }
 .analytics-toggle {
-  margin-bottom: 16px;
-  cursor: pointer;
-  user-select: none;
+  width: 100%; border: 1px solid #dfd5c7; border-radius: 16px; padding: 13px 16px;
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  background: linear-gradient(135deg, #f7f1e8 0%, #fff 55%, #edf1ed 100%);
+  color: var(--ink); cursor: pointer; text-align: left;
+  box-shadow: 0 5px 18px rgba(73, 62, 47, .07);
+  transition: transform .22s ease, box-shadow .22s ease, border-color .22s ease;
 }
-.toggle-inner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  background: linear-gradient(135deg, #f0f4ff 0%, #f8f0ff 100%);
-  border: 1px solid #dde3f5;
-  border-radius: 12px;
-  transition: all 0.2s ease;
-}
-.toggle-inner:hover {
-  background: linear-gradient(135deg, #e6edff 0%, #f0e8ff 100%);
-  border-color: #b8c8f0;
-  box-shadow: 0 2px 8px rgba(84,112,198,0.12);
-}
-.toggle-left { display: flex; align-items: center; gap: 8px; }
-.toggle-icon-wrap {
-  width: 28px; height: 28px;
-  background: linear-gradient(135deg, #5470c6, #7c5cbf);
-  border-radius: 7px;
-  display: flex; align-items: center; justify-content: center;
-  color: #fff;
-}
-.toggle-label { font-size: 14px; font-weight: 600; color: #303133; }
-.toggle-arrow {
-  color: #909399;
-  transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
-}
+.analytics-toggle:hover { transform: translateY(-1px); box-shadow: 0 9px 26px rgba(73, 62, 47, .1); border-color: #cfbda7; }
+.toggle-leading, .toggle-trailing { display: flex; align-items: center; gap: 12px; }
+.toggle-leading strong { display: block; font-size: 15px; letter-spacing: .01em; }
+.toggle-leading small { display: block; margin-top: 2px; color: var(--muted); font-size: 12px; }
+.toggle-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; background: var(--navy); color: #fff; }
+.coverage-pill { padding: 5px 10px; border-radius: 999px; background: #e8f0e9; color: #4e6b55; font-size: 11px; font-weight: 700; }
+.toggle-arrow { color: var(--muted); transition: transform .35s cubic-bezier(.2,.8,.2,1); }
 .toggle-arrow.open { transform: rotate(180deg); }
 
-/* ── 面板动画 ───────────────────────────────────────────────── */
-.dashboard-slide-enter-active {
-  transition: all 0.38s cubic-bezier(0.34,1.2,0.64,1);
+.dashboard-expand-enter-active, .dashboard-expand-leave-active { transition: opacity .3s ease, transform .36s cubic-bezier(.2,.8,.2,1); transform-origin: top; }
+.dashboard-expand-enter-from, .dashboard-expand-leave-to { opacity: 0; transform: translateY(-10px) scaleY(.98); }
+.dashboard-panel {
+  margin-top: 12px; background: var(--paper); border: 1px solid var(--line); border-radius: 20px;
+  box-shadow: 0 15px 46px rgba(62, 53, 43, .09); overflow: hidden;
 }
-.dashboard-slide-leave-active {
-  transition: all 0.28s cubic-bezier(0.4,0,0.2,1);
+.dashboard-header {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 24px;
+  padding: 24px 26px 20px; background: linear-gradient(125deg, #f4ecdf 0%, #fbfaf7 50%, #edf2ee 100%); border-bottom: 1px solid var(--line);
 }
-.dashboard-slide-enter-from,
-.dashboard-slide-leave-to {
-  opacity: 0;
-  transform: translateY(-12px) scaleY(0.96);
-  transform-origin: top;
+.eyebrow { margin: 0 0 6px; color: var(--terracotta); font-size: 10px; font-weight: 800; letter-spacing: .16em; }
+.dashboard-header h2, .section-heading h3 { margin: 0; color: var(--ink); letter-spacing: -.025em; }
+.dashboard-header h2 { font-size: clamp(20px, 2.1vw, 28px); }
+.header-copy, .section-heading p { margin: 7px 0 0; color: var(--muted); font-size: 12px; line-height: 1.65; }
+.header-controls { min-width: 240px; display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: end; }
+.header-controls label { grid-column: 1 / -1; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+.scope-select { width: 100%; }
+.refresh-button, .manage-rules-button {
+  height: 32px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 1px solid #d7ccbe; border-radius: 9px; background: rgba(255,255,255,.82); color: var(--ink); cursor: pointer;
+  transition: background .18s ease, border-color .18s ease, transform .18s ease;
 }
-
-/* ── 面板容器 ───────────────────────────────────────────────── */
-.analytics-panel {
-  background: #fff;
-  border: 1px solid #e4e7ed;
-  border-radius: 14px;
-  margin-bottom: 20px;
-  overflow: hidden;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.06);
-}
-
-/* ── 加载 ───────────────────────────────────────────────────── */
-.panel-loading {
-  display: flex; align-items: center; justify-content: center;
-  gap: 10px; padding: 48px;
-  color: #909399; font-size: 14px;
-}
-.spin { animation: spin 1s linear infinite; }
+.refresh-button:hover, .manage-rules-button:hover { background: #fff; border-color: #b9a791; transform: translateY(-1px); }
+.refresh-button:disabled { opacity: .55; cursor: wait; transform: none; }
+.spin { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ── Tabs ───────────────────────────────────────────────────── */
-.panel-tabs {
-  display: flex; align-items: center; gap: 2px;
-  padding: 12px 16px 0;
-  border-bottom: 1px solid #f0f2f5;
-  background: #fafbfc;
-}
-.ptab {
-  display: flex; align-items: center; gap: 5px;
-  padding: 7px 14px;
-  border: none; background: transparent;
-  font-size: 13px; color: #606266;
-  cursor: pointer; border-radius: 8px 8px 0 0;
-  transition: all 0.18s ease;
-  white-space: nowrap;
-}
-.ptab:hover { background: #f0f4ff; color: #5470c6; }
-.ptab.active {
-  background: #fff; color: #5470c6;
-  font-weight: 600;
-  box-shadow: 0 -1px 0 0 #5470c6 inset, 0 1px 0 0 #fff;
-  border: 1px solid #e4e7ed; border-bottom: 1px solid #fff;
-}
-.tab-spacer { flex: 1; }
-.custom-tab { color: #7c5cbf; }
-.custom-tab.active { color: #7c5cbf; box-shadow: 0 -1px 0 0 #7c5cbf inset, 0 1px 0 0 #fff; }
+.dashboard-loading { padding: 22px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.skeleton-card { height: 116px; padding: 18px; border-radius: 14px; background: #fff; border: 1px solid var(--line); }
+.skeleton-card span { display: block; height: 10px; margin-bottom: 12px; border-radius: 5px; background: linear-gradient(90deg, #eee9e1, #faf8f4, #eee9e1); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
+.skeleton-card span:nth-child(2) { width: 58%; height: 24px; }.skeleton-card span:nth-child(3) { width: 76%; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+.state-card { margin: 22px; min-height: 130px; display: flex; align-items: center; justify-content: center; gap: 14px; border: 1px dashed #d8d0c5; border-radius: 14px; background: #fff; color: var(--muted); }
+.state-card > .el-icon { font-size: 28px; color: var(--navy); }.state-card strong { display: block; color: var(--ink); }.state-card p { margin: 4px 0 0; font-size: 12px; }
+.state-card button { border: 0; border-radius: 8px; padding: 8px 12px; background: var(--navy); color: #fff; cursor: pointer; }
+.error-state > .el-icon { color: var(--terracotta); }
+.inline-warning { margin: 14px 24px 0; padding: 9px 12px; display: flex; align-items: center; gap: 7px; border-radius: 9px; background: #fff3e9; color: #8e543b; font-size: 12px; }
+.eligibility-warning { background: #f6f1e8; color: #6f6252; }
 
-/* ── Tab 内容 ───────────────────────────────────────────────── */
-.tab-content { padding: 20px; }
+.kpi-grid { padding: 20px 24px 12px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.kpi-card { min-height: 112px; padding: 16px 17px; display: flex; flex-direction: column; justify-content: center; border: 1px solid var(--line); border-radius: 15px; background: #fff; box-shadow: 0 5px 16px rgba(62,53,43,.04); }
+.kpi-card.primary { background: linear-gradient(145deg, var(--navy), #46647a); border-color: transparent; color: #fff; }
+.kpi-card.quality { background: linear-gradient(145deg, #edf4ee, #fff); border-color: #d7e3d8; }
+.kpi-label { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .03em; }
+.kpi-card.primary .kpi-label, .kpi-card.primary small { color: rgba(255,255,255,.72); }
+.kpi-card > strong { margin: 5px 0 4px; font-size: clamp(24px, 2.5vw, 34px); line-height: 1; letter-spacing: -.035em; }
+.kpi-card small { color: var(--muted); font-size: 10.5px; line-height: 1.4; }
 
-/* ── 图表网格 ───────────────────────────────────────────────── */
-.chart-grid { display: grid; gap: 16px; margin-bottom: 16px; }
-.chart-grid.two-col { grid-template-columns: 1fr 1fr; }
-@media (max-width: 768px) { .chart-grid.two-col { grid-template-columns: 1fr; } }
+.comparison-strip { margin: 0 24px 18px; padding: 12px 15px; display: grid; grid-template-columns: minmax(190px, 1.4fr) repeat(3, minmax(90px, .6fr)) minmax(120px, .8fr); gap: 12px; align-items: center; background: #f0ece5; border: 1px solid #e1d9cd; border-radius: 13px; }
+.comparison-heading span, .comparison-metric span, .comparison-best span { display: block; color: var(--muted); font-size: 10px; }
+.comparison-heading strong, .comparison-best strong { display: block; margin-top: 2px; font-size: 12px; }
+.comparison-heading small { color: #96928a; font-size: 10px; }
+.comparison-metric, .comparison-best { padding-left: 12px; border-left: 1px solid #d9d0c4; }
+.comparison-metric strong { display: block; margin-top: 2px; font-size: 16px; }.positive { color: #3f7a58 !important; }.negative { color: #b65d49 !important; }
 
-.chart-card {
-  background: #fafbfc;
-  border: 1px solid #ebeef5;
-  border-radius: 10px;
-  padding: 16px;
-  transition: box-shadow 0.2s;
-}
-.chart-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
-.chart-card.full-width { grid-column: 1 / -1; }
-.chart-title { font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 12px; }
-.chart { height: 220px; }
-.chart-tall { height: 300px; }
+.dashboard-tabs { padding: 0 24px; display: flex; gap: 5px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.dashboard-tabs::-webkit-scrollbar { display: none; }
+.dashboard-tabs button { position: relative; min-height: 44px; padding: 0 14px; display: flex; align-items: center; gap: 7px; border: 0; background: transparent; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.dashboard-tabs button::after { content: ''; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 2px; border-radius: 2px; background: transparent; transform: scaleX(.3); transition: transform .2s ease, background .2s ease; }
+.dashboard-tabs button:hover, .dashboard-tabs button.active { color: var(--navy); }
+.dashboard-tabs button.active { font-weight: 700; }.dashboard-tabs button.active::after { background: var(--terracotta); transform: scaleX(1); }
+.issue-count { min-width: 18px; height: 18px; padding: 0 5px; display: inline-grid; place-items: center; border-radius: 999px; background: #f1dfd5; color: #914e37; font-size: 10px; }
 
-/* ── 过滤行 ─────────────────────────────────────────────────── */
-.filter-row {
-  display: flex; align-items: center; gap: 10px;
-  margin-bottom: 16px; flex-wrap: wrap;
-}
-.filter-label { font-size: 13px; color: #606266; white-space: nowrap; }
-.filter-btns { display: flex; gap: 6px; flex-wrap: wrap; }
-.filter-btn {
-  padding: 4px 12px;
-  border: 1px solid #dcdfe6; border-radius: 20px;
-  background: #fff; font-size: 12px; color: #606266;
-  cursor: pointer; transition: all 0.18s ease;
-  display: flex; align-items: center; gap: 4px;
-}
-.filter-btn:hover { border-color: #5470c6; color: #5470c6; }
-.filter-btn.active { background: #5470c6; border-color: #5470c6; color: #fff; }
+.tab-content { padding: 22px 24px 24px; }
+.tab-fade-enter-active, .tab-fade-leave-active { transition: opacity .2s ease, transform .24s ease; }.tab-fade-enter-from { opacity: 0; transform: translateY(7px); }.tab-fade-leave-to { opacity: 0; transform: translateY(-5px); }
+.section-heading { margin-bottom: 16px; display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; }
+.section-heading h3 { font-size: 19px; }.section-heading > span { padding: 5px 9px; border-radius: 999px; background: #efe9df; color: var(--muted); font-size: 10px; }
 
-/* ── Checklist 卡片 ─────────────────────────────────────────── */
-.checklist-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 16px;
-}
-.checklist-card {
-  background: #fafbfc;
-  border: 1px solid #ebeef5;
-  border-radius: 12px;
-  padding: 18px;
-  transition: box-shadow 0.2s;
-}
-.checklist-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
-.checklist-card.completed { border-color: #b7eb8f; background: #f6ffed; }
-.checklist-card.active { border-color: #ffd591; background: #fffbe6; }
-.cl-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
-.cl-name { font-size: 14px; font-weight: 600; color: #303133; }
-.cl-date { font-size: 12px; color: #909399; margin-bottom: 16px; }
-.cl-rings { display: flex; gap: 16px; justify-content: center; margin-bottom: 12px; }
-.ring-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.ring-svg { width: 56px; height: 56px; transform: rotate(-90deg); }
-.ring-bg { fill: none; stroke: #ebeef5; stroke-width: 4; }
-.ring-fg { fill: none; stroke-width: 4; stroke-linecap: round; transition: stroke-dasharray 0.8s cubic-bezier(0.34,1.56,0.64,1); }
-.ring-pct { font-size: 13px; font-weight: 700; color: #303133; margin-top: -4px; }
-.ring-label { font-size: 11px; color: #909399; }
-.cl-total { font-size: 12px; color: #909399; text-align: center; }
+.insight-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+.insight-card { min-height: 114px; padding: 15px; display: flex; gap: 12px; border-radius: 14px; border: 1px solid var(--line); background: #fff; }
+.insight-card.gold { background: linear-gradient(145deg, #fffaf0, #fff); }.insight-card.sage { background: linear-gradient(145deg, #f0f5f0, #fff); }.insight-card.blue { background: linear-gradient(145deg, #eef3f6, #fff); }
+.insight-icon { width: 32px; height: 32px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 9px; background: var(--navy); color: #fff; }
+.insight-card.gold .insight-icon { background: var(--gold); }.insight-card.sage .insight-icon { background: var(--sage); }
+.insight-card small { display: block; color: var(--muted); font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.insight-card strong { display: block; margin: 3px 0 4px; font-size: 14px; line-height: 1.3; }.insight-card p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 
-/* ── 自定义查询面板 ──────────────────────────────────────────── */
-.custom-query-panel { display: flex; gap: 16px; min-height: 480px; }
-.schema-sidebar {
-  width: 200px; flex-shrink: 0;
-  background: #f8f9fc;
-  border: 1px solid #ebeef5;
-  border-radius: 10px;
-  padding: 12px;
-  overflow-y: auto;
-  max-height: 560px;
-}
-.schema-title {
-  display: flex; align-items: center; gap: 5px;
-  font-size: 12px; font-weight: 600; color: #606266;
-  margin-bottom: 10px;
-}
-.schema-table { margin-bottom: 6px; }
-.schema-tbl-name {
-  display: flex; align-items: center; gap: 4px;
-  font-size: 12px; font-weight: 600; color: #303133;
-  padding: 4px 6px; border-radius: 6px;
-  cursor: pointer; transition: background 0.15s;
-}
-.schema-tbl-name:hover { background: #eef0f8; }
-.rotate-90 { transform: rotate(90deg); transition: transform 0.2s; }
-.schema-cols { padding-left: 14px; margin-top: 2px; }
-.schema-col {
-  display: flex; justify-content: space-between;
-  padding: 3px 6px; border-radius: 4px;
-  cursor: pointer; transition: background 0.15s;
-}
-.schema-col:hover { background: #e8eaf6; }
-.col-name { font-size: 11px; color: #303133; }
-.col-type { font-size: 10px; color: #909399; }
+.chart-grid { display: grid; gap: 14px; margin-bottom: 14px; }.chart-grid.wide-left { grid-template-columns: minmax(0, 1.65fr) minmax(280px, .85fr); }.chart-grid.equal { grid-template-columns: repeat(2, minmax(0, 1fr)); }.chart-grid.thirds { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.chart-card, .table-card { min-width: 0; padding: 16px; border: 1px solid var(--line); border-radius: 15px; background: #fff; box-shadow: 0 6px 18px rgba(62,53,43,.035); transition: transform .2s ease, box-shadow .2s ease; }
+.chart-card:hover, .table-card:hover { transform: translateY(-1px); box-shadow: 0 10px 25px rgba(62,53,43,.07); }
+.card-heading { margin-bottom: 10px; display: flex; justify-content: space-between; gap: 12px; align-items: center; }.card-heading strong { display: block; font-size: 13px; }.card-heading span { display: block; margin-top: 3px; color: var(--muted); font-size: 10.5px; line-height: 1.45; }.card-heading > small { color: var(--muted); font-size: 10px; white-space: nowrap; }
+.chart { width: 100%; height: 320px; }.chart-large { height: 350px; }.small-chart { height: 270px; }
 
-.query-main { flex: 1; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.query-templates { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.tmpl-label { font-size: 12px; color: #909399; white-space: nowrap; }
-.tmpl-btn {
-  padding: 4px 10px;
-  border: 1px solid #dcdfe6; border-radius: 6px;
-  background: #fff; font-size: 12px; color: #606266;
-  cursor: pointer; transition: all 0.15s;
-}
-.tmpl-btn:hover { border-color: #7c5cbf; color: #7c5cbf; background: #f5f0ff; }
+.demand-heading { align-items: flex-start; }.demand-heading > div:first-child { max-width: 690px; }
+.signal-filter { display: flex; gap: 5px; padding: 4px; border-radius: 10px; background: #eee8df; }
+.signal-filter button { padding: 6px 9px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 10px; cursor: pointer; white-space: nowrap; }.signal-filter button.active { background: #fff; color: var(--ink); font-weight: 700; box-shadow: 0 2px 7px rgba(62,53,43,.09); }
+.demand-layout { display: grid; grid-template-columns: minmax(0, 1fr) 245px; gap: 14px; margin-bottom: 14px; }
+.demand-table-card { padding: 0; overflow: hidden; }.demand-table-card .card-heading, .quality-table-card .card-heading { padding: 15px 16px 4px; }
+.table-scroll { overflow: auto; }
+.demand-table-card .table-scroll { max-height: 560px; }
+.quality-table-card .table-scroll { max-height: 500px; }
+.analytics-table { width: 100%; border-collapse: collapse; font-size: 11px; }.analytics-table th { padding: 9px 11px; background: #f4f0ea; color: var(--muted); font-size: 9.5px; text-align: left; text-transform: uppercase; letter-spacing: .045em; white-space: nowrap; }.analytics-table td { padding: 10px 11px; border-top: 1px solid #f0ece6; color: #55554f; vertical-align: middle; }.analytics-table tbody tr { transition: background .15s ease; }.analytics-table tbody tr:hover { background: #fcfaf6; }.analytics-table td strong { display: block; max-width: 270px; color: var(--ink); font-size: 11px; }.analytics-table td small { display: block; margin-top: 2px; color: #929087; font-size: 9.5px; }.analytics-table .numeric { text-align: right; white-space: nowrap; }.analytics-table .emph { color: var(--navy); font-weight: 800; }
+.demand-table { min-width: 780px; }
+.quality-table-card .analytics-table { min-width: 650px; }
+.analytics-table th { position: sticky; top: 0; z-index: 1; }
+.soft-tag { display: inline-block; padding: 3px 7px; border-radius: 999px; background: #ede9e2; color: #625e57; font-size: 9.5px; white-space: nowrap; }
+.signal-badge, .reason-tag { display: inline-block; padding: 3px 7px; border-radius: 999px; font-size: 9px; font-weight: 700; white-space: nowrap; }.signal-badge.scale, .signal-badge.rising { background: #e4f0e7; color: #3e7452; }.signal-badge.reduce { background: #f3e0d8; color: #9a513b; }.signal-badge.steady { background: #ece9e3; color: #6f6b63; }.signal-badge.insufficient { background: #e7eaed; color: #626a72; }
+.trend-value { font-weight: 700; }.trend-value.neutral { color: var(--muted); }
+.planning-note { padding: 18px; border-radius: 15px; background: linear-gradient(150deg, var(--navy), #456377); color: #fff; }.note-icon { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; background: rgba(255,255,255,.13); }.planning-note > strong { display: block; margin: 15px 0 7px; }.planning-note p, .planning-note li { color: rgba(255,255,255,.76); font-size: 10.5px; line-height: 1.65; }.planning-note ul { padding-left: 16px; margin: 12px 0 0; }
 
-.sql-editor-wrap { position: relative; }
-.sql-editor {
-  width: 100%; min-height: 120px;
-  padding: 12px 14px;
-  border: 1px solid #dcdfe6; border-radius: 8px;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
-  font-size: 13px; line-height: 1.6; color: #303133;
-  background: #1e2235; color: #e0e6f0;
-  resize: vertical; outline: none;
-  transition: border-color 0.2s;
-  box-sizing: border-box;
-}
-.sql-editor:focus { border-color: #7c5cbf; box-shadow: 0 0 0 2px rgba(124,92,191,0.15); }
-.sql-hint { position: absolute; bottom: 8px; right: 10px; font-size: 11px; color: #606266; pointer-events: none; }
+.market-summary-card { height: fit-content; }.format-list article { padding: 12px 0; display: grid; grid-template-columns: 1.2fr .8fr .8fr; gap: 8px; border-top: 1px solid #eee9e1; }.format-list article:first-child { border-top: 0; }.format-list div { display: flex; flex-direction: column; }.format-list div:not(:first-child) { text-align: right; }.format-list strong { color: var(--ink); font-size: 13px; }.format-list small { margin-top: 2px; color: var(--muted); font-size: 9.5px; }
+.ranking-list { padding: 0; margin: 0; list-style: none; }.ranking-list li { padding: 9px 0; display: grid; grid-template-columns: 25px 1fr auto; gap: 8px; align-items: center; border-top: 1px solid #eee9e1; }.ranking-list li:first-child { border-top: 0; }.rank { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 7px; background: #eee9e2; color: var(--muted); font-size: 9px; font-weight: 800; }.ranking-list li:first-child .rank { background: var(--gold); color: #fff; }.ranking-list strong { display: block; font-size: 11px; }.ranking-list small { display: block; margin-top: 1px; color: var(--muted); font-size: 9px; }.ranking-list b { color: var(--navy); font-size: 13px; }
 
-.query-actions {
-  display: flex; align-items: center; justify-content: space-between;
-  flex-wrap: wrap; gap: 10px;
-}
-.chart-type-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.run-btn { flex-shrink: 0; }
+.manage-rules-button { flex: 0 0 auto; }
+.quality-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.quality-card { min-height: 102px; padding: 15px; display: flex; align-items: flex-start; gap: 11px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }.quality-card > span { width: 30px; height: 30px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 9px; background: #eee9e2; color: var(--navy); }.quality-card.good > span { background: #e4f0e7; color: #4e7a5d; }.quality-card.warning > span { background: #f5e3da; color: #a65f46; }.quality-card.recovered > span { background: #e6edf2; color: var(--navy); }.quality-card small { display: block; color: var(--muted); font-size: 9.5px; }.quality-card strong { display: block; margin: 3px 0; color: var(--ink); font-size: 22px; }.quality-card p { margin: 0; color: var(--muted); font-size: 9.5px; line-height: 1.4; }
+.classification-flow { margin-bottom: 14px; padding: 16px; display: grid; grid-template-columns: 1fr 36px 1fr 36px 1fr; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 15px; background: #fff; }.classification-flow div { min-height: 84px; position: relative; padding-left: 34px; }.classification-flow div > span { position: absolute; left: 0; top: 0; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 8px; background: var(--navy); color: #fff; font-size: 10px; font-weight: 800; }.classification-flow strong { font-size: 11px; }.classification-flow p { margin: 5px 0 0; color: var(--muted); font-size: 9.5px; line-height: 1.5; }.classification-flow i { height: 1px; background: #d8d0c4; position: relative; }.classification-flow i::after { content: ''; position: absolute; right: 0; top: -3px; width: 6px; height: 6px; border-top: 1px solid #b7ac9f; border-right: 1px solid #b7ac9f; transform: rotate(45deg); }
+.quality-table-card { padding: 0; overflow: hidden; }.reason-tag { margin: 2px 3px 2px 0; background: #eee9e2; color: #6b665e; }.reason-tag.unclassified, .reason-tag.missing_product_match { background: #f5e3da; color: #9a513b; }.reason-tag.type_mismatch { background: #fff0cf; color: #8b6a24; }.all-clear { padding: 34px 16px; display: flex; justify-content: center; align-items: center; gap: 7px; color: #4e7a5d; font-size: 12px; }
+.dashboard-footer { padding: 11px 24px; display: flex; justify-content: space-between; gap: 16px; border-top: 1px solid var(--line); background: #f3efe8; color: var(--muted); font-size: 9.5px; }
 
-.query-error {
-  display: flex; align-items: center; gap: 6px;
-  padding: 10px 14px;
-  background: #fff2f0; border: 1px solid #ffccc7;
-  border-radius: 8px; font-size: 13px; color: #cf1322;
+@media (max-width: 1100px) {
+  .kpi-grid, .quality-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .chart-grid.wide-left, .chart-grid.thirds { grid-template-columns: 1fr 1fr; }.chart-grid.thirds > :last-child { grid-column: 1 / -1; }
+  .comparison-strip { grid-template-columns: 1.4fr repeat(2, .7fr); }.comparison-strip > :nth-child(4), .comparison-strip > :nth-child(5) { display: none; }
+  .demand-layout { grid-template-columns: 1fr; }.planning-note { display: grid; grid-template-columns: auto 1fr; column-gap: 12px; }.planning-note > strong { margin: 0; align-self: center; }.planning-note p, .planning-note ul { grid-column: 1 / -1; }
 }
 
-.result-meta {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 8px; font-size: 12px; color: #909399;
-}
-.result-chart-wrap { margin-bottom: 16px; }
-.result-table-wrap { overflow: auto; }
-
-@media (max-width: 640px) {
-  .custom-query-panel { flex-direction: column; }
-  .schema-sidebar { width: 100%; max-height: 200px; }
-}
-
-/* ── AI 自然语言输入框 ────────────────────────────────── */
-.ai-input-section {
-  background: linear-gradient(135deg, #f5f0ff 0%, #f0f4ff 100%);
-  border: 1px solid #d9c8f5;
-  border-radius: 12px;
-  padding: 14px 16px;
-  margin-bottom: 14px;
-}
-.ai-header {
-  display: flex; align-items: center; gap: 8px;
-  margin-bottom: 10px;
-}
-.ai-badge {
-  display: flex; align-items: center; gap: 5px;
-  background: linear-gradient(135deg, #7c5cbf, #5470c6);
-  color: #fff;
-  padding: 3px 10px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.3px;
-}
-.ai-spark {
-  font-size: 11px;
-  animation: sparkle 2s ease-in-out infinite;
-}
-@keyframes sparkle {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.6; transform: scale(1.3); }
-}
-.ai-unavailable-tip {
-  font-size: 11px; color: #c0c4cc;
-}
-.ai-input-row {
-  display: flex; gap: 8px; align-items: stretch;
-}
-.ai-input {
-  flex: 1;
-  padding: 9px 14px;
-  border: 1px solid #c8b8f0;
-  border-radius: 8px;
-  font-size: 13px; color: #303133;
-  background: #fff;
-  outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-.ai-input:focus {
-  border-color: #7c5cbf;
-  box-shadow: 0 0 0 2px rgba(124,92,191,0.15);
-}
-.ai-input:disabled {
-  background: #f5f7fa; color: #c0c4cc; cursor: not-allowed;
-}
-.ai-gen-btn {
-  padding: 9px 18px;
-  background: linear-gradient(135deg, #7c5cbf, #5470c6);
-  color: #fff;
-  border: none; border-radius: 8px;
-  font-size: 13px; font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.2s ease;
-  display: flex; align-items: center; gap: 6px;
-}
-.ai-gen-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #6a4aad, #4560b4);
-  box-shadow: 0 4px 12px rgba(124,92,191,0.35);
-  transform: translateY(-1px);
-}
-.ai-gen-btn:disabled {
-  opacity: 0.5; cursor: not-allowed; transform: none;
-}
-.ai-gen-btn.loading { opacity: 0.8; }
-.ai-spin {
-  display: inline-block;
-  animation: spin 0.8s linear infinite;
-  font-size: 14px;
-}
-.ai-error {
-  margin-top: 8px;
-  padding: 7px 12px;
-  background: #fff2f0; border: 1px solid #ffccc7;
-  border-radius: 7px; font-size: 12px; color: #cf1322;
-}
-.ai-preview {
-  margin-top: 10px;
-  background: #1e2235;
-  border: 1px solid #3a3f5c;
-  border-radius: 8px;
-  overflow: hidden;
-}
-.ai-preview-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 14px;
-  background: rgba(124,92,191,0.2);
-  border-bottom: 1px solid #3a3f5c;
-}
-.ai-preview-label {
-  font-size: 12px; color: #b8a8f0; font-weight: 600;
-}
-.ai-use-btn {
-  padding: 3px 10px;
-  background: linear-gradient(135deg, #7c5cbf, #5470c6);
-  color: #fff; border: none; border-radius: 5px;
-  font-size: 11px; font-weight: 600;
-  cursor: pointer; transition: all 0.15s;
-}
-.ai-use-btn:hover {
-  background: linear-gradient(135deg, #6a4aad, #4560b4);
-  box-shadow: 0 2px 8px rgba(124,92,191,0.4);
-}
-.ai-preview-sql {
-  margin: 0;
-  padding: 12px 14px;
-  font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
-  font-size: 12px; line-height: 1.6;
-  color: #e0e6f0;
-  white-space: pre-wrap; word-break: break-all;
-  max-height: 160px; overflow-y: auto;
+@media (max-width: 760px) {
+  .analytics-toggle { border-radius: 13px; }.toggle-leading small, .coverage-pill { display: none; }
+  .dashboard-panel { border-radius: 16px; }.dashboard-header { padding: 19px 16px; flex-direction: column; }.header-controls { width: 100%; min-width: 0; }
+  .kpi-grid { padding: 15px 14px 8px; gap: 8px; }.kpi-card { min-height: 98px; padding: 13px; }.kpi-card > strong { font-size: 25px; }
+  .comparison-strip { margin: 0 14px 14px; grid-template-columns: 1fr 1fr; }.comparison-heading { grid-column: 1 / -1; }.comparison-metric { padding: 8px 0 0; border-left: 0; border-top: 1px solid #d9d0c4; }.comparison-strip > :nth-child(3) { display: block; }
+  .dashboard-tabs { padding: 0 10px; }.dashboard-tabs button { padding: 0 10px; }.dashboard-tabs .el-icon { display: none; }
+  .tab-content { padding: 18px 14px; }.section-heading { align-items: flex-start; flex-direction: column; }.section-heading > span { align-self: flex-start; }
+  .insight-grid, .chart-grid.equal, .chart-grid.wide-left, .chart-grid.thirds { grid-template-columns: 1fr; }.chart-grid.thirds > :last-child { grid-column: auto; }
+  .insight-card { min-height: auto; }.chart, .chart-large { height: 300px; }.small-chart { height: 260px; }
+  .demand-heading { gap: 12px; }.signal-filter { width: 100%; overflow-x: auto; }.signal-filter button { flex: 0 0 auto; }
+  .quality-grid { grid-template-columns: 1fr 1fr; gap: 8px; }.quality-card { min-height: 88px; padding: 12px; }.quality-card > span { display: none; }
+  .classification-flow { grid-template-columns: 1fr; }.classification-flow i { width: 1px; height: 18px; margin-left: 12px; }.classification-flow i::after { right: -3px; top: auto; bottom: 0; transform: rotate(135deg); }
+  .dashboard-footer { padding: 10px 14px; flex-direction: column; gap: 4px; }
 }
 
-/* AI 结果出现动画 */
-.ai-result-enter-active { transition: all 0.3s cubic-bezier(0.34,1.2,0.64,1); }
-.ai-result-leave-active { transition: all 0.2s ease; }
-.ai-result-enter-from, .ai-result-leave-to {
-  opacity: 0; transform: translateY(-6px);
+@media (max-width: 480px) {
+  .kpi-grid, .quality-grid { grid-template-columns: 1fr 1fr; }.kpi-card small { display: none; }.kpi-card { min-height: 82px; }.kpi-card > strong { font-size: 22px; }
+  .dashboard-tabs button { font-size: 11px; }.issue-count { display: none; }
+  .analytics-table th, .analytics-table td { padding: 8px 9px; }.chart { height: 280px; }
 }
 
-/* ── 品类图表可点击提示 ────────────────────────────────── */
-.clickable-chart { cursor: pointer; }
-.clickable-chart:hover { box-shadow: 0 4px 20px rgba(84,112,198,0.18); border-color: #b0c0f0; }
-.chart-hint {
-  font-size: 11px; font-weight: 400;
-  color: #909399; margin-left: 8px;
-}
-
-/* ── 下钻面板 ──────────────────────────────────────────── */
-.drilldown-panel {
-  background: #fff;
-  border: 1px solid #ebeef5;
-  border-radius: 12px;
-  padding: 18px 20px;
-  margin-bottom: 16px;
-}
-.drilldown-header {
-  display: flex; align-items: center; gap: 16px;
-  margin-bottom: 18px;
-  flex-wrap: wrap;
-}
-.drilldown-back {
-  display: flex; align-items: center; gap: 5px;
-  padding: 5px 12px;
-  border: 1px solid #dcdfe6; border-radius: 20px;
-  background: #fff; font-size: 12px; color: #606266;
-  cursor: pointer; transition: all 0.18s;
-  white-space: nowrap;
-}
-.drilldown-back:hover {
-  border-color: #5470c6; color: #5470c6;
-  background: #f0f3ff;
-}
-.drilldown-title {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-}
-.drilldown-category-tag {
-  background: linear-gradient(135deg, #5470c6, #91cc75);
-  color: #fff;
-  padding: 3px 12px; border-radius: 20px;
-  font-size: 13px; font-weight: 700;
-}
-.drilldown-subtitle {
-  font-size: 14px; font-weight: 600; color: #303133;
-}
-.drilldown-scope {
-  font-size: 12px; color: #909399;
-}
-.drilldown-loading {
-  display: flex; align-items: center; gap: 8px;
-  padding: 40px 0; justify-content: center;
-  color: #909399; font-size: 13px;
-}
-.drilldown-empty {
-  padding: 40px 0; text-align: center;
-  color: #c0c4cc; font-size: 13px;
-}
-.drilldown-chart-wrap { }
-.drilldown-chart { height: 280px; margin-bottom: 20px; }
-
-/* 下钻详细表格 */
-.drilldown-table-wrap { overflow-x: auto; }
-.drilldown-table {
-  width: 100%; border-collapse: collapse;
-  font-size: 13px;
-}
-.drilldown-table th {
-  background: #f5f7fa; padding: 9px 12px;
-  text-align: left; font-weight: 600; color: #606266;
-  border-bottom: 2px solid #ebeef5;
-  white-space: nowrap;
-}
-.drilldown-table td {
-  padding: 9px 12px;
-  border-bottom: 1px solid #f2f3f5;
-  vertical-align: middle;
-}
-.drilldown-table tr:last-child td { border-bottom: none; }
-.drilldown-table tr.top-row { background: #fafbff; }
-.drilldown-table tr:hover td { background: #f5f7ff; }
-.rank-cell { text-align: center; width: 40px; }
-.rank-medal { font-size: 16px; }
-.rank-num { color: #909399; font-size: 12px; }
-.product-title-cell { font-weight: 500; color: #303133; max-width: 200px; }
-.variant-cell { color: #606266; font-size: 12px; }
-.num-cell { text-align: right; font-weight: 600; color: #303133; }
-.num-cell.sold { color: #5470c6; font-size: 14px; }
-.rate-cell { min-width: 120px; }
-.rate-bar-wrap {
-  display: flex; align-items: center; gap: 8px;
-  position: relative;
-}
-.rate-bar {
-  height: 6px; border-radius: 3px;
-  min-width: 2px;
-  transition: width 0.5s ease;
-  flex-shrink: 0;
-  max-width: 80px;
-}
-.rate-text { font-size: 12px; font-weight: 600; color: #303133; white-space: nowrap; }
-
-/* 下钻动画 */
-.drilldown-slide-enter-active {
-  transition: all 0.35s cubic-bezier(0.34, 1.1, 0.64, 1);
-}
-.drilldown-slide-leave-active {
-  transition: all 0.2s ease;
-  position: absolute; width: 100%;
-}
-.drilldown-slide-enter-from {
-  opacity: 0; transform: translateX(24px);
-}
-.drilldown-slide-leave-to {
-  opacity: 0; transform: translateX(-24px);
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
 </style>

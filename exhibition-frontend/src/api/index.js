@@ -92,6 +92,9 @@ export const categoriesApi = {
 }
 // ==================== 图表分析 ====================
 export const analyticsApi = {
+  dashboard: (exhibitionId = '') => api.get('/analytics/dashboard', {
+    params: exhibitionId ? { exhibition_id: exhibitionId } : {},
+  }),
   overview: () => api.get('/analytics/overview'),
   byCategory: () => api.get('/analytics/by-category'),
   checklistProgress: () => api.get('/analytics/checklist-progress'),
