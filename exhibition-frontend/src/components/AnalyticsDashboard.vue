@@ -359,7 +359,7 @@
           </Transition>
 
           <footer class="dashboard-footer">
-            <span>销售额为快照保存价格 × 售出件数的估算值，不包含折扣、退款和 Square 实际支付差异。</span>
+            <span>销售额为快照保存价格 × 售出件数的估算值；礼品卡、包装等非商品项目不计入服装货盘分析。</span>
             <span v-if="generatedAt">更新于 {{ formatDateTime(generatedAt) }}</span>
           </footer>
         </template>

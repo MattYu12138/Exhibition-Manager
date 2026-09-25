@@ -1,5 +1,5 @@
 const STYLE_RULES = [
-  { category: 'Gift Sets', family: 'Sets & Gifts', terms: ['6pc essential set', 'essential set', 'gift set', 'newborn set', 'bundle'] },
+  { category: 'Gift Sets', family: 'Sets & Gifts', terms: ['6pc essentials set', '6pc essential set', 'essentials set', 'essential set', 'gift set', 'newborn set', 'bundle'] },
   { category: 'Zip Rompers', family: 'One-piece Essentials', terms: ['zip romper', 'zipsuit', 'zip suit'] },
   { category: 'Growsuits', family: 'One-piece Essentials', terms: ['growsuit', 'grow suit'] },
   { category: 'Long Sleeve Bodysuits', family: 'One-piece Essentials', terms: ['long sleeve bodysuit', 'long-sleeve bodysuit'] },
@@ -10,6 +10,7 @@ const STYLE_RULES = [
   { category: 'Rompers', family: 'One-piece Essentials', terms: ['romper'] },
   { category: 'T-Shirts', family: 'Separates', terms: ['t-shirt', 't shirt', 'tee shirt'] },
   { category: 'Leggings', family: 'Separates', terms: ['leggings', 'legging'] },
+  { category: 'Bloomers', family: 'Separates', terms: ['bloomers', 'bloomer'] },
   { category: 'Track Pants', family: 'Separates', terms: ['track pants', 'track pant'] },
   { category: 'Buttoned Pants', family: 'Separates', terms: ['buttoned pants', 'button pants'] },
   { category: 'Pants', family: 'Separates', terms: ['pants', 'trousers'] },
@@ -25,6 +26,9 @@ const STYLE_RULES = [
   { category: 'Headbands', family: 'Accessories', terms: ['headband'] },
   { category: 'Baby Socks', family: 'Accessories', terms: ['baby socks', 'socks', 'sock'] },
   { category: 'Bibs', family: 'Accessories', terms: ['baby bib', 'muslin bib', 'round bib', 'triangle bib', 'bib'] },
+  { category: 'Overalls', family: 'One-piece Essentials', terms: ['overalls', 'overall'] },
+  { category: 'Gift Cards', family: 'Non-Merchandise', terms: ['gift card'] },
+  { category: 'Packaging & Services', family: 'Non-Merchandise', terms: ['gift wrapping', 'shopping bag', 'business card', 'clearance'] },
   { category: 'Accessories', family: 'Accessories', terms: ['accessories', 'accessory'] },
 ]
 
@@ -376,6 +380,7 @@ function buildDashboard({ rows = [], events = [], categoryRules = [], catalogPro
         event_format: formatFromEvent(row),
       }
     })
+    .filter(row => row.family !== 'Non-Merchandise')
 
   const totalSold = classifiedRows.reduce((sum, row) => sum + row.sold, 0)
   const totalAllocated = classifiedRows.reduce((sum, row) => sum + row.allocated, 0)
@@ -422,7 +427,7 @@ function buildDashboard({ rows = [], events = [], categoryRules = [], catalogPro
       revenue: sold * money(raw.price),
       variant_key: String(raw.shopify_variant_id || raw.variant_id || ''),
     }
-  })) {
+  }).filter(row => row.family !== 'Non-Merchandise')) {
     const aggregate = eventGroups.get(row.exhibition_id)
     if (!aggregate) continue
     aggregate.sold += row.sold
