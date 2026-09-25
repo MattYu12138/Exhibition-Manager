@@ -258,9 +258,20 @@ router.post('/:id/items', requireStaff, (req, res) => {
 router.put('/:id/items/product/:productId/check', requireStaff, (req, res) => {
   try {
     const { checked } = req.body;
-    db.prepare(
-      'UPDATE exhibition_items SET checked = ? WHERE exhibition_id = ? AND shopify_product_id = ?'
-    ).run(checked ? 1 : 0, req.params.id, req.params.productId);
+    if (typeof checked !== 'boolean') {
+      return res.status(400).json({ success: false, message: 'checked 必须是布尔值' });
+    }
+
+    const value = checked ? 1 : 0;
+    const result = db.prepare(`
+      UPDATE exhibition_items
+      SET checked = ?, hanger_done = ?, storage_done = ?
+      WHERE exhibition_id = ? AND shopify_product_id = ?
+    `).run(value, value, value, req.params.id, req.params.productId);
+
+    if (result.changes === 0) {
+      return res.status(404).json({ success: false, message: '未找到该商品的点货项目' });
+    }
 
     const items = db.prepare('SELECT * FROM exhibition_items_view WHERE exhibition_id = ?').all(req.params.id);
     res.json({ success: true, data: items });

@@ -220,6 +220,7 @@ export const useExhibitionStore = defineStore('exhibition', () => {
       if (currentExhibition.value?.items) {
         currentExhibition.value.items = res.data
       }
+      return res.data
     } catch (err) {
       ElMessage.error('更新清点状态失败: ' + err.message)
     }

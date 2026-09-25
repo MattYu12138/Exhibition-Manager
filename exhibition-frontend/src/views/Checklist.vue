@@ -246,12 +246,14 @@
             </div>
             <div class="group-check-btn">
               <el-tooltip
-                :content="activeTab === 'checked' ? $t('checklist.toggleAllChecked') : $t('checklist.toggleAllUnchecked')"
+                :content="isProductAllChecked(group) ? $t('checklist.toggleAllChecked') : $t('checklist.toggleAllUnchecked')"
                 placement="top"
               >
                 <el-button
-                  :type="activeTab === 'checked' ? 'success' : 'default'"
-                  :icon="activeTab === 'checked' ? 'CircleCheck' : 'Check'"
+                  :type="isProductAllChecked(group) ? 'success' : 'default'"
+                  :icon="isProductAllChecked(group) ? 'CircleCheck' : 'Check'"
+                  :loading="productCheckLoading === String(group.product_id)"
+                  :disabled="productCheckLoading !== ''"
                   circle
                   size="large"
                   @click="toggleProductCheck(group)"
@@ -507,6 +509,7 @@ const searchQuery = ref('')
 const categories = ref([])
 const selectedMaterial = ref('')
 const selectedStyle = ref('')
+const productCheckLoading = ref('')
 
 const materialCategories = computed(() => categories.value.filter(c => c.type === 'material'))
 const styleCategories = computed(() => categories.value.filter(c => c.type === 'style'))
@@ -651,8 +654,14 @@ async function toggleSubState(variant, field) {
 }
 
 async function toggleProductCheck(group) {
+  if (productCheckLoading.value) return
   const allChecked = isProductAllChecked(group)
-  await store.toggleProductCheck(id, group.product_id, !allChecked)
+  productCheckLoading.value = String(group.product_id)
+  try {
+    await store.toggleProductCheck(id, group.product_id, !allChecked)
+  } finally {
+    productCheckLoading.value = ''
+  }
 }
 
 async function checkAll(checked) {
