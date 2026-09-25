@@ -206,7 +206,7 @@
                         </thead>
                         <tbody>
                           <tr v-for="row in filteredDemandSignals" :key="row.product_key">
-                            <td><strong>{{ row.product_title }}</strong><small>{{ row.collection }} · {{ row.material }}</small></td>
+                            <td><strong>{{ row.product_title }}</strong><small>{{ row.theme }} · {{ row.material }}</small></td>
                             <td><span class="soft-tag">{{ row.category }}</span></td>
                             <td class="numeric emph">{{ row.sold }}</td>
                             <td class="numeric">{{ formatNumber(row.average_sold, 1) }}</td>
@@ -237,8 +237,8 @@
                   <ChartCard title="尺码需求结构" subtitle="用于调整同款各尺码的配比，不把 One size 与婴童尺码混在一起">
                     <v-chart class="chart" :option="sizeDemandOption" autoresize />
                   </ChartCard>
-                  <ChartCard title="系列销售贡献" subtitle="按 Shopify Season 标签识别；无标签归入 Core / Unassigned">
-                    <v-chart class="chart" :option="collectionSalesOption" autoresize />
+                  <ChartCard title="产品主题销售贡献" subtitle="从商品名称提取图案或配色主题，辅助陈列与选款">
+                    <v-chart class="chart" :option="themeSalesOption" autoresize />
                   </ChartCard>
                 </div>
               </template>
@@ -328,7 +328,7 @@
                   <i></i>
                   <div><span>2</span><strong>销售大类</strong><p>One-piece、Separates、Accessories、Sleep & Bedding 等，用于总体货盘。</p></div>
                   <i></i>
-                  <div><span>3</span><strong>独立属性</strong><p>材质、系列、尺码和客群分别分析，避免把多个维度混成一个分类。</p></div>
+                  <div><span>3</span><strong>独立属性</strong><p>材质、产品主题、尺码和客群分别分析，避免把多个维度混成一个分类。</p></div>
                 </div>
 
                 <div class="table-card quality-table-card">
@@ -405,7 +405,7 @@ function emptyDashboard() {
       classification_coverage: 0, classified_products: 0, unclassified_products: 0, recovered_products: 0,
     },
     comparison: null,
-    trend: [], categories: [], families: [], collections: [], materials: [], genders: [], sizes: [], markets: [], event_formats: [],
+    trend: [], categories: [], families: [], collections: [], themes: [], materials: [], genders: [], sizes: [], markets: [], event_formats: [],
     demand_signals: [],
     quality: {
       source_product_count: 0, missing_shopify_type: 0, recovered_from_missing_type: 0,
@@ -601,8 +601,8 @@ const sizeDemandOption = computed(() => ({
   }],
 }))
 
-const collectionSalesOption = computed(() => {
-  const rows = dashboard.value.collections.slice(0, 10).reverse()
+const themeSalesOption = computed(() => {
+  const rows = dashboard.value.themes.slice(0, 10).reverse()
   return {
     ...baseAnimation,
     color: [CHART.terracotta], tooltip,

@@ -173,6 +173,10 @@ function buildClassifier(categoryRules = []) {
     const seasonTag = tags.find(tag => /^season\s*:/i.test(tag))
     let collection = seasonTag ? seasonTag.replace(/^season\s*:\s*/i, '').replace(/\s+collection$/i, '').trim() : ''
     if (!collection) collection = 'Core / Unassigned'
+    const titleTheme = title.includes(' - ') ? title.split(' - ').slice(1).join(' - ').trim() : ''
+    const theme = seasonTag
+      ? collection
+      : (titleTheme && !/^\$?\d+(?:\.\d+)?$/.test(titleTheme) ? titleTheme : 'Core / Unassigned')
     collection = titleCase(collection)
 
     const genderTag = tags.find(tag => /^gender\s*:/i.test(tag))
@@ -201,6 +205,7 @@ function buildClassifier(categoryRules = []) {
       family,
       material,
       collection,
+      theme,
       gender,
       style_source: styleSource,
       type_mismatch: typeMismatch,
@@ -461,6 +466,7 @@ function buildDashboard({ rows = [], events = [], categoryRules = [], catalogPro
   const categories = groupRows(classifiedRows, row => row.style, row => row.style, totalSold, orderedEventIds)
   const families = groupRows(classifiedRows, row => row.family, row => row.family, totalSold, orderedEventIds)
   const collections = groupRows(classifiedRows, row => row.collection, row => row.collection, totalSold, orderedEventIds)
+  const themes = groupRows(classifiedRows, row => row.theme, row => row.theme, totalSold, orderedEventIds)
   const materials = groupRows(classifiedRows, row => row.material, row => row.material, totalSold, orderedEventIds)
   const genders = groupRows(classifiedRows, row => row.gender, row => row.gender, totalSold, orderedEventIds)
   const sizes = groupRows(classifiedRows, row => row.size_band, row => row.size_band, totalSold, orderedEventIds)
@@ -479,6 +485,7 @@ function buildDashboard({ rows = [], events = [], categoryRules = [], catalogPro
         family: row.family,
         material: row.material,
         collection: row.collection,
+        theme: row.theme,
         eventSequence: new Map(),
       })
     }
@@ -515,6 +522,7 @@ function buildDashboard({ rows = [], events = [], categoryRules = [], catalogPro
       family: group.family,
       material: group.material,
       collection: group.collection,
+      theme: group.theme,
       sold: final.sold,
       allocated: final.allocated,
       revenue: final.revenue,
@@ -620,6 +628,7 @@ function buildDashboard({ rows = [], events = [], categoryRules = [], catalogPro
     categories,
     families,
     collections,
+    themes,
     materials,
     genders,
     sizes,
