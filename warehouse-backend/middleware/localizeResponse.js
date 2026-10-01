@@ -34,6 +34,8 @@ const messages = {
   '货位不存在': 'Location not found.',
   '阈值必须为非负整数': 'The stock threshold must be a non-negative integer.',
   '缺少 shopify_variant_id': 'Shopify variant ID is missing.',
+  '条码必须为 8 位数字': 'Enter an eight-digit product barcode.',
+  '条码查询失败，请稍后重试': 'Barcode lookup failed. Please try again later.',
   '数量必须大于 0': 'Quantity must be greater than zero.',
   '数量必须为正整数': 'Quantity must be a positive whole number.',
   '数量必须为非负整数': 'Quantity must be a non-negative whole number.',

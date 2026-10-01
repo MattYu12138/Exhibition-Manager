@@ -17,6 +17,9 @@
           <el-button text :style="{ color: '#fff' }" @click="$router.push('/locations')">
             <el-icon><Grid /></el-icon> {{ $t('nav.locations') }}
           </el-button>
+          <el-button text :style="{ color: '#fff' }" @click="$router.push('/barcode')">
+            <el-icon><Search /></el-icon> {{ $t('nav.barcodeLookup') }}
+          </el-button>
           <el-button text :style="{ color: '#fff' }" @click="$router.push('/picking')">
             <el-icon><List /></el-icon> {{ $t('nav.picking') }}
           </el-button>
@@ -68,7 +71,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { replenishmentApi } from '@/api/index.js'
 import axios from 'axios'
-import { Box, HomeFilled, MapLocation, Grid, List, Setting } from '@element-plus/icons-vue'
+import { Box, HomeFilled, MapLocation, Grid, List, Setting, Search } from '@element-plus/icons-vue'
 import { useWarehouseStore } from '@/stores/warehouse'
 import i18n, { setLanguage } from '@/i18n'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'

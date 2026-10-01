@@ -39,6 +39,12 @@ const routes = [
     meta: { titleKey: 'pageTitle.locations' },
   },
   {
+    path: '/barcode',
+    name: 'BarcodeLookup',
+    component: () => import('@/views/BarcodeLookup.vue'),
+    meta: { titleKey: 'pageTitle.barcodeLookup' },
+  },
+  {
     path: '/locations/:id',
     name: 'LocationDetail',
     component: () => import('@/views/LocationDetail.vue'),

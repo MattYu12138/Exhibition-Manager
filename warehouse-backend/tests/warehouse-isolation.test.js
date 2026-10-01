@@ -12,11 +12,14 @@ const seed = new Database(process.env.DB_PATH);
 seed.exec(`
   CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT);
   INSERT INTO users VALUES ('admin-test', 'Admin');
-  CREATE TABLE products (id TEXT PRIMARY KEY, title TEXT, product_type TEXT, main_image TEXT);
-  INSERT INTO products (id, title) VALUES ('P1', 'Test romper');
-  CREATE TABLE product_variants (shopify_variant_id TEXT PRIMARY KEY, product_id TEXT, variant_title TEXT,
+  CREATE TABLE products (id TEXT PRIMARY KEY, title TEXT, product_type TEXT, main_image TEXT, status TEXT);
+  INSERT INTO products (id, title, status) VALUES ('P1', 'Test romper', 'active'), ('P2', 'Archived item', 'archived');
+  CREATE TABLE product_variants (id TEXT, shopify_variant_id TEXT PRIMARY KEY, product_id TEXT, variant_title TEXT,
     sku TEXT, gtin TEXT, price REAL, image_url TEXT);
-  INSERT INTO product_variants (shopify_variant_id, product_id, variant_title, sku) VALUES ('V1', 'P1', '000', 'V1-000');
+  INSERT INTO product_variants (id, shopify_variant_id, product_id, variant_title, sku, gtin) VALUES
+    ('PV1', 'V1', 'P1', '000', 'V1-000', '01234567'),
+    ('PV2', 'V2', 'P1', '00', 'V2-00', '01234567'),
+    ('PV3', 'V3', 'P2', '000', 'ARCHIVE', '01234567');
   CREATE TABLE exhibitions (id TEXT PRIMARY KEY, name TEXT);
   CREATE TABLE inbound_shipments (id TEXT PRIMARY KEY, ref_no TEXT, factory TEXT, received_at TEXT, status TEXT, created_at TEXT);
   CREATE TABLE inbound_boxes (id TEXT PRIMARY KEY, shipment_id TEXT);
@@ -31,11 +34,12 @@ const { db } = require('../db');
 const app = express();
 app.use(express.json());
 app.use(require('../middleware/localizeResponse').localizeResponse);
-app.use((req, res, next) => { req.session = { user: { id: 'admin-test', role: 'admin' } }; next(); });
+app.use((req, res, next) => { req.session = req.get('X-Test-Anonymous') ? {} : { user: { id: 'admin-test', role: 'admin' } }; next(); });
 app.use('/api/layouts', require('../routes/layouts'));
 app.use('/api/locations', require('../routes/locations'));
 app.use('/api/picking', require('../routes/picking'));
 app.use('/api/replenishment', require('../routes/replenishment'));
+app.use('/api/products', require('../routes/products'));
 
 function request(port, method, url, warehouseId, body) {
   return fetch(`http://127.0.0.1:${port}/api${url}`, {
@@ -106,6 +110,31 @@ test('layouts, stock, picking and replenishment stay isolated by warehouse ID', 
     })).status, 404, 'internal transfers cannot cross warehouses');
     assert.equal((await call('GET', '/locations', one)).body.data[0].total_qty, 5);
     assert.equal((await call('GET', '/locations', two)).body.data[0].total_qty, 6);
+    for (const invalid of ['1234567', '123456789', '1234567A']) {
+      const response = await call('GET', `/products/barcode/${invalid}`, one);
+      assert.equal(response.status, 400);
+      assert.equal(response.body.code, 'INVALID_BARCODE');
+    }
+    assert.deepEqual((await call('GET', '/products/barcode/00000000', one)).body.data.matches, []);
+    const barcodeInOne = await call('GET', '/products/barcode/01234567', one);
+    const barcodeInTwo = await call('GET', '/products/barcode/01234567', two);
+    assert.equal(barcodeInOne.status, 200);
+    assert.equal(barcodeInOne.body.data.barcode, '01234567', 'the first zero is part of the text barcode');
+    assert.equal(barcodeInOne.body.data.ambiguous, true);
+    assert.equal(barcodeInOne.body.data.matches.length, 2, 'show duplicates but never mistake an archived variant for active stock');
+    assert.equal(barcodeInOne.body.data.matches.find(item => item.shopify_variant_id === 'V1').total_quantity, 5);
+    assert.equal(barcodeInOne.body.data.matches.find(item => item.shopify_variant_id === 'V1').locations.length, 2);
+    assert.equal(barcodeInOne.body.data.matches.find(item => item.shopify_variant_id === 'V2').total_quantity, 0,
+      'show a catalogue match even when no warehouse inventory has been entered');
+    assert.equal(barcodeInTwo.body.data.layout_id, two);
+    assert.equal(barcodeInTwo.body.data.matches.find(item => item.shopify_variant_id === 'V1').total_quantity, 6,
+      'do not leak stock from another same-named warehouse');
+    assert.equal((await call('GET', `/products/barcode/01234567?layout_id=${two}`, one)).status, 409);
+    assert.equal((await call('GET', '/products/barcode/01234567', 'not-a-warehouse')).status, 404);
+    const anonymous = await fetch(`http://127.0.0.1:${port}/api/products/barcode/01234567`, {
+      headers: { 'X-Test-Anonymous': 'yes' },
+    });
+    assert.equal(anonymous.status, 401, 'product and stock locations are only available to logged-in users');
     assert.equal((await call('DELETE', `/layouts/${one}`, one)).status, 409, 'the active warehouse cannot be deleted');
     const english = await fetch(`http://127.0.0.1:${port}/api/layouts/${one}`, {
       method: 'DELETE', headers: { 'Accept-Language': 'en' },

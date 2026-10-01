@@ -77,6 +77,7 @@ export const pickingApi = {
 }
 export const productApi = {
   search: (search, limit) => api.get('/products', { params: { search, limit } }),
+  lookupBarcode: (barcode) => api.get(`/products/barcode/${encodeURIComponent(barcode)}`),
   getVariant: (variantId) => api.get(`/products/variant/${variantId}`),
   getExhibitions: () => api.get('/products/exhibitions'),
   getInboundShipments: () => api.get('/products/inbound-shipments'),

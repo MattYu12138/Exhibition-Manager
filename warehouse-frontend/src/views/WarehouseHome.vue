@@ -110,6 +110,13 @@
         <el-card>
           <template #header><span>{{ $t('dashboard.quickActions') }}</span></template>
           <div class="quick-actions">
+            <div class="quick-item" @click="$router.push('/barcode')">
+              <div class="quick-icon" style="background: linear-gradient(135deg, #c7aa87, #ead4b8)">▥</div>
+              <div class="quick-text">
+                <div class="quick-title">{{ $t('nav.barcodeLookup') }}</div>
+                <div class="quick-desc">{{ $t('barcodeLookup.quickHelp') }}</div>
+              </div>
+            </div>
             <div class="quick-item" @click="$router.push('/replenishment')">
               <div class="quick-icon" style="background: linear-gradient(135deg, #f7971e, #ffd200)">
                 🚚

@@ -6,6 +6,7 @@ const express = require('express');
 const router = express.Router();
 const { db } = require('../db');
 const { requireLogin } = require('../middleware/auth');
+const { resolveWarehouse } = require('../middleware/warehouseContext');
 
 // GET /api/products  搜索产品（支持名称/SKU/barcode）
 router.get('/', requireLogin, (req, res) => {
@@ -33,6 +34,64 @@ router.get('/', requireLogin, (req, res) => {
   } catch (err) {
     console.error('[products] search:', err.message);
     res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// GET /api/products/barcode/:barcode
+// Keep the barcode as text (including leading zeros) and match the same GTIN
+// field as Product Traceability. Stock is read-only and scoped by layout ID.
+router.get('/barcode/:barcode', requireLogin, (req, res) => {
+  try {
+    const barcode = String(req.params.barcode || '').trim();
+    if (!/^\d{8}$/.test(barcode)) {
+      return res.status(400).json({ success: false, code: 'INVALID_BARCODE', message: '条码必须为 8 位数字' });
+    }
+
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
+
+    const matches = db.prepare(`
+      SELECT p.id AS product_id, p.title AS product_title, p.product_type, p.main_image,
+        pv.id AS variant_id, pv.shopify_variant_id, pv.variant_title,
+        pv.sku, trim(pv.gtin) AS barcode, pv.image_url
+      FROM product_variants pv
+      JOIN products p ON p.id = pv.product_id
+      WHERE trim(pv.gtin) = ? AND COALESCE(p.status, '') != 'archived'
+      ORDER BY p.title COLLATE NOCASE, pv.variant_title, pv.id
+    `).all(barcode);
+
+    if (!matches.length) {
+      return res.json({ success: true, data: { barcode, layout_id: layoutId, matches: [], ambiguous: false } });
+    }
+
+    const variantIds = [...new Set(matches.map(row => row.shopify_variant_id).filter(Boolean))];
+    const stockRows = variantIds.length ? db.prepare(`
+      SELECT wi.shopify_variant_id, wl.id AS location_id, wl.code AS location_code,
+        wi.stock_type, wi.exhibition_id, e.name AS exhibition_name,
+        SUM(wi.quantity) AS quantity
+      FROM warehouse_inventory wi
+      JOIN warehouse_locations wl ON wl.id = wi.location_id
+      LEFT JOIN exhibitions e ON e.id = wi.exhibition_id
+      WHERE wl.layout_id = ? AND wl.is_active = 1 AND wi.quantity > 0
+        AND wi.shopify_variant_id IN (${variantIds.map(() => '?').join(',')})
+      GROUP BY wi.shopify_variant_id, wl.id, wi.stock_type, wi.exhibition_id
+      ORDER BY wl.code, wi.stock_type, wi.exhibition_id
+    `).all(layoutId, ...variantIds) : [];
+
+    const stockByVariant = new Map();
+    for (const stock of stockRows) {
+      const list = stockByVariant.get(stock.shopify_variant_id) || [];
+      list.push(stock);
+      stockByVariant.set(stock.shopify_variant_id, list);
+    }
+    for (const match of matches) {
+      match.locations = stockByVariant.get(match.shopify_variant_id) || [];
+      match.total_quantity = match.locations.reduce((total, row) => total + row.quantity, 0);
+    }
+    res.json({ success: true, data: { barcode, layout_id: layoutId, matches, ambiguous: matches.length > 1 } });
+  } catch (err) {
+    console.error('[products] barcode lookup:', err.message);
+    res.status(500).json({ success: false, message: '条码查询失败，请稍后重试' });
   }
 });
 
