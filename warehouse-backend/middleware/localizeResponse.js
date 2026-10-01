@@ -47,6 +47,7 @@ const messages = {
   '部分货位不属于所选仓库或已停用': 'Some selected shelves belong to another warehouse or are inactive.',
   '部分货位缺少二维码，请联系管理员': 'Some shelves lack a QR token. Contact an administrator.',
   '二维码标签生成失败，请重试': 'Could not generate the QR labels. Try again.',
+  '标签数量过多，请分批选择货架导出': 'There are too many product labels; export fewer shelves at a time.',
   '缺少来源货位 from_location_id': 'Source location is missing.',
   '来源和目标不能是同一个货位': 'Source and destination cannot be the same location.',
   'stock_type 必须为 retail/retail_display/retail_storage/exhibition': 'Stock type must be retail, retail display, retail storage, or exhibition.',

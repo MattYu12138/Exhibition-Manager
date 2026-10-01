@@ -91,7 +91,27 @@ router.post('/qrcodes/export', requireLogin, async (req, res) => {
     if (ordered.some(location => !location.qr_token)) {
       return res.status(409).json({ success: false, message: '部分货位缺少二维码，请联系管理员' });
     }
-    const pdf = await createJ8168Labels(ordered, process.env.FRONTEND_URL || 'http://localhost:5174', layoutId);
+    const products = db.prepare(`
+      SELECT wi.location_id, p.title AS product_title, pv.variant_title,
+        pv.sku, pv.gtin AS barcode, SUM(wi.quantity) AS quantity
+      FROM warehouse_inventory wi
+      JOIN warehouse_locations wl ON wl.id = wi.location_id
+      JOIN product_variants pv ON pv.shopify_variant_id = wi.shopify_variant_id
+      JOIN products p ON p.id = pv.product_id
+      WHERE wl.layout_id = ? AND wl.is_active = 1 AND wi.quantity > 0
+        AND wi.location_id IN (${placeholders})
+      GROUP BY wi.location_id, pv.shopify_variant_id
+      ORDER BY wi.location_id, p.title, pv.variant_title
+    `).all(layoutId, ...ids);
+    const productsByLocation = new Map();
+    for (const product of products) {
+      if (!productsByLocation.has(product.location_id)) productsByLocation.set(product.location_id, []);
+      productsByLocation.get(product.location_id).push(product);
+    }
+    const labels = ordered.map(location => ({
+      ...location, products: productsByLocation.get(location.id) || [],
+    }));
+    const pdf = await createJ8168Labels(labels, process.env.FRONTEND_URL || 'http://localhost:5174', layoutId);
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename="Warehouse-QR-${layoutId}-J8168.pdf"`,
@@ -100,7 +120,9 @@ router.post('/qrcodes/export', requireLogin, async (req, res) => {
     res.send(pdf);
   } catch (err) {
     console.error('[locations] export QR labels:', err);
-    res.status(500).json({ success: false, message: '二维码标签生成失败，请重试' });
+    res.status(err instanceof RangeError ? 413 : 500).json({ success: false,
+      message: err instanceof RangeError ? '标签数量过多，请分批选择货架导出' : '二维码标签生成失败，请重试',
+    });
   }
 });
 

@@ -78,8 +78,8 @@ export default {
     selectedShelves: '{count} shelves selected', selectShelf: 'Select shelf {code}',
     selectAllShelves: 'Select all shelves', selectAllStockedShelves: 'Select all stocked shelves',
     clearSelection: 'Clear selection', exportQrLabels: 'Export QR labels',
-    qrExportHint: 'Avery J8168: 2 labels per A4 sheet (199.6 × 143.53 mm). Print the downloaded PDF on A4 at 100% / Actual size, not Fit to page.',
-    selectionLimit: '{count} shelves selected. Export up to 500 labels at a time; clear some selections to continue.',
+    qrExportHint: 'Avery J8168: 2 labels per A4 sheet. Each label shows the shelf QR and stocked products with name, size, SKU and scannable 8-digit barcode; extra products continue on a new label. Print at A4, 100% / Actual size, not Fit to page.',
+    selectionLimit: '{count} shelves selected. Export up to 500 shelves at a time; clear some selections to continue.',
     selectionFailed: 'Could not select shelves', qrExported: 'QR-label PDF downloaded', qrExportFailed: 'Could not export QR labels',
   },
   locationDetail: {

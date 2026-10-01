@@ -78,8 +78,8 @@ export default {
     selectedShelves: '已选择 {count} 个货架', selectShelf: '选择货架 {code}',
     selectAllShelves: '选择全部货架', selectAllStockedShelves: '选择全部有货货架',
     clearSelection: '清除选择', exportQrLabels: '导出二维码标签',
-    qrExportHint: 'Avery J8168：每张 A4 纸 2 张标签（199.6 × 143.53 毫米）。请将下载的 PDF 按 A4、100%／实际大小打印，不要选择“适合页面”。',
-    selectionLimit: '已选择 {count} 个货架。每次最多导出 500 个标签；请减少选择后再继续。',
+    qrExportHint: 'Avery J8168：每张 A4 纸 2 张标签。每张包含货架二维码及商品名称、尺码、SKU、可扫描的 8 位商品条形码；商品较多时自动续页。请按 A4、100%／实际大小打印，不要选择“适合页面”。',
+    selectionLimit: '已选择 {count} 个货架。每次最多选择 500 个货架；请减少选择后再继续。',
     selectionFailed: '无法选择货架', qrExported: '二维码标签 PDF 已下载', qrExportFailed: '无法导出二维码标签',
   },
   locationDetail: {

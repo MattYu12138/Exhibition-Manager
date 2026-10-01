@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { test } = require('node:test');
 const express = require('express');
 const Database = require('better-sqlite3');
@@ -135,6 +136,20 @@ test('layouts, stock, picking and replenishment stay isolated by warehouse ID', 
     })).status, 404, 'internal transfers cannot cross warehouses');
     assert.equal((await call('GET', '/locations', one)).body.data[0].total_qty, 5);
     assert.equal((await call('GET', '/locations', two)).body.data[0].total_qty, 6);
+    const stockedPdfResponse = await download([loc1], one);
+    assert.equal(stockedPdfResponse.status, 200);
+    const stockedPdf = Buffer.from(await stockedPdfResponse.arrayBuffer());
+    assert.equal(stockedPdf.subarray(0, 5).toString(), '%PDF-');
+    const pdfText = spawnSync('pdftotext', ['-', '-'], { input: stockedPdf, encoding: 'utf8' });
+    if (!pdfText.error) {
+      assert.equal(pdfText.status, 0, pdfText.stderr);
+      for (const expected of ['Test romper', 'SIZE: 000', 'SKU: V1-000', '01234567']) {
+        assert.ok(pdfText.stdout.includes(expected), `print ${expected} on the stocked shelf label`);
+      }
+      assert.equal((pdfText.stdout.match(/Test romper/g) || []).length, 1,
+        'the same variant in retail and storage buckets must not be printed twice');
+      assert.ok(!pdfText.stdout.includes('ARCHIVE'), 'do not print archived or unstocked products');
+    }
     for (const invalid of ['1234567', '123456789', '1234567A']) {
       const response = await call('GET', `/products/barcode/${invalid}`, one);
       assert.equal(response.status, 400);
