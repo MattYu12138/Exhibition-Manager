@@ -63,7 +63,7 @@ export default {
     internalGroup: 'Provisional internal shipment group',
     internalGroupNotice: 'Owner-assigned “first group” label only. Not a verified manufacturing lot or a link to current shelf units; not published to customers.',
     intendedVessel: 'Intended vessel & voyage (B/L)', carrier: 'Carrier company',
-    carrierUnverified: 'The provided B/L does not expressly identify a carrier; MSC appears in the vessel name, not as proof of the contracting carrier.',
+    carrierUnverified: 'Not verified; left blank until a source document confirms it.',
     container: 'Container number (B/L)', route: 'Port of loading → discharge',
     shipmentTotals: 'Whole consignment (B/L/packing)', cartons: 'cartons',
     totalNotThisSku: 'Consignment totals, not this variant', measurements: 'Gross weight / volume',

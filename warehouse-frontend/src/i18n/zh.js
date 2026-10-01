@@ -63,7 +63,7 @@ export default {
     internalGroup: '内部暂编货运分组',
     internalGroupNotice: '仅是货主暂编的“第一批”，不是已核实的实际生产批次，也未与当前货架货物关联；不会向顾客公开。',
     intendedVessel: '拟载船舶及航次（提单）', carrier: '承运公司',
-    carrierUnverified: '提单未明确记载承运公司；“MSC”仅出现于船名，不能据此认定承运主体',
+    carrierUnverified: '尚未核实，先留空；待有明确来源单据再填写。',
     container: '集装箱号（提单）', route: '装货港 → 卸货港',
     shipmentTotals: '整票货物（提单/装箱单）', cartons: '箱',
     totalNotThisSku: '整票合计，并非此规格数量', measurements: '整票重量 / 体积',
