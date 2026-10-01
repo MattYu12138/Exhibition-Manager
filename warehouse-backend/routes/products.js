@@ -7,6 +7,7 @@ const router = express.Router();
 const { db } = require('../db');
 const { requireLogin } = require('../middleware/auth');
 const { resolveWarehouse } = require('../middleware/warehouseContext');
+const { listDocuments, verifiedDocument } = require('../services/tradeDocuments');
 
 // GET /api/products  搜索产品（支持名称/SKU/barcode）
 router.get('/', requireLogin, (req, res) => {
@@ -87,6 +88,7 @@ router.get('/barcode/:barcode', requireLogin, (req, res) => {
       stockByVariant.set(stock.shopify_variant_id, list);
     }
     const evidenceAccess = req.session?.user?.role === 'admin';
+    const sourceFilesByShipment = new Map();
     if (evidenceAccess) {
       db.prepare(`INSERT INTO warehouse_trade_access_log (actor_user_id, warehouse_id, barcode)
         VALUES (?, ?, ?)`).run(String(req.session.user.id), layoutId, barcode);
@@ -101,24 +103,33 @@ router.get('/barcode/:barcode', requireLogin, (req, res) => {
         SELECT tl.document_sku, tl.document_title, tl.document_size,
           tl.po_quantity, tl.invoice_quantity, tl.packing_quantity,
           tl.match_method, tl.shopify_variant_id,
+          s.id AS trade_shipment_id,
           s.po_ref, s.invoice_ref, s.packing_ref, s.bol_ref,
           s.supplier_name, s.shipped_at, s.reported_arrival_at,
           s.intended_vessel_voyage, s.container_no, s.delivery_term,
           s.bol_gross_weight_kg, s.bol_measurement_cbm,
           s.packing_net_weight_kg, s.packing_gross_weight_kg,
           s.port_of_loading, s.port_of_discharge,
-          s.declared_cartons, s.declared_units
+          s.declared_cartons, s.declared_units,
+          s.internal_batch_label, s.internal_batch_source_kind,
+          s.source_checksums
         FROM warehouse_trade_shipment_lines tl
         JOIN warehouse_trade_shipments s ON s.id = tl.shipment_id
         WHERE tl.shopify_variant_id = ? OR tl.barcode = ?
         ORDER BY s.shipped_at DESC, tl.document_sku LIMIT 30
       `).all(match.shopify_variant_id, barcode) : [];
-      match.trade_documents = documentaryLines.map(({ shopify_variant_id, match_method, ...line }) => ({
-        ...line,
-        relation: match_method === 'exact_sku' && shopify_variant_id === match.shopify_variant_id
-          ? 'catalogue_sku_candidate' : 'barcode_candidate',
-        evidence_status: 'commercial_documents_only',
-      }));
+      match.trade_documents = documentaryLines.map(({ shopify_variant_id, match_method, source_checksums, ...line }) => {
+        if (!sourceFilesByShipment.has(line.trade_shipment_id)) {
+          sourceFilesByShipment.set(line.trade_shipment_id, listDocuments({ ...line, source_checksums, id: line.trade_shipment_id }));
+        }
+        return {
+          ...line,
+          source_documents: sourceFilesByShipment.get(line.trade_shipment_id),
+          relation: match_method === 'exact_sku' && shopify_variant_id === match.shopify_variant_id
+            ? 'catalogue_sku_candidate' : 'barcode_candidate',
+          evidence_status: 'commercial_documents_only',
+        };
+      });
       match.stock_source_status = 'trade_shipment_to_stock_unverified';
     }
     res.json({ success: true, data: { barcode, layout_id: layoutId, matches,
@@ -126,6 +137,39 @@ router.get('/barcode/:barcode', requireLogin, (req, res) => {
   } catch (err) {
     console.error('[products] barcode lookup:', err.message);
     res.status(500).json({ success: false, message: '条码查询失败，请稍后重试' });
+  }
+});
+
+// Admin-only original-document retrieval. The immutable shipment ID and
+// allowlisted kind map to a private file with a checked SHA-256 digest.
+router.get('/barcode/:barcode/documents/:shipmentId/:kind', requireLogin, (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  res.set('X-Content-Type-Options', 'nosniff');
+  try {
+    if (req.session?.user?.role !== 'admin') return res.status(403).json({ success: false, message: '管理员权限不足' });
+    const { barcode, shipmentId, kind } = req.params;
+    if (!/^\d{8}$/.test(barcode) || !/^[A-Za-z0-9_-]{1,80}$/.test(shipmentId)) {
+      return res.status(400).json({ success: false, message: '无效的条码或单据编号' });
+    }
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
+    const shipment = db.prepare(`SELECT s.* FROM warehouse_trade_shipments s
+      WHERE s.id = ? AND EXISTS (SELECT 1 FROM warehouse_trade_shipment_lines tl
+        LEFT JOIN product_variants pv ON pv.shopify_variant_id = tl.shopify_variant_id
+        WHERE tl.shipment_id = s.id AND (tl.barcode = ? OR TRIM(pv.gtin) = ?))`).get(shipmentId, barcode, barcode);
+    if (!shipment) return res.status(404).json({ success: false, message: '未找到相关单据' });
+    const file = verifiedDocument(shipment, kind);
+    if (!file) return res.status(404).json({ success: false, message: '原件不可用或完整性核验失败' });
+    db.prepare(`INSERT INTO warehouse_trade_document_access_log
+      (actor_user_id, warehouse_id, barcode, shipment_id, document_kind) VALUES (?, ?, ?, ?, ?)`)
+      .run(String(req.session.user.id), layoutId, barcode, shipmentId, kind);
+    res.set('Content-Disposition', `attachment; filename="${file.filename}"`);
+    res.type(file.filename.endsWith('.pdf') ? 'application/pdf'
+      : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    return res.send(file.content);
+  } catch (error) {
+    console.error('[products] private trade document:', error.message);
+    return res.status(500).json({ success: false, message: '读取内部单据失败' });
   }
 });
 

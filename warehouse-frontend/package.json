@@ -13,6 +13,8 @@
   "description": "Warehouse Manager Frontend",
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
+    "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.21.3",
     "axios": "^1.13.6",
     "echarts": "^6.1.0",
     "element-plus": "^2.13.6",

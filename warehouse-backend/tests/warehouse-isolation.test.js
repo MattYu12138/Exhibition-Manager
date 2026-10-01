@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { test } = require('node:test');
 const express = require('express');
@@ -9,6 +10,7 @@ const Database = require('better-sqlite3');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'warehouse-isolation-'));
 process.env.DB_PATH = path.join(tmp, 'LIC_DB.db');
+process.env.PRIVATE_TRADE_DOCUMENTS_DIR = path.join(tmp, 'private-trade');
 const seed = new Database(process.env.DB_PATH);
 seed.exec(`
   CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT);
@@ -136,13 +138,20 @@ test('layouts, stock, picking and replenishment stay isolated by warehouse ID', 
     })).status, 404, 'internal transfers cannot cross warehouses');
     assert.equal((await call('GET', '/locations', one)).body.data[0].total_qty, 5);
     assert.equal((await call('GET', '/locations', two)).body.data[0].total_qty, 6);
+    const privateDir = path.join(process.env.PRIVATE_TRADE_DOCUMENTS_DIR, 'S-TEST');
+    fs.mkdirSync(privateDir, { recursive: true });
+    const originalBill = Buffer.from('%PDF-test-private-source');
+    const billPath = path.join(privateDir, 'bill_of_lading.pdf');
+    fs.writeFileSync(billPath, originalBill);
+    const checksums = JSON.stringify({ bill_of_lading: crypto.createHash('sha256').update(originalBill).digest('hex') });
     db.prepare(`INSERT INTO warehouse_trade_shipments
       (id, po_ref, invoice_ref, packing_ref, bol_ref, source_checksums, declared_units,
        shipped_at, reported_arrival_at, intended_vessel_voyage, container_no,
-       bol_gross_weight_kg, packing_gross_weight_kg, delivery_term)
-      VALUES ('S-TEST', 'PO-TEST', 'INV-TEST', 'PL-TEST', 'BOL-TEST', '{}', 2,
+       bol_gross_weight_kg, packing_gross_weight_kg, delivery_term,
+       internal_batch_label, internal_batch_source_kind)
+      VALUES ('S-TEST', 'PO-TEST', 'INV-TEST', 'PL-TEST', 'BOL-TEST', ?, 2,
         '2026-07-30', '2026-08-20', 'MSC ODESSA V 29S', 'XHCU5641810',
-        1039, 1038.8, 'DDU')`).run();
+        1039, 1038.8, 'DDU', '第一批', 'user_instruction_provisional')`).run(checksums);
     db.prepare(`INSERT INTO warehouse_trade_shipment_lines
       (id, shipment_id, document_sku, document_title, barcode, po_quantity, invoice_quantity,
        packing_quantity, shopify_variant_id, match_method)
@@ -191,6 +200,14 @@ test('layouts, stock, picking and replenishment stay isolated by warehouse ID', 
     assert.equal(shipment.packing_gross_weight_kg, 1038.8);
     assert.equal(shipment.bol_gross_weight_kg, 1039);
     assert.equal(shipment.delivery_term, 'DDU');
+    assert.equal(shipment.internal_batch_label, '第一批');
+    assert.equal(shipment.internal_batch_source_kind, 'user_instruction_provisional');
+    assert.equal(shipment.source_documents.length, 5);
+    assert.deepEqual(shipment.source_documents.map(doc => doc.kind), [
+      'purchase_order', 'invoice', 'packing_list', 'bill_of_lading', 'barcode_working_copy',
+    ]);
+    assert.equal(shipment.source_documents.find(doc => doc.kind === 'bill_of_lading').available, true);
+    assert.equal(shipment.source_documents.find(doc => doc.kind === 'invoice').available, false);
     assert.equal(lineEvidence.stock_source_status, 'trade_shipment_to_stock_unverified');
     assert.equal(barcodeInOne.body.data.matches.find(item => item.shopify_variant_id === 'V2').trade_documents[0].relation, 'barcode_candidate');
     assert.ok(!JSON.stringify(lineEvidence).includes('source_checksums'), 'never expose raw evidence file hashes to barcode viewers');
@@ -202,6 +219,29 @@ test('layouts, stock, picking and replenishment stay isolated by warehouse ID', 
     assert.equal(viewerBody.data.evidence_access, false);
     assert.deepEqual(viewerBody.data.matches[0].trade_documents, []);
     assert.ok(!JSON.stringify(viewerBody).includes('PO-TEST'));
+    assert.ok(!JSON.stringify(viewerBody).includes('第一批'), 'internal group cannot be sent to non-admins');
+    assert.ok(!JSON.stringify(viewerBody).includes('bill_of_lading.pdf'));
+    const billUrl = `/products/barcode/01234567/documents/S-TEST/bill_of_lading`;
+    const originalDownload = await fetch(`http://127.0.0.1:${port}/api${billUrl}`, {
+      headers: { 'X-Warehouse-Id': one },
+    });
+    assert.equal(originalDownload.status, 200);
+    assert.equal(originalDownload.headers.get('cache-control'), 'private, no-store');
+    assert.deepEqual(Buffer.from(await originalDownload.arrayBuffer()), originalBill);
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM warehouse_trade_document_access_log').get().n, 1);
+    const deniedDownload = await fetch(`http://127.0.0.1:${port}/api${billUrl}`, {
+      headers: { 'X-Warehouse-Id': one, 'X-Test-Viewer': 'yes' },
+    });
+    assert.equal(deniedDownload.status, 403);
+    assert.equal((await fetch(`http://127.0.0.1:${port}/api/products/barcode/00000000/documents/S-TEST/bill_of_lading`, {
+      headers: { 'X-Warehouse-Id': one },
+    })).status, 404, 'a document cannot be fetched using an unrelated barcode');
+    fs.writeFileSync(billPath, Buffer.from('%PDF-modified'));
+    assert.equal((await fetch(`http://127.0.0.1:${port}/api${billUrl}`, {
+      headers: { 'X-Warehouse-Id': one },
+    })).status, 404, 'source bytes must match their original SHA-256 before download');
+    assert.equal(db.prepare('SELECT COUNT(*) n FROM warehouse_trade_document_access_log').get().n, 1);
+    fs.writeFileSync(billPath, originalBill);
     assert.ok(db.prepare('SELECT COUNT(*) n FROM warehouse_trade_access_log').get().n >= 2,
       'admin evidence lookups should have an auditable read trail');
     assert.equal(barcodeInOne.body.data.matches.find(item => item.shopify_variant_id === 'V2').total_quantity, 0,

@@ -265,6 +265,10 @@ db.exec(`
     reported_arrival_at TEXT,
     arrival_reported_by TEXT,
     arrival_reported_at TEXT,
+    internal_batch_label TEXT,
+    internal_batch_source_kind TEXT,
+    internal_batch_recorded_by TEXT,
+    internal_batch_recorded_at TEXT,
     source_checksums TEXT NOT NULL,
     imported_by TEXT NOT NULL DEFAULT 'unknown',
     importer_version TEXT NOT NULL DEFAULT 'unknown',
@@ -293,6 +297,15 @@ db.exec(`
     actor_user_id TEXT NOT NULL,
     warehouse_id TEXT NOT NULL,
     barcode TEXT NOT NULL,
+    accessed_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS warehouse_trade_document_access_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_user_id TEXT NOT NULL,
+    warehouse_id TEXT NOT NULL,
+    barcode TEXT NOT NULL,
+    shipment_id TEXT NOT NULL,
+    document_kind TEXT NOT NULL,
     accessed_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
   CREATE TABLE IF NOT EXISTS warehouse_trade_metadata_audit_log (
@@ -331,6 +344,10 @@ for (const [field, sql] of Object.entries({
   bol_gross_weight_kg: 'REAL', bol_measurement_cbm: 'REAL', delivery_term: 'TEXT',
   packing_net_weight_kg: 'REAL', packing_gross_weight_kg: 'REAL',
   reported_arrival_at: 'TEXT', arrival_reported_by: 'TEXT', arrival_reported_at: 'TEXT',
+  // A user-assigned shipment grouping is not a manufacturing lot. Never copy
+  // this into traceability_records.batch_no or onto customer-facing labels.
+  internal_batch_label: 'TEXT', internal_batch_source_kind: 'TEXT',
+  internal_batch_recorded_by: 'TEXT', internal_batch_recorded_at: 'TEXT',
 })) addColumn('warehouse_trade_shipments', field, sql);
 addColumn('warehouse_pick_tasks', 'layout_id', 'TEXT REFERENCES warehouse_layouts(id) ON DELETE SET NULL');
 if (hasTable('warehouse_pick_tasks')) {

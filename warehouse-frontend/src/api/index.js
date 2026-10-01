@@ -83,6 +83,7 @@ export const pickingApi = {
 export const productApi = {
   search: (search, limit) => api.get('/products', { params: { search, limit } }),
   lookupBarcode: (barcode) => api.get(`/products/barcode/${encodeURIComponent(barcode)}`),
+  downloadTradeDocument: (barcode, shipmentId, kind) => api.get(`/products/barcode/${encodeURIComponent(barcode)}/documents/${encodeURIComponent(shipmentId)}/${encodeURIComponent(kind)}`, { responseType: 'blob', timeout: 30000 }),
   getVariant: (variantId) => api.get(`/products/variant/${variantId}`),
   getExhibitions: () => api.get('/products/exhibitions'),
   getInboundShipments: () => api.get('/products/inbound-shipments'),
