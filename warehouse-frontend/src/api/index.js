@@ -14,7 +14,10 @@ api.interceptors.request.use((config) => {
 })
 api.interceptors.response.use(
   (response) => response.data,
-  (error) => {
+  async (error) => {
+    if (error.response?.data instanceof Blob) {
+      try { error.response.data = JSON.parse(await error.response.data.text()) } catch { /* non-JSON download failure */ }
+    }
     if (error.response?.status === 401) {
       // 如果 URL 中有 sso_token，说明 SSO 登录正在进行，不要跳转到 /login
       const hasSsoToken = new URLSearchParams(window.location.search).has('sso_token')
@@ -43,11 +46,13 @@ export const locationApi = {
   adjustInventory: (id, itemId, data) => api.patch(`/locations/${id}/inventory/${itemId}`, data),
   removeInventory: (id, itemId) => api.delete(`/locations/${id}/inventory/${itemId}`),
   deleteInventory: (id, itemId) => api.delete(`/locations/${id}/inventory/${itemId}`),
+  removeInventoryStock: (id, itemId, data) => api.post(`/locations/${id}/inventory/${itemId}/remove`, data),
   transferInventory: (id, data) => api.post(`/locations/${id}/transfer`, data),
   transfer: (id, data) => api.post(`/locations/${id}/transfer`, data),
   setThreshold: (id, data) => api.patch(`/locations/${id}/threshold`, data),
   updateThreshold: (id, value) => api.patch(`/locations/${id}/threshold`, { low_stock_threshold: value }),
   getQrCode: (id) => api.get(`/locations/${id}/qrcode`),
+  exportQrCodes: (locationIds) => api.post('/locations/qrcodes/export', { location_ids: locationIds }, { responseType: 'blob', timeout: 120000 }),
   getHistory: (id) => api.get(`/locations/${id}/history`),
   scan: (token) => api.get(`/locations/scan/${token}`),
   getAlerts: () => api.get("/locations/alerts"),

@@ -12,6 +12,9 @@ const seed = new Database(process.env.DB_PATH);
 seed.exec(`
   CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT);
   INSERT INTO users VALUES ('admin-test', 'Admin');
+  INSERT INTO users VALUES ('viewer-test', 'Viewer');
+  CREATE TABLE platform_permissions (user_id TEXT, system TEXT, role TEXT);
+  INSERT INTO platform_permissions VALUES ('viewer-test','warehouse-manager','viewer');
   CREATE TABLE products (id TEXT PRIMARY KEY, title TEXT, product_type TEXT, main_image TEXT, status TEXT);
   INSERT INTO products (id, title, status) VALUES ('P1', 'Test romper', 'active'), ('P2', 'Archived item', 'archived');
   CREATE TABLE product_variants (id TEXT, shopify_variant_id TEXT PRIMARY KEY, product_id TEXT, variant_title TEXT,
@@ -34,7 +37,12 @@ const { db } = require('../db');
 const app = express();
 app.use(express.json());
 app.use(require('../middleware/localizeResponse').localizeResponse);
-app.use((req, res, next) => { req.session = req.get('X-Test-Anonymous') ? {} : { user: { id: 'admin-test', role: 'admin' } }; next(); });
+app.use((req, res, next) => {
+  req.session = req.get('X-Test-Anonymous') ? {} : req.get('X-Test-Viewer')
+    ? { user: { id: 'viewer-test', role: 'staff' } }
+    : { user: { id: 'admin-test', role: 'admin' } };
+  next();
+});
 app.use('/api/layouts', require('../routes/layouts'));
 app.use('/api/locations', require('../routes/locations'));
 app.use('/api/picking', require('../routes/picking'));
@@ -92,6 +100,23 @@ test('layouts, stock, picking and replenishment stay isolated by warehouse ID', 
     assert.notEqual(loc1, loc2);
     assert.equal((await call('GET', `/locations/${loc1}`, two)).status, 404);
     assert.equal((await call('GET', `/locations?layout_id=${two}`, one)).status, 409);
+
+    const download = (ids, selectedWarehouse, extraHeaders = {}) => fetch(`http://127.0.0.1:${port}/api/locations/qrcodes/export`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Warehouse-Id': selectedWarehouse, ...extraHeaders },
+      body: JSON.stringify({ location_ids: ids }),
+    });
+    const labelPdf = await download([loc1], one);
+    assert.equal(labelPdf.status, 200);
+    assert.match(labelPdf.headers.get('content-type'), /^application\/pdf/);
+    assert.match(labelPdf.headers.get('content-disposition'), /J8168\.pdf/);
+    assert.equal(Buffer.from(await labelPdf.arrayBuffer()).subarray(0, 5).toString(), '%PDF-');
+    assert.equal((await download([loc1, loc1], one)).status, 400, 'duplicate selected shelves cannot be printed twice accidentally');
+    assert.equal((await download([], one)).status, 400);
+    assert.equal((await download([loc1, loc2], one)).status, 404, 'do not export a QR token from another warehouse');
+    assert.equal((await download([loc1], two)).status, 404);
+    assert.equal((await download([loc1], one, { 'X-Test-Anonymous': 'yes' })).status, 401);
+    assert.equal((await download([loc1], one, { 'X-Test-Viewer': 'yes' })).status, 200,
+      'a warehouse viewer can export read-only shelf QR labels');
 
     assert.equal((await call('POST', `/locations/${loc1}/inventory`, one, {
       shopify_variant_id: 'V1', quantity: 2, stock_type: 'retail',
@@ -254,6 +279,39 @@ test('layouts, stock, picking and replenishment stay isolated by warehouse ID', 
     assert.equal((await call('PATCH', '/layouts/unassigned/replenishment/legacy-inbound', one, { layout_id: two })).status, 200);
     assert.equal((await call('GET', '/layouts/unassigned', one)).body.data.length, 1);
     assert.equal((await call('GET', '/picking/tasks', one)).body.data.some(x => x.id === 'legacy-empty'), true);
+
+    const removeRow = db.prepare(`
+      SELECT id, quantity FROM warehouse_inventory
+      WHERE location_id = ? AND stock_type = 'retail_storage'
+    `).get(loc1);
+    assert.equal(removeRow.quantity, 3);
+    const removePath = `/locations/${loc1}/inventory/${removeRow.id}/remove`;
+    assert.equal((await call('POST', removePath, two, { expected_quantity: 3 })).status, 404,
+      'other warehouses cannot remove stock from this location');
+    assert.equal((await call('POST', removePath, one, { expected_quantity: 2 })).status, 409,
+      'stale removal never changes stock');
+    assert.equal((await call('POST', removePath, one, { expected_quantity: 0 })).status, 400);
+    const viewerRemove = await fetch(`http://127.0.0.1:${port}/api${removePath}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Warehouse-Id': one, 'X-Test-Viewer': 'yes' },
+      body: JSON.stringify({ expected_quantity: 3 }),
+    });
+    assert.equal(viewerRemove.status, 403, 'read-only Warehouse viewers cannot remove stock');
+    assert.equal(db.prepare('SELECT quantity FROM warehouse_inventory WHERE id = ?').get(removeRow.id).quantity, 3);
+    const beforeRemovalMovements = db.prepare('SELECT COUNT(*) AS count FROM warehouse_movements WHERE inventory_id = ?').get(removeRow.id).count;
+    const removed = await call('POST', removePath, one, { expected_quantity: 3, note: 'Found physical shortage' });
+    assert.equal(removed.status, 200);
+    assert.equal(removed.body.data.removed_quantity, 3);
+    assert.equal(db.prepare('SELECT quantity FROM warehouse_inventory WHERE id = ?').get(removeRow.id).quantity, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM warehouse_movements WHERE inventory_id = ?').get(removeRow.id).count, beforeRemovalMovements + 1);
+    const movement = db.prepare('SELECT movement_type, quantity_delta, quantity_before, quantity_after, reference_type, note FROM warehouse_movements WHERE inventory_id = ? ORDER BY operated_at DESC, rowid DESC LIMIT 1').get(removeRow.id);
+    assert.deepEqual(movement, { movement_type: 'outbound', quantity_delta: -3, quantity_before: 3,
+      quantity_after: 0, reference_type: 'manual_remove', note: 'Found physical shortage' });
+    assert.equal((await call('POST', removePath, one, { expected_quantity: 3 })).status, 409,
+      'retry cannot deduct again or write a second movement');
+    assert.equal((await call('DELETE', `/locations/${loc1}/inventory/${removeRow.id}`, one)).status, 409,
+      'the removed item remains as a historical zero-quantity inventory record');
+    assert.equal((await call('GET', '/locations', two)).body.data[0].total_qty, 6,
+      'stock removal must not modify a same-named second warehouse');
   } finally {
     await new Promise(resolve => server.close(resolve));
     db.close();

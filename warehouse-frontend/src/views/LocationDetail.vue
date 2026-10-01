@@ -29,7 +29,7 @@
                 <el-tag :type="stockAlert === 'ok' ? 'success' : stockAlert === 'low' ? 'warning' : 'danger'">{{ $t('common.pieces', { count: totalQty }) }}</el-tag>
               </div>
             </template>
-            <el-table :data="inventory" size="default">
+            <el-table :data="currentInventory" size="default">
               <el-table-column :label="$t('common.product')" min-width="200">
                 <template #default="{ row }">
                   <div class="product-cell">
@@ -67,14 +67,68 @@
               <el-table-column :label="$t('locationDetail.receivedAt')" width="110">
                 <template #default="{ row }"><span class="date-text">{{ formatDate(row.created_at) }}</span></template>
               </el-table-column>
-              <el-table-column label="" width="50">
+              <el-table-column :label="$t('locationDetail.actions')" width="170">
                 <template #default="{ row }">
-                  <el-button v-if="row.quantity === 0 && !row.movement_count" text type="danger" size="small"
-                    :title="$t('locationDetail.deleteEmptyDraft')" @click="deleteInventory(row)"><el-icon><Delete /></el-icon></el-button>
+                  <el-button
+                    v-if="row.quantity > 0 && authStore.canWrite"
+                    text
+                    type="danger"
+                    size="small"
+                    :loading="removingInventoryIds.has(row.id)"
+                    :disabled="removingInventoryIds.has(row.id)"
+                    @click="removeInventoryStock(row)"
+                  >
+                    {{ $t('locationDetail.removeStock') }}
+                  </el-button>
                 </template>
               </el-table-column>
             </el-table>
-            <el-empty v-if="!loading && inventory.length === 0" :description="$t('common.noInventory')" :image-size="60" />
+            <el-empty v-if="!loading && currentInventory.length === 0" :description="$t('common.noInventory')" :image-size="60" />
+
+            <el-collapse v-if="zeroStockRecords.length > 0" class="zero-stock-records">
+              <el-collapse-item name="zero-stock-records">
+                <template #title>
+                  <span>{{ $t('locationDetail.zeroStockRecords', { count: zeroStockRecords.length }) }}</span>
+                </template>
+                <p class="zero-stock-hint">{{ $t('locationDetail.zeroStockRecordsHint') }}</p>
+                <el-table :data="zeroStockRecords" size="small">
+                  <el-table-column :label="$t('common.product')" min-width="180">
+                    <template #default="{ row }">
+                      <div class="product-cell">
+                        <img v-if="row.image_url" :src="row.image_url" class="product-thumb" />
+                        <div>
+                          <div class="product-title">{{ row.product_title }}</div>
+                          <div class="product-variant">{{ row.variant_title }}</div>
+                          <div class="product-sku">SKU: {{ row.sku }}</div>
+                        </div>
+                      </div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column :label="$t('common.type')" width="120">
+                    <template #default="{ row }">
+                      <el-tag size="small" :type="row.stock_type === 'exhibition' ? 'warning' : row.stock_type === 'retail_storage' ? 'info' : 'primary'">
+                        {{ stockTypeLabel(row.stock_type) }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column :label="$t('locationDetail.actions')" width="170">
+                    <template #default="{ row }">
+                      <el-button
+                        v-if="!row.movement_count"
+                        text
+                        type="danger"
+                        size="small"
+                        :title="$t('locationDetail.deleteEmptyDraft')"
+                        @click="deleteInventory(row)"
+                      >
+                        {{ $t('locationDetail.deleteEmptyDraft') }}
+                      </el-button>
+                      <span v-else class="history-preserved">{{ $t('locationDetail.historyPreserved') }}</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </el-collapse-item>
+            </el-collapse>
           </el-card>
         </el-col>
 
@@ -201,14 +255,16 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { locationApi, productApi } from '@/api/index.js'
-import { ArrowLeft, Plus, Minus, Delete, Printer, Loading } from '@element-plus/icons-vue'
+import { ArrowLeft, Plus, Minus, Printer, Loading } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { localizedError } from '@/i18n'
 import { useWarehouseStore } from '@/stores/warehouse'
+import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
 const router = useRouter()
 const warehouseStore = useWarehouseStore()
+const authStore = useAuthStore()
 const { t, locale } = useI18n()
 const locationId = route.params.id
 
@@ -228,8 +284,11 @@ const thresholdDirty = ref(false)
 const thresholdSaving = ref(false)
 const transferAvailable = ref([])
 const adjustingInventoryIds = ref(new Set())
+const removingInventoryIds = ref(new Set())
 const addForm = ref({ shopify_variant_id: null, quantity: 1, stock_type: 'retail_display', exhibition_id: null, note: '' })
-const totalQty = computed(() => inventory.value.reduce((s, i) => s + i.quantity, 0))
+const currentInventory = computed(() => inventory.value.filter(item => item.quantity > 0))
+const zeroStockRecords = computed(() => inventory.value.filter(item => item.quantity === 0))
+const totalQty = computed(() => currentInventory.value.reduce((s, i) => s + i.quantity, 0))
 const stockAlert = computed(() => {
   if (!location.value) return 'ok'
   const threshold = location.value.low_stock_threshold ?? 10
@@ -258,16 +317,16 @@ function logLabel(log) {
 async function loadData() {
   loading.value = true
   try {
-    const [locRes, qrRes, exRes] = await Promise.all([
-      locationApi.get(locationId),
-      locationApi.getQrCode(locationId),
-      productApi.getExhibitions(),
-    ])
+    const locRes = await locationApi.get(locationId)
     location.value = locRes.data
     inventory.value = locRes.data.inventory || []
     logs.value = locRes.data.logs || []
-    qrCodeUrl.value = qrRes.data?.qr_data_url || ''
-    exhibitions.value = exRes.data || []
+    // QR and the optional Exhibition picker must not block the core stock list.
+    const [qrResult, exResult] = await Promise.allSettled([
+      locationApi.getQrCode(locationId), productApi.getExhibitions(),
+    ])
+    qrCodeUrl.value = qrResult.status === 'fulfilled' ? qrResult.value.data?.qr_data_url || '' : ''
+    exhibitions.value = exResult.status === 'fulfilled' ? exResult.value.data || [] : []
     thresholdInput.value = location.value?.low_stock_threshold ?? 10
     thresholdDirty.value = false
     await loadTransferAvailable()
@@ -373,6 +432,38 @@ async function adjustQty(row, delta) {
   finally { adjustingInventoryIds.value.delete(row.id) }
 }
 
+function inventoryProductLabel(row) {
+  return [row.product_title, row.variant_title].filter(Boolean).join(' · ') || row.sku || '—'
+}
+
+async function removeInventoryStock(row) {
+  if (row.quantity <= 0 || removingInventoryIds.value.has(row.id)) return
+  const expectedQuantity = row.quantity
+  try {
+    await ElMessageBox.confirm(
+      t('locationDetail.removeStockConfirm', {
+        product: inventoryProductLabel(row),
+        count: expectedQuantity,
+        stockType: stockTypeLabel(row.stock_type),
+      }),
+      t('locationDetail.removeStockTitle'),
+      { type: 'warning', confirmButtonText: t('locationDetail.confirmRemoveStock'), cancelButtonText: t('common.cancel') }
+    )
+  } catch { return }
+
+  removingInventoryIds.value.add(row.id)
+  try {
+    await locationApi.removeInventoryStock(locationId, row.id, { expected_quantity: expectedQuantity })
+    ElMessage.success(t('locationDetail.removeStockSuccess', { count: expectedQuantity }))
+    // The backend keeps the row and movement history at a zero quantity.
+    await loadData()
+  } catch (err) {
+    ElMessage.error(localizedError(err, t, 'locationDetail.removeStockFailed'))
+  } finally {
+    removingInventoryIds.value.delete(row.id)
+  }
+}
+
 async function deleteInventory(row) {
   if (row.quantity !== 0) return
   try {
@@ -453,6 +544,9 @@ onMounted(loadData)
 .exhibition-tag{font-size:12px;color:#E6A23C}
 .no-link{color:#c0c4cc}
 .date-text{font-size:12px;color:#909399}
+.zero-stock-records{margin-top:16px}
+.zero-stock-hint{font-size:12px;color:#909399;margin:0 0 12px}
+.history-preserved{font-size:12px;color:#909399}
 .qr-card{text-align:center}
 .qr-wrapper{display:flex;justify-content:center;padding:16px 0 8px}
 .qr-image{width:160px;height:160px}

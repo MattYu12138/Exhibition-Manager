@@ -8,6 +8,7 @@ const QRCode = require('qrcode');
 const { db, nextInventoryId, nextMovementId } = require('../db');
 const { requireLogin, requireStaff, requireAdmin } = require('../middleware/auth');
 const { resolveWarehouse, requireLocation } = require('../middleware/warehouseContext');
+const { createJ8168Labels } = require('../services/labelSheets');
 
 // ── GET /api/locations  列出所有货位（支持按布局/区域筛选） ─────────────────
 router.get('/', requireLogin, (req, res) => {
@@ -63,6 +64,43 @@ router.get('/', requireLogin, (req, res) => {
   } catch (err) {
     console.error('[locations] list:', err.message);
     res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── POST /api/locations/qrcodes/export  Avery J8168, 2 labels per A4 sheet ──
+router.post('/qrcodes/export', requireLogin, async (req, res) => {
+  try {
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
+    const ids = req.body?.location_ids;
+    if (!Array.isArray(ids) || ids.length < 1 || ids.length > 500 ||
+        ids.some(id => typeof id !== 'string' || id.length === 0 || id.length > 64) ||
+        new Set(ids).size !== ids.length) {
+      return res.status(400).json({ success: false, message: '请选择 1–500 个不同货位' });
+    }
+    const placeholders = ids.map(() => '?').join(',');
+    const locations = db.prepare(`
+      SELECT id, code, qr_token FROM warehouse_locations
+      WHERE layout_id = ? AND is_active = 1 AND id IN (${placeholders})
+    `).all(layoutId, ...ids);
+    if (locations.length !== ids.length) {
+      return res.status(404).json({ success: false, message: '部分货位不属于所选仓库或已停用' });
+    }
+    const byId = new Map(locations.map(location => [location.id, location]));
+    const ordered = ids.map(id => byId.get(id));
+    if (ordered.some(location => !location.qr_token)) {
+      return res.status(409).json({ success: false, message: '部分货位缺少二维码，请联系管理员' });
+    }
+    const pdf = await createJ8168Labels(ordered, process.env.FRONTEND_URL || 'http://localhost:5174', layoutId);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="Warehouse-QR-${layoutId}-J8168.pdf"`,
+      'Cache-Control': 'no-store',
+    });
+    res.send(pdf);
+  } catch (err) {
+    console.error('[locations] export QR labels:', err);
+    res.status(500).json({ success: false, message: '二维码标签生成失败，请重试' });
   }
 });
 
@@ -444,6 +482,51 @@ router.patch('/:id/inventory/:invId', requireStaff, (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('[locations] adjust inventory:', err.message);
+    res.status(err.status || 500).json({ success: false, message: err.message });
+  }
+});
+
+// ── POST /api/locations/:id/inventory/:invId/remove  移出货架、保留审计 ────────
+router.post('/:id/inventory/:invId/remove', requireStaff, (req, res) => {
+  try {
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
+    if (!requireLocation(req, res, req.params.id, layoutId)) return;
+    const { expected_quantity, note } = req.body || {};
+    if (!Number.isSafeInteger(expected_quantity) || expected_quantity <= 0) {
+      return res.status(400).json({ success: false, message: '请提供当前货架上的正整数库存数量' });
+    }
+    if (note !== undefined && (typeof note !== 'string' || note.length > 500)) {
+      return res.status(400).json({ success: false, message: '备注不得超过 500 字符' });
+    }
+    const removed = db.transaction(() => {
+      const inv = db.prepare(`
+        SELECT * FROM warehouse_inventory WHERE id = ? AND location_id = ?
+      `).get(req.params.invId, req.params.id);
+      if (!inv) throw Object.assign(new Error('库存记录不存在'), { status: 404 });
+      if (inv.quantity !== expected_quantity) {
+        throw Object.assign(new Error('库存数量已经变化，请刷新后再操作'), { status: 409 });
+      }
+      const update = db.prepare(`
+        UPDATE warehouse_inventory SET quantity = 0, updated_at = datetime('now')
+        WHERE id = ? AND quantity = ?
+      `).run(inv.id, expected_quantity);
+      if (update.changes !== 1) {
+        throw Object.assign(new Error('库存数量已经变化，请刷新后再操作'), { status: 409 });
+      }
+      db.prepare(`
+        INSERT INTO warehouse_movements
+          (id, inventory_id, location_id, shopify_variant_id, stock_type,
+           movement_type, quantity_delta, quantity_before, quantity_after,
+           reference_type, reference_id, note, operated_by)
+        VALUES (?, ?, ?, ?, ?, 'outbound', ?, ?, 0, 'manual_remove', ?, ?, ?)
+      `).run(nextMovementId(), inv.id, inv.location_id, inv.shopify_variant_id, inv.stock_type,
+        -inv.quantity, inv.quantity, inv.id, note?.trim() || null, req.session.user.id);
+      return inv.quantity;
+    })();
+    res.json({ success: true, data: { removed_quantity: removed } });
+  } catch (err) {
+    console.error('[locations] remove inventory:', err.message);
     res.status(err.status || 500).json({ success: false, message: err.message });
   }
 });
