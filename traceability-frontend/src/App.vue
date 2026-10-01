@@ -60,6 +60,10 @@
               @blur="inputFocused = false"
             />
           </div>
+          <button class="camera-button" type="button" :disabled="loading" @click="openScanner">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h3l1.4-2h7.2L17 7h3v12H4V7Zm8 3.5a3.2 3.2 0 1 0 0 6.4 3.2 3.2 0 0 0 0-6.4Z"/></svg>
+            {{ copy.scanButton }}
+          </button>
           <button class="primary-button" type="submit" :disabled="loading || !barcode">
             <span v-if="loading" class="spinner" aria-hidden="true"></span>
             <span>{{ loading ? copy.searching : copy.searchButton }}</span>
@@ -206,11 +210,30 @@
       <span>© {{ currentYear }} Lummi in Colour</span>
       <a :href="supportLink">{{ copy.customerCare }}</a>
     </footer>
+
+    <div v-if="scannerOpen" class="scanner-overlay" @click.self="closeScanner">
+      <section class="scanner-dialog" role="dialog" aria-modal="true" aria-labelledby="scanner-title">
+        <header class="scanner-heading">
+          <div>
+            <p class="card-kicker">PRODUCT TRACEABILITY</p>
+            <h2 id="scanner-title">{{ copy.scannerTitle }}</h2>
+          </div>
+          <button type="button" class="scanner-close" :aria-label="copy.closeScanner" @click="closeScanner">&times;</button>
+        </header>
+        <div class="scanner-camera">
+          <video ref="scannerVideo" autoplay muted playsinline :aria-label="copy.scannerTitle"></video>
+          <span class="scanner-target" aria-hidden="true"></span>
+        </div>
+        <p class="scanner-help">{{ copy.scannerHelp }}</p>
+        <p v-if="scannerError" class="scanner-error" role="alert">{{ scannerError }}</p>
+        <button type="button" class="scanner-done" @click="closeScanner">{{ copy.closeScanner }}</button>
+      </section>
+    </div>
   </main>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import axios from 'axios'
 
 const copy = {
@@ -231,6 +254,13 @@ const copy = {
   notFoundTitle: 'We could not verify this barcode',
   contactSupport: 'Contact customer care',
   privacyNote: 'Your search is used only to retrieve product information and improve this service.',
+  scanButton: 'Scan with camera',
+  scannerTitle: 'Scan product barcode',
+  scannerHelp: 'Point the camera at the bars on your product label. The 8-digit number will be entered automatically.',
+  scannerWrongCode: 'This is not an 8-digit product barcode. Try another label.',
+  scannerUnavailable: 'The camera is unavailable. Please type the 8-digit number instead.',
+  scannerPermission: 'Camera access was not granted. Allow access in your browser settings, or type the barcode.',
+  closeScanner: 'Close camera',
   traceabilityEnglish: 'PRODUCT TRACEABILITY',
   traceabilityTitle: 'Product traceability',
   verified: 'Verified record',
@@ -262,7 +292,72 @@ const pendingProduct = ref(null)
 const error = ref('')
 const supportEmail = ref('admin@lummiincolour.com.au')
 const currentYear = new Date().getFullYear()
+const scannerOpen = ref(false)
+const scannerError = ref('')
+const scannerVideo = ref(null)
+let scannerControls = null
+let scanSession = 0
 const supportLink = computed(() => `mailto:${supportEmail.value}?subject=${encodeURIComponent('Product traceability enquiry')}`)
+
+function closeScanner() {
+  scanSession += 1
+  scannerControls?.stop()
+  scannerControls = null
+  const video = scannerVideo.value
+  if (video?.srcObject) {
+    video.srcObject.getTracks().forEach(track => track.stop())
+    video.srcObject = null
+  }
+  scannerOpen.value = false
+  scannerError.value = ''
+}
+
+async function openScanner() {
+  if (scannerOpen.value || loading.value) return
+  const session = ++scanSession
+  scannerOpen.value = true
+  scannerError.value = ''
+  await nextTick()
+  if (!navigator.mediaDevices?.getUserMedia) {
+    scannerError.value = copy.scannerUnavailable
+    return
+  }
+  try {
+    const [{ BrowserMultiFormatOneDReader }, { BarcodeFormat, DecodeHintType }] = await Promise.all([
+      import('@zxing/browser'), import('@zxing/library'),
+    ])
+    if (session !== scanSession || !scannerOpen.value) return
+    const hints = new Map([[DecodeHintType.POSSIBLE_FORMATS, [
+      BarcodeFormat.CODE_128, BarcodeFormat.EAN_8, BarcodeFormat.EAN_13, BarcodeFormat.UPC_A,
+    ]]])
+    const reader = new BrowserMultiFormatOneDReader(hints, { delayBetweenScanAttempts: 280 })
+    const controls = await reader.decodeFromConstraints({
+      audio: false,
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+    }, scannerVideo.value, (scanResult) => {
+      if (!scannerOpen.value || session !== scanSession || !scanResult) return
+      const digits = String(scanResult.getText() || '').trim()
+      if (!/^\d{8}$/.test(digits)) {
+        scannerError.value = copy.scannerWrongCode
+        return
+      }
+      barcode.value = digits
+      closeScanner()
+      lookup()
+    })
+    if (session !== scanSession || !scannerOpen.value) controls.stop()
+    else scannerControls = controls
+  } catch (err) {
+    if (session === scanSession && scannerOpen.value) {
+      scannerError.value = ['NotAllowedError', 'PermissionDeniedError', 'SecurityError'].includes(err?.name)
+        ? copy.scannerPermission : copy.scannerUnavailable
+    }
+  }
+}
+
+function handleScannerVisibility() {
+  if (document.hidden && scannerOpen.value) closeScanner()
+}
 
 function displayValue(value) {
   return value || copy.emptyValue
@@ -315,10 +410,15 @@ function resetSearch() {
 
 onMounted(() => {
   document.documentElement.lang = 'en'
+  document.addEventListener('visibilitychange', handleScannerVisibility)
   const initialBarcode = new URLSearchParams(window.location.search).get('barcode')
   if (initialBarcode) {
     barcode.value = initialBarcode
     lookup()
   }
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('visibilitychange', handleScannerVisibility)
+  closeScanner()
 })
 </script>
