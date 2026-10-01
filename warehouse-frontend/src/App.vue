@@ -1,45 +1,57 @@
 <template>
+  <el-config-provider :locale="elementLocale">
   <div class="app-wrapper">
     <el-header v-if="!isHiddenNavPage" class="app-header">
       <div class="header-inner">
         <div class="logo" @click="$router.push('/warehouse')">
           <el-icon size="22" color="#fff"><Box /></el-icon>
-          <span>Warehouse Manager</span>
+          <span>{{ $t('common.appName') }}</span>
         </div>
         <div class="header-nav">
           <el-button text :style="{ color: '#fff' }" @click="$router.push('/warehouse')">
-            <el-icon><HomeFilled /></el-icon> 总览
+            <el-icon><HomeFilled /></el-icon> {{ $t('nav.overview') }}
           </el-button>
           <el-button text :style="{ color: '#fff' }" @click="$router.push('/map')">
-            <el-icon><MapLocation /></el-icon> 仓库地图
+            <el-icon><MapLocation /></el-icon> {{ $t('nav.map') }}
           </el-button>
           <el-button text :style="{ color: '#fff' }" @click="$router.push('/locations')">
-            <el-icon><Grid /></el-icon> 货位
+            <el-icon><Grid /></el-icon> {{ $t('nav.locations') }}
           </el-button>
           <el-button text :style="{ color: '#fff' }" @click="$router.push('/picking')">
-            <el-icon><List /></el-icon> 拣货
+            <el-icon><List /></el-icon> {{ $t('nav.picking') }}
           </el-button>
           <el-button text :style="{ color: '#fff', position: 'relative' }" @click="$router.push('/replenishment')">
-            🚚 补货
+            🚚 {{ $t('nav.replenishment') }}
             <span v-if="pendingReplenishCount > 0" class="nav-badge">{{ pendingReplenishCount }}</span>
           </el-button>
           <el-button v-if="authStore.isAdmin" text :style="{ color: '#fff' }" @click="$router.push('/map/builder')">
-            <el-icon><Setting /></el-icon> 构建器
+            <el-icon><Setting /></el-icon> {{ $t('nav.builder') }}
           </el-button>
         </div>
         <div class="header-user">
+          <el-select v-if="warehouseStore.layouts.length" :model-value="warehouseStore.selectedLayoutId"
+            :placeholder="$t('nav.selectWarehouse')" :aria-label="$t('nav.selectWarehouse')"
+            class="warehouse-selector" size="small" @change="warehouseStore.selectLayout">
+            <el-option v-for="layout in warehouseStore.layouts" :key="layout.id"
+              :value="layout.id" :label="`${layout.name} · #${String(layout.id).slice(-6)}`" />
+          </el-select>
+          <el-select :model-value="language" class="language-selector" size="small"
+            :aria-label="$t('common.language')" @change="setLanguage">
+            <el-option value="zh" :label="$t('common.chinese')" />
+            <el-option value="en" :label="$t('common.english')" />
+          </el-select>
           <el-tag v-if="authStore.user" size="small" :type="authStore.isAdmin ? 'danger' : authStore.isStaff ? 'warning' : 'info'">
             {{ authStore.user.username }}
           </el-tag>
-          <button class="back-btn" @click="backToPlatform" title="返回管理平台">
+          <button class="back-btn" @click="backToPlatform" :title="$t('nav.backToPlatform')">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-            返回平台
+            {{ $t('nav.backToPlatform') }}
           </button>
-          <el-button text :style="{ color: 'rgba(255,255,255,0.6)', fontSize: '13px' }" @click="handleLogout">退出</el-button>
+          <el-button text :style="{ color: 'rgba(255,255,255,0.6)', fontSize: '13px' }" @click="handleLogout">{{ $t('nav.logout') }}</el-button>
         </div>
       </div>
     </el-header>
-    <el-main class="app-main" :class="{ 'no-header': isHiddenNavPage }">
+    <el-main class="app-main" :class="{ 'no-header': isHiddenNavPage, 'wide-map': isMapPage }">
       <router-view v-slot="{ Component, route }">
         <transition name="page-fade" mode="out-in">
           <component :is="Component" :key="route.path" />
@@ -47,6 +59,7 @@
       </router-view>
     </el-main>
   </div>
+  </el-config-provider>
 </template>
 
 <script setup>
@@ -56,10 +69,18 @@ import { useAuthStore } from '@/stores/auth'
 import { replenishmentApi } from '@/api/index.js'
 import axios from 'axios'
 import { Box, HomeFilled, MapLocation, Grid, List, Setting } from '@element-plus/icons-vue'
+import { useWarehouseStore } from '@/stores/warehouse'
+import i18n, { setLanguage } from '@/i18n'
+import zhCn from 'element-plus/es/locale/lang/zh-cn'
+import en from 'element-plus/es/locale/lang/en'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const warehouseStore = useWarehouseStore()
+const language = computed(() => i18n.global.locale.value)
+const elementLocale = computed(() => language.value === 'en' ? en : zhCn)
+const isMapPage = computed(() => route.name === 'WarehouseMap' || route.name === 'MapBuilder')
 
 const isHiddenNavPage = computed(() =>
   route.name === 'Login' || route.name === 'ScanLocation'
@@ -73,6 +94,7 @@ watch(
   () => authStore.isLoggedIn,
   async (loggedIn) => {
     if (loggedIn) {
+      await warehouseStore.loadLayouts().catch(() => {})
       try {
         const res = await replenishmentApi.getPendingCount()
         pendingReplenishCount.value = res.data?.count || 0
@@ -83,6 +105,14 @@ watch(
   },
   { immediate: true }
 )
+
+watch(() => warehouseStore.selectedLayoutId, async () => {
+  if (!authStore.isLoggedIn) return
+  try {
+    const res = await replenishmentApi.getPendingCount()
+    pendingReplenishCount.value = res.data?.count || 0
+  } catch { pendingReplenishCount.value = 0 }
+})
 
 async function backToPlatform() {
   try {
@@ -115,8 +145,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 }
 .header-inner { display: flex; align-items: center; height: 100%; padding: 0 20px; gap: 8px; }
 .logo { display: flex; align-items: center; gap: 8px; cursor: pointer; color: #fff; font-weight: 700; font-size: 16px; white-space: nowrap; margin-right: 12px; }
-.header-nav { display: flex; align-items: center; gap: 2px; flex: 1; }
+.header-nav { display: flex; align-items: center; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; }
 .header-user { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.warehouse-selector { width: 185px; flex-shrink: 0; }
+.language-selector { width: 90px; flex-shrink: 0; }
 
 /* 返回平台按钮 */
 .back-btn {
@@ -159,6 +191,21 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 
 .app-main { flex: 1; padding: 24px; max-width: 1400px; margin: 0 auto; width: 100%; }
 .app-main.no-header { max-width: 100%; padding: 0; }
+.app-main.wide-map { max-width: none; }
+@media (max-width: 1500px) {
+  .app-header { height: auto !important; min-height: 56px; }
+  .header-inner { min-height: 56px; flex-wrap: wrap; padding: 8px 16px; }
+  .header-nav { order: 3; flex: 1 0 100%; width: 100%; padding-bottom: 3px; overflow-x: auto; }
+  .header-user { margin-left: auto; }
+}
+@media (max-width: 720px) {
+  .header-inner { gap: 4px; padding: 7px 10px; }
+  .header-user { flex-wrap: wrap; justify-content: flex-end; }
+  .warehouse-selector { width: 150px; }
+  .language-selector { width: 84px; }
+  .back-btn { font-size: 0; padding: 7px; }
+  .app-main { padding: 12px; }
+}
 .page-fade-enter-active, .page-fade-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }
 .page-fade-enter-from { opacity: 0; transform: translateY(8px); }
 .page-fade-leave-to { opacity: 0; transform: translateY(-8px); }

@@ -1,15 +1,20 @@
 <template>
   <div class="scan-page">
     <div class="scan-card">
+      <div class="scan-language"><label for="scan-language">{{ $t('common.language') }}</label>
+        <select id="scan-language" :value="language" @change="setLanguage($event.target.value)">
+          <option value="zh">中文</option><option value="en">English</option>
+        </select>
+      </div>
       <!-- 加载中 -->
       <div v-if="loading" class="scan-loading">
         <el-icon class="is-loading" size="40" color="#409EFF"><Loading /></el-icon>
-        <p>正在加载货位信息...</p>
+        <p>{{ $t('scan.loading') }}</p>
       </div>
       <!-- 错误 -->
       <div v-else-if="error" class="scan-error">
         <div class="error-icon">❌</div>
-        <h2>无效的二维码</h2>
+        <h2>{{ $t('scan.invalidQr') }}</h2>
         <p>{{ error }}</p>
       </div>
       <!-- 主界面（公开可见，登录后可操作） -->
@@ -17,35 +22,36 @@
         <!-- Logo + 货位信息 -->
         <div class="scan-logo">
           <el-icon size="28" color="#0f3460"><Box /></el-icon>
-          <span>Warehouse Manager</span>
+          <span>{{ $t('common.appName') }}</span>
         </div>
         <div class="location-badge">
-          <span class="badge-label">货位</span>
+          <span class="badge-label">{{ $t('scan.location') }}</span>
           <span class="badge-code">{{ locationData?.code }}</span>
         </div>
         <div class="location-meta" v-if="locationData?.shelf_code">{{ locationData.shelf_code }}</div>
+        <div v-if="locationData?.layout_id" class="location-meta">{{ owningWarehouse?.name || $t('nav.selectWarehouse') }} · #{{ String(locationData.layout_id).slice(-6) }}</div>
 
         <!-- 未登录提示 -->
         <div v-if="!isLoggedIn" class="login-panel">
-          <p class="login-hint">请登录后录入或修改货物</p>
+          <p class="login-hint">{{ $t('scan.loginHint') }}</p>
           <el-form @submit.prevent="handleLogin">
-            <el-input v-model="loginForm.username" placeholder="用户名" size="large" style="margin-bottom:10px" />
-            <el-input v-model="loginForm.password" type="password" placeholder="密码" size="large" show-password style="margin-bottom:14px" @keyup.enter="handleLogin" />
+            <el-input v-model="loginForm.username" :placeholder="$t('login.username')" size="large" style="margin-bottom:10px" />
+            <el-input v-model="loginForm.password" type="password" :placeholder="$t('login.password')" size="large" show-password style="margin-bottom:14px" @keyup.enter="handleLogin" />
             <el-button type="primary" size="large" style="width:100%" :loading="loginLoading" @click="handleLogin">
-              登录
+              {{ $t('login.signIn') }}
             </el-button>
           </el-form>
           <p v-if="loginError" class="login-error">{{ loginError }}</p>
           <!-- 未登录也可查看库存 -->
           <div v-if="inventory.length > 0" class="inv-preview">
-            <div class="inv-preview-title">当前库存（{{ totalQty }} 件）</div>
+            <div class="inv-preview-title">{{ $t('scan.currentInventory', { count: totalQty }) }}</div>
             <div v-for="item in inventory" :key="item.id" class="inv-preview-item">
               <span class="inv-preview-name">{{ item.product_title }}</span>
               <span class="inv-preview-qty">× {{ item.quantity }}</span>
             </div>
           </div>
           <div v-else class="inv-preview">
-            <el-empty description="此货位暂无库存" :image-size="50" />
+            <el-empty :description="$t('common.noInventory')" :image-size="50" />
           </div>
         </div>
 
@@ -53,13 +59,13 @@
         <div v-else>
           <el-tabs v-model="activeTab" class="scan-tabs">
             <!-- 查询/修改库存 Tab -->
-            <el-tab-pane label="📦 当前库存" name="inventory">
+            <el-tab-pane :label="`📦 ${$t('scan.inventoryTab')}`" name="inventory">
               <div v-if="!inventory.length" class="empty-stock">
-                <el-empty description="此货位暂无库存" :image-size="60" />
-                <el-button type="primary" size="small" @click="activeTab = 'add'">+ 录入货物</el-button>
+                <el-empty :description="$t('common.noInventory')" :image-size="60" />
+                <el-button type="primary" size="small" @click="activeTab = 'add'">+ {{ $t('scan.addTab') }}</el-button>
               </div>
               <div v-else>
-                <div class="stock-summary">共 {{ totalQty }} 件货物</div>
+                <div class="stock-summary">{{ $t('scan.stockSummary', { count: totalQty }) }}</div>
                 <div v-for="item in inventory" :key="item.id" class="inv-item">
                   <div class="inv-item-info">
                     <img v-if="item.image_url || item.main_image" :src="item.image_url || item.main_image" class="inv-thumb" />
@@ -74,7 +80,7 @@
                     </div>
                   </div>
                   <div class="inv-qty-row">
-                    <div class="qty-label">数量</div>
+                    <div class="qty-label">{{ $t('scan.quantity') }}</div>
                     <div class="qty-control">
                       <el-button text size="small" :disabled="item.quantity <= 0 || item._saving" @click="changeQty(item, -1)">
                         <el-icon><Minus /></el-icon>
@@ -97,7 +103,7 @@
                         :loading="item._saving"
                         :disabled="item.quantity === item._origQty"
                         @click="saveQty(item)"
-                      >保存</el-button>
+                      >{{ $t('common.save') }}</el-button>
                     </div>
                     <div v-if="item._saveMsg" class="save-msg" :class="item._saveOk ? 'ok' : 'err'">{{ item._saveMsg }}</div>
                   </div>
@@ -106,14 +112,14 @@
             </el-tab-pane>
 
             <!-- 录入新货物 Tab -->
-            <el-tab-pane label="➕ 录入货物" name="add">
+            <el-tab-pane :label="`➕ ${$t('scan.addTab')}`" name="add">
               <el-select
                 v-model="form.shopify_variant_id"
                 filterable
                 remote
                 :remote-method="searchProducts"
                 :loading="searchLoading"
-                placeholder="搜索商品名/SKU..."
+                :placeholder="$t('scan.searchProduct')"
                 style="width:100%;margin-bottom:12px"
                 @change="onVariantSelect"
               >
@@ -138,15 +144,15 @@
               </div>
               <el-row :gutter="12" style="margin-bottom:12px">
                 <el-col :span="12">
-                  <div class="form-label">数量</div>
+                  <div class="form-label">{{ $t('common.quantity') }}</div>
                   <el-input-number v-model="form.quantity" :min="1" :max="9999" style="width:100%" size="large" />
                 </el-col>
                 <el-col :span="12">
-                  <div class="form-label">类型</div>
+                  <div class="form-label">{{ $t('common.type') }}</div>
                   <el-select v-model="form.stock_type" style="width:100%" size="large">
-                    <el-option label="零售上架" value="retail_display" />
-                    <el-option label="零售备库" value="retail_storage" />
-                    <el-option label="展会货物" value="exhibition" />
+                    <el-option :label="$t('common.retailDisplay')" value="retail_display" />
+                    <el-option :label="$t('common.retailStorage')" value="retail_storage" />
+                    <el-option :label="$t('common.exhibition')" value="exhibition" />
                   </el-select>
                 </el-col>
               </el-row>
@@ -154,13 +160,13 @@
                 v-if="form.stock_type === 'exhibition'"
                 v-model="form.exhibition_id"
                 clearable
-                placeholder="关联展会（可选）"
+                :placeholder="$t('scan.linkedExhibition')"
                 style="width:100%;margin-bottom:12px"
               >
                 <el-option v-for="ex in exhibitions" :key="ex.id" :label="ex.name" :value="ex.id" />
               </el-select>
               <el-button type="primary" size="large" style="width:100%" :loading="submitLoading" @click="submitInventory">
-                ✅ 确认录入
+                ✅ {{ $t('scan.confirmAdd') }}
               </el-button>
               <div v-if="successMsg" class="success-msg">{{ successMsg }}</div>
             </el-tab-pane>
@@ -175,9 +181,17 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
+import { ElMessage } from 'element-plus'
 import { Box, Loading, Plus, Minus } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
+import i18n, { setLanguage, localizedError } from '@/i18n'
+import { useWarehouseStore } from '@/stores/warehouse'
 
 const route = useRoute()
+const { t } = useI18n()
+const warehouseStore = useWarehouseStore()
+const language = computed(() => i18n.global.locale.value)
+const owningWarehouse = computed(() => warehouseStore.layouts.find(layout => String(layout.id) === String(locationData.value?.layout_id)))
 const token = route.params.token
 
 const loading = ref(true)
@@ -204,8 +218,9 @@ const form = ref({
 
 const totalQty = computed(() => inventory.value.reduce((s, i) => s + i.quantity, 0))
 
-function stockTypeLabel(t) {
-  return { retail_display: '上架中', retail_storage: '备库中', exhibition: '展会', retail: '零售' }[t] || t
+function stockTypeLabel(stockType) {
+  const labels = { retail_display: 'common.displayStock', retail_storage: 'common.storageStock', exhibition: 'common.exhibition', retail: 'common.retail' }
+  return labels[stockType] ? t(labels[stockType]) : stockType
 }
 
 function markInventory(items) {
@@ -223,13 +238,18 @@ async function loadScanData() {
     const res = await axios.get(`/api/locations/scan/${token}`, { withCredentials: true })
     const data = res.data.data
     locationData.value = data.location
+    // The QR endpoint is public. Once it resolves, scope subsequent stock edits
+    // to this location's warehouse rather than the previously selected one.
+    if (data.location?.layout_id) {
+      warehouseStore.selectLayout(data.location.layout_id, { allowUnknown: true })
+    }
     inventory.value = markInventory(data.inventory || [])
     activeTab.value = data.inventory?.length ? 'inventory' : 'add'
   } catch (err) {
     if (err.response?.status === 404) {
-      error.value = err.response?.data?.message || '二维码无效或已过期'
+      error.value = err.response?.data?.message || t('scan.expiredQr')
     } else if (err.response?.status !== 401) {
-      error.value = err.response?.data?.message || '加载失败，请重试'
+      error.value = err.response?.data?.message || localizedError(err, t, 'scan.loadFailed')
     }
   }
 }
@@ -253,7 +273,10 @@ async function loadExhibitions() {
 async function init() {
   loading.value = true
   await Promise.all([loadScanData(), checkLogin()])
-  if (isLoggedIn.value) await loadExhibitions()
+  if (isLoggedIn.value) {
+    await warehouseStore.loadLayouts().catch(() => {})
+    await loadExhibitions()
+  }
   loading.value = false
 }
 
@@ -263,10 +286,11 @@ async function handleLogin() {
   try {
     await axios.post('/api/auth/login', loginForm.value, { withCredentials: true })
     isLoggedIn.value = true
+    await warehouseStore.loadLayouts().catch(() => {})
     await loadExhibitions()
     await loadScanData()
   } catch (err) {
-    loginError.value = err.response?.data?.message || '登录失败'
+    loginError.value = err.response?.data?.message || localizedError(err, t, 'login.failed')
   } finally {
     loginLoading.value = false
   }
@@ -297,16 +321,20 @@ async function saveQty(item) {
   try {
     await axios.patch(
       `/api/locations/${locationData.value.id}/inventory/${item.id}`,
-      { quantity: item.quantity, note: '扫码修改' },
-      { withCredentials: true }
+      { quantity: item.quantity, expected_quantity: item._origQty, note: t('scan.scanAdjustmentNote') },
+      { withCredentials: true, headers: { 'X-Warehouse-Id': locationData.value.layout_id } }
     )
     item._origQty = item.quantity
     item._saveOk = true
-    item._saveMsg = '✅ 已保存'
+    item._saveMsg = `✅ ${t('scan.saved')}`
     setTimeout(() => { item._saveMsg = '' }, 2000)
   } catch (err) {
     item._saveOk = false
-    item._saveMsg = '❌ ' + (err.response?.data?.message || '保存失败')
+    item._saveMsg = '❌ ' + (err.response?.data?.message || localizedError(err, t, 'common.saveFailed'))
+    if (err.response?.status === 409) {
+      ElMessage.warning(item._saveMsg)
+      await loadScanData().catch(() => {})
+    }
   } finally {
     item._saving = false
   }
@@ -314,21 +342,23 @@ async function saveQty(item) {
 
 async function submitInventory() {
   if (!form.value.shopify_variant_id) {
-    successMsg.value = '❌ 请先搜索并选择商品'
+    successMsg.value = `❌ ${t('scan.selectProduct')}`
     return
   }
   submitLoading.value = true
   successMsg.value = ''
   try {
-    await axios.post(`/api/locations/${locationData.value.id}/inventory`, form.value, { withCredentials: true })
-    successMsg.value = `✅ 已录入 ${selectedVariant.value?.title || ''} × ${form.value.quantity}`
+    await axios.post(`/api/locations/${locationData.value.id}/inventory`, form.value, {
+      withCredentials: true, headers: { 'X-Warehouse-Id': locationData.value.layout_id },
+    })
+    successMsg.value = `✅ ${t('scan.added', { product: selectedVariant.value?.title || '', count: form.value.quantity })}`
     form.value = { shopify_variant_id: null, quantity: 1, stock_type: 'retail_display', exhibition_id: null }
     selectedVariant.value = null
     searchResults.value = []
     await loadScanData()
     activeTab.value = 'inventory'
   } catch (err) {
-    successMsg.value = '❌ ' + (err.response?.data?.message || '录入失败')
+    successMsg.value = '❌ ' + (err.response?.data?.message || localizedError(err, t, 'locationDetail.addFailed'))
   } finally {
     submitLoading.value = false
   }
@@ -354,6 +384,8 @@ onMounted(init)
   max-width: 480px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.3);
 }
+.scan-language { display: flex; justify-content: flex-end; align-items: center; gap: 8px; font-size: 12px; color: #606266; margin-bottom: 12px; }
+.scan-language select { font: inherit; padding: 4px 6px; border-radius: 6px; border: 1px solid #d1d5db; background: #fff; }
 .scan-loading, .scan-error { text-align: center; padding: 40px 0; }
 .scan-loading p { margin-top: 16px; color: #909399; }
 .error-icon { font-size: 48px; margin-bottom: 12px; }

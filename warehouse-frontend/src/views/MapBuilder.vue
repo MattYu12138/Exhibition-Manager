@@ -9,32 +9,45 @@
           class="tool-btn"
           :class="{ active: activeTool === tool.type }"
           @click="activeTool = tool.type"
-          :title="tool.label"
+          :title="$t(tool.labelKey)"
         >
           <span class="tool-icon">{{ tool.icon }}</span>
-          <span class="tool-label">{{ tool.label }}</span>
+          <span class="tool-label">{{ $t(tool.labelKey) }}</span>
         </button>
       </div>
       <div class="tool-sep"></div>
+      <div class="tool-group canvas-controls">
+        <span class="control-caption">{{ $t('mapBuilder.canvas') }}</span>
+        <el-input-number v-model="gridCols" :min="10" :max="120" size="small" :controls="false" :aria-label="$t('warehouseMap.gridColumns')" @change="validateGrid" />
+        <span>×</span>
+        <el-input-number v-model="gridRows" :min="8" :max="120" size="small" :controls="false" :aria-label="$t('warehouseMap.gridRows')" @change="validateGrid" />
+        <el-button-group size="small">
+          <el-button @click="zoomOut" :aria-label="$t('mapBuilder.zoomOut')">−</el-button>
+          <el-button @click="fitCanvas">{{ $t('mapBuilder.fit') }}</el-button>
+          <el-button @click="zoomIn" :aria-label="$t('mapBuilder.zoomIn')">+</el-button>
+        </el-button-group>
+        <span class="zoom-value">{{ Math.round(zoom * 100) }}%</span>
+      </div>
+      <div class="tool-sep"></div>
       <div class="tool-group">
-        <button class="tool-btn" @click="undo" :disabled="history.length === 0" title="撤销 (Ctrl+Z)">
+        <button class="tool-btn" @click="undo" :disabled="history.length === 0" :title="$t('mapBuilder.undoShortcut')">
           <span class="tool-icon">↩</span>
-          <span class="tool-label">撤销</span>
+          <span class="tool-label">{{ $t('mapBuilder.undo') }}</span>
         </button>
-        <button class="tool-btn danger" @click="clearAll" title="清空画布">
+        <button class="tool-btn danger" @click="clearAll" :title="$t('mapBuilder.clearCanvas')">
           <span class="tool-icon">🗑</span>
-          <span class="tool-label">清空</span>
+          <span class="tool-label">{{ $t('mapBuilder.clear') }}</span>
         </button>
       </div>
       <div class="spacer"></div>
       <div class="tool-group">
         <button class="tool-btn primary" @click="openSaveDialog">
           <span class="tool-icon">💾</span>
-          <span class="tool-label">保存布局</span>
+          <span class="tool-label">{{ $t('mapBuilder.saveLayout') }}</span>
         </button>
         <button class="tool-btn" @click="goBack">
           <span class="tool-icon">←</span>
-          <span class="tool-label">返回</span>
+          <span class="tool-label">{{ $t('mapBuilder.back') }}</span>
         </button>
       </div>
     </div>
@@ -42,17 +55,17 @@
     <div class="builder-body">
       <!-- Left panel -->
       <div class="side-panel" v-if="selectedRegion">
-        <div class="panel-title">属性</div>
+        <div class="panel-title">{{ $t('mapBuilder.properties') }}</div>
         <div class="panel-section">
-          <label>类型</label>
+          <label>{{ $t('mapBuilder.type') }}</label>
           <div class="type-badge" :style="{ background: typeConfig[selectedRegion.type]?.color }">
-            {{ typeConfig[selectedRegion.type]?.icon }} {{ typeConfig[selectedRegion.type]?.label }}
+            {{ typeConfig[selectedRegion.type]?.icon }} {{ $t(typeConfig[selectedRegion.type]?.labelKey || 'mapBuilder.type') }}
           </div>
         </div>
         <template v-if="selectedRegion.type === 'shelf'">
           <div class="panel-section">
-            <label>区域编码前缀</label>
-            <el-select v-model="selectedRegion.code" style="width:100%" placeholder="选择前缀">
+            <label>{{ $t('mapBuilder.codePrefix') }}</label>
+            <el-select v-model="selectedRegion.code" style="width:100%" :placeholder="$t('mapBuilder.selectPrefix')">
               <el-option
                 v-for="letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('')"
                 :key="letter"
@@ -61,12 +74,12 @@
                 :disabled="isCodeUsedByOther(letter, selectedRegion.id)"
               >
                 <span>{{ letter }}</span>
-                <span v-if="isCodeUsedByOther(letter, selectedRegion.id)" style="color:#aaa;font-size:12px;margin-left:6px">(已使用)</span>
+                <span v-if="isCodeUsedByOther(letter, selectedRegion.id)" style="color:#aaa;font-size:12px;margin-left:6px">({{ $t('mapBuilder.used') }})</span>
               </el-option>
             </el-select>
           </div>
           <div class="panel-section">
-            <label>层数</label>
+            <label>{{ $t('mapBuilder.levels') }}</label>
             <div class="number-input">
               <button @click="selectedRegion.levels = Math.max(1, (selectedRegion.levels||1) - 1)">−</button>
               <span>{{ selectedRegion.levels || 1 }}</span>
@@ -74,26 +87,27 @@
             </div>
           </div>
           <div class="panel-section">
-            <label>货位统计</label>
+            <label>{{ $t('mapBuilder.locationStats') }}</label>
             <div class="info-text">
-              {{ getRegionCells(selectedRegion).length }} 格 × {{ selectedRegion.levels || 1 }} 层
-              = <strong>{{ getRegionCells(selectedRegion).length * (selectedRegion.levels || 1) }}</strong> 个货位
+              {{ $t('mapBuilder.regionStats', { cells: getRegionCells(selectedRegion).length,
+                levels: selectedRegion.levels || 1,
+                locations: getRegionCells(selectedRegion).length * (selectedRegion.levels || 1) }) }}
             </div>
           </div>
         </template>
         <div class="panel-section">
-          <button class="delete-btn" @click="deleteSelected">🗑 删除此区域</button>
+          <button class="delete-btn" @click="deleteSelected">🗑 {{ $t('mapBuilder.deleteRegion') }}</button>
         </div>
       </div>
       <div class="side-panel empty" v-else>
         <div class="panel-hint">
           <div class="hint-icon">{{ typeConfig[activeTool]?.icon }}</div>
-          <div class="hint-title">{{ typeConfig[activeTool]?.label }}</div>
-          <div class="hint-desc">在画布上拖拉绘制</div>
+          <div class="hint-title">{{ $t(typeConfig[activeTool]?.labelKey || 'mapBuilder.type') }}</div>
+          <div class="hint-desc">{{ $t('mapBuilder.dragToDraw') }}</div>
           <div class="hint-tips">
-            <div>• 点击已有区域可选中</div>
-            <div>• Delete 键删除选中</div>
-            <div>• Ctrl+Z 撤销</div>
+            <div>• {{ $t('mapBuilder.clickToSelect') }}</div>
+            <div>• {{ $t('mapBuilder.deleteShortcut') }}</div>
+            <div>• {{ $t('mapBuilder.undoTip') }}</div>
           </div>
         </div>
       </div>
@@ -103,8 +117,9 @@
         <svg
           ref="svgEl"
           class="map-svg"
-          :width="svgWidth"
-          :height="svgHeight"
+          :width="renderWidth"
+          :height="renderHeight"
+          :viewBox="`0 0 ${svgWidth} ${svgHeight}`"
           @mousedown="onMouseDown"
           @mousemove="onMouseMove"
           @mouseup="onMouseUp"
@@ -208,43 +223,43 @@
     <div class="dialog-overlay" v-if="showSaveDialog" @click.self="showSaveDialog = false">
       <div class="dialog">
         <div class="dialog-header">
-          <h3>保存仓库布局</h3>
+          <h3>{{ $t('mapBuilder.saveDialogTitle') }}</h3>
           <button class="dialog-close" @click="showSaveDialog = false">×</button>
         </div>
         <div class="dialog-body">
           <div class="form-group">
-            <label>* 布局名称</label>
+            <label>* {{ $t('mapBuilder.layoutName') }}</label>
             <input
               v-model="saveForm.name"
               class="form-input"
-              placeholder="输入布局名称"
+              :placeholder="$t('mapBuilder.namePlaceholder')"
               ref="nameInputRef"
               @keydown.stop
             />
           </div>
           <div class="form-group">
-            <label>描述</label>
+            <label>{{ $t('mapBuilder.description') }}</label>
             <textarea
               v-model="saveForm.description"
               class="form-input"
               rows="3"
-              placeholder="可选备注"
+              :placeholder="$t('mapBuilder.notesPlaceholder')"
               @keydown.stop
             ></textarea>
           </div>
           <div class="form-check">
             <input type="checkbox" id="setActive" v-model="saveForm.setActive" />
-            <label for="setActive">保存后立即启用此布局</label>
+            <label for="setActive">{{ $t('mapBuilder.activateAfterSave') }}</label>
           </div>
           <div class="save-stats">
-            <span class="stat-badge shelf">货架格子：{{ totalShelfCells }} 个</span>
-            <span class="stat-badge location">预计货位：{{ totalLocations }} 个</span>
+            <span class="stat-badge shelf">{{ $t('mapBuilder.shelfCells', { count: totalShelfCells }) }}</span>
+            <span class="stat-badge location">{{ $t('mapBuilder.estimatedLocations', { count: totalLocations }) }}</span>
           </div>
         </div>
         <div class="dialog-footer">
-          <button class="btn-cancel" @click="showSaveDialog = false">取消</button>
+          <button class="btn-cancel" @click="showSaveDialog = false">{{ $t('common.cancel') }}</button>
           <button class="btn-primary" @click="saveLayout" :disabled="!saveForm.name.trim() || saving">
-            {{ saving ? '保存中...' : '保存并生成货位' }}
+            {{ saving ? $t('mapBuilder.saving') : $t('mapBuilder.saveAndGenerate') }}
           </button>
         </div>
       </div>
@@ -253,41 +268,72 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { layoutApi } from '../api/index.js'
+import { useI18n } from 'vue-i18n'
+import { useWarehouseStore } from '@/stores/warehouse'
 
 const router = useRouter()
 const route = useRoute()
+const { t } = useI18n()
+const warehouseStore = useWarehouseStore()
 const builderRef = ref(null)
 const svgEl = ref(null)
 const nameInputRef = ref(null)
+const canvasWrap = ref(null)
 
 // Grid config
-const COLS = 30
-const ROWS = 24
+const gridCols = ref(30)
+const gridRows = ref(24)
 const cellSize = 60
-
-const svgWidth = computed(() => COLS * cellSize)
-const svgHeight = computed(() => ROWS * cellSize)
+const zoom = ref(1)
+const svgWidth = computed(() => gridCols.value * cellSize)
+const svgHeight = computed(() => gridRows.value * cellSize)
+const renderWidth = computed(() => Math.round(svgWidth.value * zoom.value))
+const renderHeight = computed(() => Math.round(svgHeight.value * zoom.value))
+const minZoom = 0.02
+function zoomIn() { zoom.value = Math.min(3, Math.round((zoom.value + 0.1) * 100) / 100) }
+function zoomOut() { zoom.value = Math.max(minZoom, Math.round((zoom.value - 0.1) * 100) / 100) }
+function fitCanvas() {
+  if (!canvasWrap.value) return
+  const w = canvasWrap.value.clientWidth - 48
+  const h = canvasWrap.value.clientHeight - 48
+  if (w <= 0 || h <= 0) return
+  zoom.value = Math.max(minZoom, Math.min(2, w / svgWidth.value, h / svgHeight.value))
+}
+function validateGrid() {
+  const cells = regions.value.flatMap(region => [...region.cells])
+  const extent = cells.reduce((max, key) => {
+    const [c, r] = key.split(',').map(Number)
+    return { col: Math.max(max.col, c + 1), row: Math.max(max.row, r + 1) }
+  }, { col: 10, row: 8 })
+  if (gridCols.value < extent.col || gridRows.value < extent.row) {
+    gridCols.value = Math.max(gridCols.value, extent.col)
+    gridRows.value = Math.max(gridRows.value, extent.row)
+    ElMessage.warning(t('mapBuilder.gridContainsObjects'))
+  }
+  nextTick(fitCanvas)
+}
 
 // Tool definitions
 const tools = [
-  { type: 'shelf',     label: '货架',    icon: '📦' },
-  { type: 'wall',      label: '墙壁',    icon: '🧱' },
-  { type: 'door',      label: '出入口',  icon: '🚪' },
-  { type: 'aisle',     label: '通道',    icon: '↔'  },
-  { type: 'workbench', label: '工作台',  icon: '🖥'  },
-  { type: 'pillar',    label: '柱子',    icon: '⬛'  },
+  { type: 'shelf',     labelKey: 'mapBuilder.shelf',    icon: '📦' },
+  { type: 'wall',      labelKey: 'mapBuilder.wall',     icon: '🧱' },
+  { type: 'door',      labelKey: 'mapBuilder.door',     icon: '🚪' },
+  { type: 'aisle',     labelKey: 'mapBuilder.aisle',    icon: '↔'  },
+  { type: 'workbench', labelKey: 'mapBuilder.workbench',icon: '🖥'  },
+  { type: 'pillar',    labelKey: 'mapBuilder.pillar',   icon: '⬛'  },
 ]
 
 const typeConfig = {
-  shelf:     { label: '货架',   icon: '📦', color: '#3b82f6', stroke: '#1d4ed8' },
-  wall:      { label: '墙壁',   icon: '🧱', color: '#6b7280', stroke: '#374151' },
-  door:      { label: '出入口', icon: '🚪', color: '#f59e0b', stroke: '#d97706' },
-  aisle:     { label: '通道',   icon: '↔',  color: '#d1fae5', stroke: '#6ee7b7' },
-  workbench: { label: '工作台', icon: '🖥',  color: '#8b5cf6', stroke: '#6d28d9' },
-  pillar:    { label: '柱子',   icon: '⬛',  color: '#374151', stroke: '#111827' },
+  shelf:     { labelKey: 'mapBuilder.shelf',     icon: '📦', color: '#3b82f6', stroke: '#1d4ed8' },
+  wall:      { labelKey: 'mapBuilder.wall',      icon: '🧱', color: '#6b7280', stroke: '#374151' },
+  door:      { labelKey: 'mapBuilder.door',      icon: '🚪', color: '#f59e0b', stroke: '#d97706' },
+  aisle:     { labelKey: 'mapBuilder.aisle',     icon: '↔',  color: '#d1fae5', stroke: '#6ee7b7' },
+  workbench: { labelKey: 'mapBuilder.workbench', icon: '🖥', color: '#8b5cf6', stroke: '#6d28d9' },
+  pillar:    { labelKey: 'mapBuilder.pillar',    icon: '⬛',  color: '#374151', stroke: '#111827' },
 }
 
 // State
@@ -427,8 +473,8 @@ function buildOutlinePath(region) {
 // ---- Mouse events ----
 function getSVGCell(e) {
   const rect = svgEl.value.getBoundingClientRect()
-  const x = e.clientX - rect.left
-  const y = e.clientY - rect.top
+  const x = (e.clientX - rect.left) * svgWidth.value / rect.width
+  const y = (e.clientY - rect.top) * svgHeight.value / rect.height
   return {
     col: Math.floor(x / cellSize),
     row: Math.floor(y / cellSize),
@@ -438,11 +484,12 @@ function getSVGCell(e) {
 function onMouseDown(e) {
   if (e.button !== 0) return
   const { col, row } = getSVGCell(e)
-  if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return
+  if (col < 0 || col >= gridCols.value || row < 0 || row >= gridRows.value) return
 
-  // Click on existing region → select it
+  // Entrances can cut a doorway through a wall. Shelves and other objects
+  // remain protected and are selected rather than silently overwritten.
   const hit = getRegionAt(col, row)
-  if (hit) {
+  if (hit && !(activeTool.value === 'door' && hit.type === 'wall')) {
     selectRegion(hit)
     return
   }
@@ -457,8 +504,8 @@ function onMouseDown(e) {
 function onMouseMove(e) {
   if (!isDrawing.value) return
   const { col, row } = getSVGCell(e)
-  const c = Math.max(0, Math.min(COLS - 1, col))
-  const r = Math.max(0, Math.min(ROWS - 1, row))
+  const c = Math.max(0, Math.min(gridCols.value - 1, col))
+  const r = Math.max(0, Math.min(gridRows.value - 1, row))
   updateDrawPreview(c, r)
 }
 
@@ -482,14 +529,15 @@ function finishDraw(e) {
   const { col: ec, row: er } = getSVGCell(e)
 
   const minCol = Math.max(0, Math.min(sc, ec))
-  const maxCol = Math.min(COLS - 1, Math.max(sc, ec))
+  const maxCol = Math.min(gridCols.value - 1, Math.max(sc, ec))
   const minRow = Math.max(0, Math.min(sr, er))
-  const maxRow = Math.min(ROWS - 1, Math.max(sr, er))
+  const maxRow = Math.min(gridRows.value - 1, Math.max(sr, er))
 
   const newCells = new Set()
   for (let c = minCol; c <= maxCol; c++) {
     for (let r = minRow; r <= maxRow; r++) {
-      if (!getRegionAt(c, r)) newCells.add(`${c},${r}`)
+      const occupant = getRegionAt(c, r)
+      if (!occupant || (activeTool.value === 'door' && occupant.type === 'wall')) newCells.add(`${c},${r}`)
     }
   }
 
@@ -500,11 +548,18 @@ function finishDraw(e) {
   // Save undo snapshot
   pushHistory()
 
+  if (activeTool.value === 'door') {
+    for (const region of regions.value.filter(r => r.type === 'wall')) {
+      for (const key of newCells) region.cells.delete(key)
+    }
+    regions.value = regions.value.filter(r => r.cells.size > 0)
+  }
+
   // Try to merge with adjacent same-type regions
   const merged = mergeWithAdjacent(activeTool.value, newCells)
   if (!merged) {
     const newRegion = {
-      id: Date.now(),
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       type: activeTool.value,
       cells: newCells,
       code: activeTool.value === 'shelf' ? getNextShelfCode() : '',
@@ -633,6 +688,8 @@ async function saveLayout() {
       await layoutApi.update(layoutId.value, {
         name: saveForm.value.name,
         description: saveForm.value.description,
+        grid_cols: gridCols.value,
+        grid_rows: gridRows.value,
         layout_json: JSON.stringify(layout_json),
         set_active: saveForm.value.setActive,
       })
@@ -640,6 +697,8 @@ async function saveLayout() {
       const res = await layoutApi.create({
         name: saveForm.value.name,
         description: saveForm.value.description,
+        grid_cols: gridCols.value,
+        grid_rows: gridRows.value,
       })
       const newId = res.data?.id || res.id
       layoutId.value = newId
@@ -648,11 +707,13 @@ async function saveLayout() {
         set_active: saveForm.value.setActive,
       })
     }
+    await warehouseStore.loadLayouts()
+    warehouseStore.selectLayout(layoutId.value, { allowUnknown: true })
     showSaveDialog.value = false
     router.push('/map')
   } catch (err) {
     console.error('Save failed', err)
-    alert('保存失败，请重试')
+    ElMessage.error(err.message || t('mapBuilder.saveFailed'))
   } finally {
     saving.value = false
   }
@@ -669,28 +730,54 @@ onMounted(async () => {
   if (!id) return
 
   layoutId.value = id
+  warehouseStore.selectLayout(id, { allowUnknown: true })
   try {
     const res = await layoutApi.get(id)
     const layout = res.data || res
     saveForm.value.name = layout.name || ''
     saveForm.value.description = layout.description || ''
+    saveForm.value.setActive = Boolean(layout.is_active)
 
     if (layout.layout_json) {
-      const parsed = typeof layout.layout_json === 'string'
-        ? JSON.parse(layout.layout_json)
-        : layout.layout_json
-
+      let parsed = typeof layout.layout_json === 'string' ? JSON.parse(layout.layout_json) : layout.layout_json
+      if (typeof parsed === 'string') parsed = JSON.parse(parsed)
+      if (!Array.isArray(parsed)) throw new Error('Invalid layout data')
       regions.value = parsed.map(r => ({
         id: r.id || Date.now() + Math.random(),
         type: r.type,
-        cells: new Set(r.cells || []),
+        cells: new Set(Array.isArray(r.cells) ? r.cells : Array.from({ length: (r.colSpan || 1) * (r.rowSpan || 1) }, (_, i) => `${Number(r.col || 0) + i % (r.colSpan || 1)},${Number(r.row || 0) + Math.floor(i / (r.colSpan || 1))}`)),
         code: r.code || '',
         levels: r.levels || 1,
       }))
     }
+    // Older editor releases drew outside the stored grid. Restore the entire
+    // saved layout first, including doors/aisles, rather than clipping them.
+    gridCols.value = Number(layout.grid_cols) || 30
+    gridRows.value = Number(layout.grid_rows) || 24
+    for (const region of regions.value) {
+      for (const key of region.cells) {
+        const [col, row] = key.split(',').map(Number)
+        gridCols.value = Math.max(gridCols.value, col + 1)
+        gridRows.value = Math.max(gridRows.value, row + 1)
+      }
+    }
+    await nextTick()
+    fitCanvas()
   } catch (err) {
     console.error('Load layout failed', err)
+    ElMessage.error(t('mapBuilder.loadFailed'))
   }
+})
+onBeforeUnmount(() => resizeObserver?.disconnect())
+let resizeObserver
+onMounted(() => {
+  if (canvasWrap.value && window.ResizeObserver) {
+    resizeObserver = new ResizeObserver(() => {
+      if (!isDrawing.value) fitCanvas()
+    })
+    resizeObserver.observe(canvasWrap.value)
+  }
+  nextTick(fitCanvas)
 })
 </script>
 
@@ -698,11 +785,18 @@ onMounted(async () => {
 .map-builder {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: calc(100dvh - 104px);
+  min-height: 520px;
   background: #f8fafc;
   outline: none;
   user-select: none;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+@media (max-width: 1500px) {
+  .map-builder { height: calc(100dvh - 160px); min-height: 480px; }
+}
+@media (max-width: 720px) {
+  .map-builder { height: calc(100dvh - 195px); min-height: 400px; }
 }
 
 /* ---- Toolbar ---- */
@@ -719,6 +813,10 @@ onMounted(async () => {
 }
 
 .tool-group { display: flex; gap: 4px; align-items: center; }
+.canvas-controls { gap: 7px; font-size: 12px; color: #475569; }
+.canvas-controls :deep(.el-input-number) { width: 62px; }
+.control-caption { font-weight: 600; white-space: nowrap; }
+.zoom-value { width: 40px; text-align: right; white-space: nowrap; }
 .tool-sep { width: 1px; height: 28px; background: #e5e7eb; margin: 0 4px; }
 .spacer { flex: 1; }
 
@@ -749,6 +847,7 @@ onMounted(async () => {
 .builder-body {
   display: flex;
   flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -842,12 +941,14 @@ onMounted(async () => {
 /* ---- Canvas ---- */
 .canvas-wrap {
   flex: 1;
+  min-width: 0;
   overflow: auto;
   background: #f1f5f9;
   padding: 24px;
 }
 .map-svg {
   display: block;
+  margin: auto;
   cursor: crosshair;
   background: white;
   border-radius: 12px;

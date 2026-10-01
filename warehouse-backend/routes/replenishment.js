@@ -6,17 +6,21 @@ const express = require('express');
 const router = express.Router();
 const { db, nextInventoryId, nextMovementId } = require('../db');
 const { requireLogin, requireStaff, requireAdmin } = require('../middleware/auth');
+const { resolveWarehouse, requireLocation } = require('../middleware/warehouseContext');
 const { randomUUID } = require('crypto');
 const uuidv4 = () => randomUUID();
 
 // ── GET /api/replenishment/pending-count  获取待补货数量（首页提醒用） ─────────
 router.get('/pending-count', requireLogin, (req, res) => {
   try {
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
     const row = db.prepare(`
       SELECT COUNT(*) AS cnt
-      FROM warehouse_replenishment_lines
-      WHERE status = 'pending'
-    `).get();
+      FROM warehouse_replenishment_lines l
+      JOIN warehouse_replenishment_tasks t ON t.id = l.task_id
+      WHERE l.status = 'pending' AND t.layout_id = ?
+    `).get(layoutId);
     res.json({ success: true, data: { count: row.cnt } });
   } catch (err) {
     console.error('[replenishment] pending-count:', err.message);
@@ -27,6 +31,8 @@ router.get('/pending-count', requireLogin, (req, res) => {
 // ── GET /api/replenishment/tasks  获取补货任务列表 ────────────────────────────
 router.get('/tasks', requireLogin, (req, res) => {
   try {
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
     const tasks = db.prepare(`
       SELECT t.*,
         s.ref_no AS reference_no, s.factory AS supplier_name, s.received_at AS expected_arrival,
@@ -36,9 +42,10 @@ router.get('/tasks', requireLogin, (req, res) => {
       FROM warehouse_replenishment_tasks t
       LEFT JOIN inbound_shipments s ON s.id = t.inbound_shipment_id
       LEFT JOIN warehouse_replenishment_lines l ON l.task_id = t.id
+      WHERE t.layout_id = ?
       GROUP BY t.id
       ORDER BY t.created_at DESC
-    `).all();
+    `).all(layoutId);
     res.json({ success: true, data: tasks });
   } catch (err) {
     console.error('[replenishment] tasks:', err.message);
@@ -49,12 +56,14 @@ router.get('/tasks', requireLogin, (req, res) => {
 // ── GET /api/replenishment/tasks/:taskId  获取单个任务详情（按货位分组） ───────
 router.get('/tasks/:taskId', requireLogin, (req, res) => {
   try {
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
     const task = db.prepare(`
       SELECT t.*, s.ref_no AS reference_no, s.factory AS supplier_name, s.received_at AS expected_arrival
       FROM warehouse_replenishment_tasks t
       LEFT JOIN inbound_shipments s ON s.id = t.inbound_shipment_id
-      WHERE t.id = ?
-    `).get(req.params.taskId);
+      WHERE t.id = ? AND t.layout_id = ?
+    `).get(req.params.taskId, layoutId);
     if (!task) return res.status(404).json({ success: false, message: '任务不存在' });
 
     const lines = db.prepare(`
@@ -68,9 +77,9 @@ router.get('/tasks/:taskId', requireLogin, (req, res) => {
       LEFT JOIN warehouse_layouts wlay ON wlay.id = wl.layout_id
       LEFT JOIN product_variants pv ON pv.shopify_variant_id = l.shopify_variant_id
       LEFT JOIN products p ON p.id = pv.product_id
-      WHERE l.task_id = ?
+      WHERE l.task_id = ? AND wl.layout_id = ? AND wl.is_active = 1
       ORDER BY wl.zone, wl.row_no, wl.col_no, l.stock_type
-    `).all(req.params.taskId);
+    `).all(req.params.taskId, layoutId);
 
     // 按货位分组
     const byLocation = {};
@@ -99,14 +108,22 @@ router.get('/tasks/:taskId', requireLogin, (req, res) => {
 // 由 inbound 收货完成后自动调用，或手动触发
 router.post('/generate', requireStaff, (req, res) => {
   try {
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
     const { inbound_shipment_id } = req.body;
     if (!inbound_shipment_id) return res.status(400).json({ success: false, message: '缺少 inbound_shipment_id' });
 
     // 检查该批次是否已有补货任务
     const existing = db.prepare(`
-      SELECT id FROM warehouse_replenishment_tasks WHERE inbound_shipment_id = ?
-    `).get(inbound_shipment_id);
+      SELECT id FROM warehouse_replenishment_tasks WHERE inbound_shipment_id = ? AND layout_id = ?
+    `).get(inbound_shipment_id, layoutId);
     if (existing) return res.json({ success: true, data: { task_id: existing.id, already_exists: true } });
+    const assignedElsewhere = db.prepare(`
+      SELECT id FROM warehouse_replenishment_tasks WHERE inbound_shipment_id = ? AND layout_id != ? LIMIT 1
+    `).get(inbound_shipment_id, layoutId);
+    if (assignedElsewhere) {
+      return res.status(409).json({ success: false, message: '该批入库已分配给另一仓库；不能重复计算收货数量，跨仓请走明确调拨流程' });
+    }
 
     // 获取该批次所有已收货的 SKU 及数量
     const receivedItems = db.prepare(`
@@ -136,8 +153,10 @@ router.post('/generate', requireStaff, (req, res) => {
         FROM warehouse_sku_bindings wsb
         JOIN warehouse_locations wl ON wl.id = wsb.location_id
         WHERE wsb.shopify_variant_id = ? AND wsb.is_active = 1
+          AND wsb.stock_type IN ('retail', 'retail_display', 'retail_storage')
+          AND wl.layout_id = ? AND wl.is_active = 1
         ORDER BY wsb.priority DESC, wsb.stock_type
-      `).all(item.shopify_variant_id);
+      `).all(item.shopify_variant_id, layoutId);
 
       if (bindings.length === 0) continue; // 未绑定货位的 SKU 跳过
 
@@ -180,15 +199,15 @@ router.post('/generate', requireStaff, (req, res) => {
     }
 
     if (lines.length === 0) {
-      return res.status(400).json({ success: false, message: '该批次所有 SKU 均未绑定货位，请先在货位详情页绑定 SKU' });
+      return res.status(400).json({ success: false, message: '该批次没有可用的零售货位绑定，请联系管理员配置 SKU 与货位的绑定' });
     }
 
     // 事务创建任务和明细
     db.transaction(() => {
       db.prepare(`
-        INSERT INTO warehouse_replenishment_tasks (id, inbound_shipment_id, status, created_at)
-        VALUES (?, ?, 'pending', datetime('now'))
-      `).run(taskId, inbound_shipment_id);
+        INSERT INTO warehouse_replenishment_tasks (id, inbound_shipment_id, layout_id, status, created_at)
+        VALUES (?, ?, ?, 'pending', datetime('now'))
+      `).run(taskId, inbound_shipment_id, layoutId);
 
       const insertLine = db.prepare(`
         INSERT INTO warehouse_replenishment_lines
@@ -212,25 +231,43 @@ router.post('/generate', requireStaff, (req, res) => {
 // ── POST /api/replenishment/lines/:lineId/confirm  确认某条补货明细 ────────────
 router.post('/lines/:lineId/confirm', requireStaff, (req, res) => {
   try {
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
     const { confirmed_qty } = req.body;
-    if (confirmed_qty === undefined || confirmed_qty < 0) {
-      return res.status(400).json({ success: false, message: '确认数量不能为负数' });
+    if (!Number.isSafeInteger(confirmed_qty) || confirmed_qty < 0) {
+      return res.status(400).json({ success: false, message: '确认数量必须为非负整数' });
     }
 
-    const line = db.prepare('SELECT * FROM warehouse_replenishment_lines WHERE id = ?').get(req.params.lineId);
+    const line = db.prepare(`
+      SELECT l.*, t.status AS task_status FROM warehouse_replenishment_lines l
+      JOIN warehouse_replenishment_tasks t ON t.id = l.task_id
+      JOIN warehouse_locations wl ON wl.id = l.location_id
+      WHERE l.id = ? AND t.layout_id = ? AND wl.layout_id = ? AND wl.is_active = 1
+    `).get(req.params.lineId, layoutId, layoutId);
     if (!line) return res.status(404).json({ success: false, message: '补货明细不存在' });
-    if (line.status === 'confirmed') return res.status(400).json({ success: false, message: '该明细已确认' });
+    if (line.status !== 'pending' || line.task_status === 'completed') {
+      return res.status(409).json({ success: false, message: '该明细已经处理，不能重复确认或跳过' });
+    }
+    if (line.stock_type === 'exhibition') {
+      return res.status(409).json({ success: false, message: '展会明细缺少展会归属，不能自动入库；请跳过并手动录入指定展会' });
+    }
+    if (confirmed_qty > line.required_qty) {
+      return res.status(400).json({ success: false, message: '确认数量不能超过待补货数量' });
+    }
 
-    const qty = Math.min(confirmed_qty, line.required_qty);
+    const qty = confirmed_qty;
 
     db.transaction(() => {
       // 更新补货明细状态
-      db.prepare(`
+      const updated = db.prepare(`
         UPDATE warehouse_replenishment_lines
         SET confirmed_qty = ?, status = 'confirmed',
             confirmed_by = ?, confirmed_at = datetime('now')
-        WHERE id = ?
+        WHERE id = ? AND status = 'pending'
       `).run(qty, req.session.user.id, line.id);
+      if (updated.changes !== 1) {
+        throw Object.assign(new Error('该明细已经处理，不能重复确认或跳过'), { status: 409 });
+      }
 
       if (qty > 0) {
         // 查找或创建货位库存记录
@@ -294,46 +331,61 @@ router.post('/lines/:lineId/confirm', requireStaff, (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('[replenishment] confirm line:', err.message);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(err.status || 500).json({ success: false, message: err.message });
   }
 });
 
 // ── POST /api/replenishment/lines/:lineId/skip  跳过某条补货明细 ─────────────
 router.post('/lines/:lineId/skip', requireStaff, (req, res) => {
   try {
-    const line = db.prepare('SELECT * FROM warehouse_replenishment_lines WHERE id = ?').get(req.params.lineId);
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
+    const line = db.prepare(`
+      SELECT l.*, t.status AS task_status FROM warehouse_replenishment_lines l
+      JOIN warehouse_replenishment_tasks t ON t.id = l.task_id
+      JOIN warehouse_locations wl ON wl.id = l.location_id
+      WHERE l.id = ? AND t.layout_id = ? AND wl.layout_id = ? AND wl.is_active = 1
+    `).get(req.params.lineId, layoutId, layoutId);
     if (!line) return res.status(404).json({ success: false, message: '补货明细不存在' });
-
-    db.prepare(`
-      UPDATE warehouse_replenishment_lines
-      SET status = 'skipped', confirmed_by = ?, confirmed_at = datetime('now')
-      WHERE id = ?
-    `).run(req.session.user.id, line.id);
-
-    // 检查任务是否全部完成
-    const pendingCount = db.prepare(`
-      SELECT COUNT(*) AS cnt FROM warehouse_replenishment_lines
-      WHERE task_id = ? AND status = 'pending'
-    `).get(line.task_id).cnt;
-
-    if (pendingCount === 0) {
-      db.prepare(`
-        UPDATE warehouse_replenishment_tasks
-        SET status = 'completed', completed_at = datetime('now')
-        WHERE id = ?
-      `).run(line.task_id);
+    if (line.status !== 'pending' || line.task_status === 'completed') {
+      return res.status(409).json({ success: false, message: '该明细已经处理，不能重复确认或跳过' });
     }
+
+    db.transaction(() => {
+      const updated = db.prepare(`
+        UPDATE warehouse_replenishment_lines
+        SET status = 'skipped', confirmed_by = ?, confirmed_at = datetime('now')
+        WHERE id = ? AND status = 'pending'
+      `).run(req.session.user.id, line.id);
+      if (updated.changes !== 1) {
+        throw Object.assign(new Error('该明细已经处理，不能重复确认或跳过'), { status: 409 });
+      }
+      const pendingCount = db.prepare(`
+        SELECT COUNT(*) AS cnt FROM warehouse_replenishment_lines
+        WHERE task_id = ? AND status = 'pending'
+      `).get(line.task_id).cnt;
+      if (pendingCount === 0) {
+        db.prepare(`
+          UPDATE warehouse_replenishment_tasks
+          SET status = 'completed', completed_at = datetime('now')
+          WHERE id = ?
+        `).run(line.task_id);
+      }
+    })();
 
     res.json({ success: true });
   } catch (err) {
     console.error('[replenishment] skip line:', err.message);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(err.status || 500).json({ success: false, message: err.message });
   }
 });
 
 // ── GET /api/replenishment/bindings/:locationId  获取货位的 SKU 绑定 ──────────
 router.get('/bindings/:locationId', requireLogin, (req, res) => {
   try {
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
+    if (!requireLocation(req, res, req.params.locationId, layoutId)) return;
     const bindings = db.prepare(`
       SELECT wsb.*,
         p.title AS product_title, pv.variant_title, pv.sku, pv.image_url,
@@ -354,16 +406,21 @@ router.get('/bindings/:locationId', requireLogin, (req, res) => {
 // ── POST /api/replenishment/bindings  创建 SKU 绑定 ──────────────────────────
 router.post('/bindings', requireStaff, (req, res) => {
   try {
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
     const { location_id, shopify_variant_id, stock_type, capacity, priority } = req.body;
     if (!location_id || !shopify_variant_id || !stock_type) {
       return res.status(400).json({ success: false, message: '缺少必要参数' });
     }
-    if (!['retail_display', 'retail_storage', 'exhibition', 'retail'].includes(stock_type)) {
+    if (stock_type === 'exhibition') {
+      return res.status(400).json({ success: false, message: '展会备货需要指定展会；请使用货位录入功能，普通入库不能绑定展会库存' });
+    }
+    if (!['retail_display', 'retail_storage', 'retail'].includes(stock_type)) {
       return res.status(400).json({ success: false, message: '无效的 stock_type' });
     }
 
-    const location = db.prepare('SELECT * FROM warehouse_locations WHERE id = ? AND is_active = 1').get(location_id);
-    if (!location) return res.status(404).json({ success: false, message: '货位不存在' });
+    const location = requireLocation(req, res, location_id, layoutId);
+    if (!location) return;
 
     const variant = db.prepare('SELECT * FROM product_variants WHERE shopify_variant_id = ?').get(shopify_variant_id);
     if (!variant) return res.status(404).json({ success: false, message: 'SKU 不存在' });
@@ -401,7 +458,13 @@ router.post('/bindings', requireStaff, (req, res) => {
 // ── DELETE /api/replenishment/bindings/:bindingId  删除 SKU 绑定 ─────────────
 router.delete('/bindings/:bindingId', requireStaff, (req, res) => {
   try {
-    const binding = db.prepare('SELECT * FROM warehouse_sku_bindings WHERE id = ?').get(req.params.bindingId);
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
+    const binding = db.prepare(`
+      SELECT wsb.* FROM warehouse_sku_bindings wsb
+      JOIN warehouse_locations wl ON wl.id = wsb.location_id
+      WHERE wsb.id = ? AND wl.layout_id = ?
+    `).get(req.params.bindingId, layoutId);
     if (!binding) return res.status(404).json({ success: false, message: '绑定不存在' });
 
     db.prepare('UPDATE warehouse_sku_bindings SET is_active = 0 WHERE id = ?').run(binding.id);

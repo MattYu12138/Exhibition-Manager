@@ -7,11 +7,14 @@ const router = express.Router();
 const QRCode = require('qrcode');
 const { db, nextInventoryId, nextMovementId } = require('../db');
 const { requireLogin, requireStaff, requireAdmin } = require('../middleware/auth');
+const { resolveWarehouse, requireLocation } = require('../middleware/warehouseContext');
 
 // ── GET /api/locations  列出所有货位（支持按布局/区域筛选） ─────────────────
 router.get('/', requireLogin, (req, res) => {
   try {
-    const { layout_id, zone, search, stock_status } = req.query;
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
+    const { zone, search, stock_status, stock_type } = req.query;
     let sql = `
       SELECT wl.*,
         COALESCE(SUM(wi.quantity), 0) AS total_qty,
@@ -20,17 +23,18 @@ router.get('/', requireLogin, (req, res) => {
         MAX(CASE WHEN wi.stock_type IN ('retail','retail_display','retail_storage') AND wi.quantity > 0 THEN 1 ELSE 0 END) AS has_retail
       FROM warehouse_locations wl
       LEFT JOIN warehouse_inventory wi ON wi.location_id = wl.id AND wi.quantity > 0
-      WHERE wl.is_active = 1
+      WHERE wl.is_active = 1 AND wl.layout_id = ?
     `;
-    const params = [];
-    if (layout_id) { sql += ' AND wl.layout_id = ?'; params.push(layout_id); }
+    const params = [layoutId];
     if (zone)      { sql += ' AND wl.zone = ?';      params.push(zone); }
     if (search)    { sql += ' AND (wl.code LIKE ? OR wl.label LIKE ?)'; params.push(`%${search}%`, `%${search}%`); }
+    if (stock_type === 'retail') sql += " AND EXISTS (SELECT 1 FROM warehouse_inventory inv WHERE inv.location_id = wl.id AND inv.quantity > 0 AND inv.stock_type IN ('retail','retail_display','retail_storage'))";
+    if (stock_type === 'exhibition') sql += " AND EXISTS (SELECT 1 FROM warehouse_inventory inv WHERE inv.location_id = wl.id AND inv.quantity > 0 AND inv.stock_type = 'exhibition')";
     sql += ' GROUP BY wl.id';
     if (stock_status === 'stocked') sql += ' HAVING total_qty > 0';
     if (stock_status === 'empty')   sql += ' HAVING total_qty = 0';
-    sql += ' ORDER BY wl.zone, wl.row_no, wl.col_no';
     if (stock_status === 'low_stock') sql += ' HAVING total_qty > 0 AND total_qty < wl.low_stock_threshold';
+    sql += ' ORDER BY wl.zone, wl.row_no, wl.col_no';
 
     const locations = db.prepare(sql).all(...params);
 
@@ -97,6 +101,8 @@ router.get('/scan/:token', (req, res) => {
 // ── GET /api/locations/alerts  获取所有预警货位 ──────────────────────────────
 router.get('/alerts', requireLogin, (req, res) => {
   try {
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
     const alerts = db.prepare(`
       SELECT wl.id, wl.code, wl.zone, wl.low_stock_threshold,
         COALESCE(SUM(wi.quantity), 0) AS total_qty,
@@ -104,11 +110,11 @@ router.get('/alerts', requireLogin, (req, res) => {
         MAX(CASE WHEN wi.stock_type = 'retail_storage' AND wi.quantity > 0 THEN 1 ELSE 0 END) AS has_storage
       FROM warehouse_locations wl
       LEFT JOIN warehouse_inventory wi ON wi.location_id = wl.id AND wi.quantity > 0
-      WHERE wl.is_active = 1
+      WHERE wl.is_active = 1 AND wl.layout_id = ?
       GROUP BY wl.id
       HAVING total_qty < wl.low_stock_threshold OR total_qty = 0
       ORDER BY total_qty ASC
-    `).all();
+    `).all(layoutId);
 
     // 对每个预警货位，检查是否有同 SKU 的备库存可调拨
     const storageCheckStmt = db.prepare(`
@@ -122,13 +128,14 @@ router.get('/alerts', requireLogin, (req, res) => {
       JOIN product_variants pv ON pv.shopify_variant_id = wi_s.shopify_variant_id
       JOIN products p ON p.id = pv.product_id
       WHERE wi_d.location_id = ? AND wi_d.stock_type = 'retail_display'
+        AND wl.layout_id = ? AND wl.is_active = 1
       LIMIT 5
     `);
 
     for (const loc of alerts) {
       const threshold = loc.low_stock_threshold || 10;
       loc.stock_alert = loc.total_qty === 0 ? 'empty' : 'low';
-      loc.transfer_available = storageCheckStmt.all(loc.id);
+      loc.transfer_available = storageCheckStmt.all(loc.id, layoutId);
     }
 
     res.json({ success: true, data: alerts });
@@ -141,19 +148,22 @@ router.get('/alerts', requireLogin, (req, res) => {
 // ── GET /api/locations/:id  获取单个货位详情（含库存） ──────────────────────
 router.get('/:id', requireLogin, (req, res) => {
   try {
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
     const location = db.prepare(`
       SELECT wl.*, wlay.name AS layout_name
       FROM warehouse_locations wl
       JOIN warehouse_layouts wlay ON wlay.id = wl.layout_id
-      WHERE wl.id = ? AND wl.is_active = 1
-    `).get(req.params.id);
+      WHERE wl.id = ? AND wl.layout_id = ? AND wl.is_active = 1
+    `).get(req.params.id, layoutId);
 
     if (!location) return res.status(404).json({ success: false, message: '货位不存在' });
 
     const inventory = db.prepare(`
       SELECT wi.*,
         pv.variant_title, pv.sku, pv.gtin, pv.price, pv.image_url,
-        p.title AS product_title, p.product_type, p.main_image
+        p.title AS product_title, p.product_type, p.main_image,
+        (SELECT COUNT(*) FROM warehouse_movements wm WHERE wm.inventory_id = wi.id) AS movement_count
       FROM warehouse_inventory wi
       LEFT JOIN product_variants pv ON pv.shopify_variant_id = wi.shopify_variant_id
       LEFT JOIN products p ON p.id = pv.product_id
@@ -181,12 +191,14 @@ router.get('/:id', requireLogin, (req, res) => {
 // ── PATCH /api/locations/:id/threshold  更新预警阈值 ────────────────────────
 router.patch('/:id/threshold', requireStaff, (req, res) => {
   try {
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
     const { low_stock_threshold } = req.body;
-    if (low_stock_threshold === undefined || low_stock_threshold < 0) {
+    if (!Number.isSafeInteger(low_stock_threshold) || low_stock_threshold < 0) {
       return res.status(400).json({ success: false, message: '阈值必须为非负整数' });
     }
-    const location = db.prepare('SELECT * FROM warehouse_locations WHERE id = ? AND is_active = 1').get(req.params.id);
-    if (!location) return res.status(404).json({ success: false, message: '货位不存在' });
+    const location = requireLocation(req, res, req.params.id, layoutId);
+    if (!location) return;
     db.prepare('UPDATE warehouse_locations SET low_stock_threshold = ? WHERE id = ?').run(low_stock_threshold, req.params.id);
     res.json({ success: true });
   } catch (err) {
@@ -198,13 +210,17 @@ router.patch('/:id/threshold', requireStaff, (req, res) => {
 // ── POST /api/locations/:id/transfer  内部调拨（备库→上架） ─────────────────
 router.post('/:id/transfer', requireStaff, (req, res) => {
   try {
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
     const { shopify_variant_id, quantity, from_location_id, note } = req.body;
     if (!shopify_variant_id) return res.status(400).json({ success: false, message: '缺少 shopify_variant_id' });
-    if (!quantity || quantity <= 0) return res.status(400).json({ success: false, message: '数量必须大于 0' });
+    if (!Number.isSafeInteger(quantity) || quantity <= 0) return res.status(400).json({ success: false, message: '数量必须为正整数' });
     if (!from_location_id) return res.status(400).json({ success: false, message: '缺少来源货位 from_location_id' });
 
-    const toLocation = db.prepare('SELECT * FROM warehouse_locations WHERE id = ? AND is_active = 1').get(req.params.id);
-    if (!toLocation) return res.status(404).json({ success: false, message: '目标货位不存在' });
+    const toLocation = requireLocation(req, res, req.params.id, layoutId);
+    if (!toLocation) return;
+    if (!requireLocation(req, res, from_location_id, layoutId)) return;
+    if (from_location_id === toLocation.id) return res.status(400).json({ success: false, message: '来源和目标不能是同一个货位' });
 
     const transferTx = db.transaction(() => {
       // 检查来源备库存
@@ -265,8 +281,10 @@ router.post('/:id/transfer', requireStaff, (req, res) => {
 // ── GET /api/locations/:id/qrcode  生成货位二维码图片（base64 PNG） ──────────
 router.get('/:id/qrcode', requireLogin, async (req, res) => {
   try {
-    const location = db.prepare('SELECT * FROM warehouse_locations WHERE id = ? AND is_active = 1').get(req.params.id);
-    if (!location) return res.status(404).json({ success: false, message: '货位不存在' });
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
+    const location = requireLocation(req, res, req.params.id, layoutId);
+    if (!location) return;
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5174';
     const qrUrl = `${frontendUrl}/scan/${location.qr_token}`;
@@ -296,6 +314,8 @@ router.get('/:id/qrcode', requireLogin, async (req, res) => {
 // ── POST /api/locations/:id/inventory  录入货物到货位 ────────────────────────
 router.post('/:id/inventory', requireStaff, (req, res) => {
   try {
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
     const {
       shopify_variant_id,
       quantity,
@@ -307,12 +327,12 @@ router.post('/:id/inventory', requireStaff, (req, res) => {
     } = req.body;
 
     if (!shopify_variant_id) return res.status(400).json({ success: false, message: '缺少 shopify_variant_id' });
-    if (!quantity || quantity <= 0) return res.status(400).json({ success: false, message: '数量必须大于 0' });
+    if (!Number.isSafeInteger(quantity) || quantity <= 0) return res.status(400).json({ success: false, message: '数量必须为正整数' });
     if (!['retail', 'retail_display', 'retail_storage', 'exhibition'].includes(stock_type)) return res.status(400).json({ success: false, message: 'stock_type 必须为 retail/retail_display/retail_storage/exhibition' });
     if (stock_type === 'exhibition' && !exhibition_id) return res.status(400).json({ success: false, message: '展会备货必须指定 exhibition_id' });
 
-    const location = db.prepare('SELECT * FROM warehouse_locations WHERE id = ? AND is_active = 1').get(req.params.id);
-    if (!location) return res.status(404).json({ success: false, message: '货位不存在' });
+    const location = requireLocation(req, res, req.params.id, layoutId);
+    if (!location) return;
 
     // 验证 SKU 存在
     const variant = db.prepare('SELECT * FROM product_variants WHERE shopify_variant_id = ?').get(shopify_variant_id);
@@ -392,16 +412,23 @@ router.post('/:id/inventory', requireStaff, (req, res) => {
 // ── PATCH /api/locations/:id/inventory/:invId  调整库存数量 ──────────────────
 router.patch('/:id/inventory/:invId', requireStaff, (req, res) => {
   try {
-    const { quantity, note } = req.body;
-    if (quantity === undefined || quantity < 0) return res.status(400).json({ success: false, message: '数量不能为负数' });
-
-    const inv = db.prepare('SELECT * FROM warehouse_inventory WHERE id = ? AND location_id = ?').get(req.params.invId, req.params.id);
-    if (!inv) return res.status(404).json({ success: false, message: '库存记录不存在' });
-
-    const qtyBefore = inv.quantity;
-    const delta = quantity - qtyBefore;
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
+    if (!requireLocation(req, res, req.params.id, layoutId)) return;
+    const { quantity, note, expected_quantity } = req.body;
+    if (!Number.isSafeInteger(quantity) || quantity < 0) return res.status(400).json({ success: false, message: '数量必须为非负整数' });
+    if (expected_quantity !== undefined && (!Number.isSafeInteger(expected_quantity) || expected_quantity < 0)) {
+      return res.status(400).json({ success: false, message: '原库存数量无效，请刷新后重试' });
+    }
 
     db.transaction(() => {
+      const inv = db.prepare('SELECT * FROM warehouse_inventory WHERE id = ? AND location_id = ?').get(req.params.invId, req.params.id);
+      if (!inv) throw Object.assign(new Error('库存记录不存在'), { status: 404 });
+      if (expected_quantity !== undefined && inv.quantity !== expected_quantity) {
+        throw Object.assign(new Error('库存数量已经变化，请刷新后再操作'), { status: 409 });
+      }
+      const qtyBefore = inv.quantity;
+      const delta = quantity - qtyBefore;
       db.prepare('UPDATE warehouse_inventory SET quantity = ?, updated_at = datetime(\'now\') WHERE id = ?').run(quantity, inv.id);
       if (delta !== 0) {
         const movId = nextMovementId();
@@ -417,21 +444,33 @@ router.patch('/:id/inventory/:invId', requireStaff, (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('[locations] adjust inventory:', err.message);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(err.status || 500).json({ success: false, message: err.message });
   }
 });
 
 // ── DELETE /api/locations/:id/inventory/:invId  删除库存记录 ─────────────────
 router.delete('/:id/inventory/:invId', requireAdmin, (req, res) => {
   try {
-    const inv = db.prepare('SELECT * FROM warehouse_inventory WHERE id = ? AND location_id = ?').get(req.params.invId, req.params.id);
-    if (!inv) return res.status(404).json({ success: false, message: '库存记录不存在' });
-
-    db.prepare('DELETE FROM warehouse_inventory WHERE id = ?').run(inv.id);
+    const layoutId = resolveWarehouse(req, res);
+    if (!layoutId) return;
+    if (!requireLocation(req, res, req.params.id, layoutId)) return;
+    db.transaction(() => {
+      const inv = db.prepare('SELECT * FROM warehouse_inventory WHERE id = ? AND location_id = ?').get(req.params.invId, req.params.id);
+      if (!inv) throw Object.assign(new Error('库存记录不存在'), { status: 404 });
+      if (inv.quantity > 0 || db.prepare('SELECT 1 FROM warehouse_movements WHERE inventory_id = ? LIMIT 1').get(inv.id)) {
+        throw Object.assign(new Error('库存记录或操作历史不可删除；请通过数量调整保留审计记录'), { status: 409 });
+      }
+      // Only an untouched, zero-quantity draft can be removed; a deletion must
+      // never cascade-delete stock movements or change on-hand inventory.
+      db.prepare(`
+        DELETE FROM warehouse_inventory WHERE id = ? AND quantity = 0
+          AND NOT EXISTS (SELECT 1 FROM warehouse_movements WHERE inventory_id = ?)
+      `).run(inv.id, inv.id);
+    })();
     res.json({ success: true });
   } catch (err) {
     console.error('[locations] delete inventory:', err.message);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(err.status || 500).json({ success: false, message: err.message });
   }
 });
 

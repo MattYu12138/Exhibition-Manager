@@ -2,29 +2,37 @@
   <div class="warehouse-home">
     <div class="page-header">
       <div>
-        <h1 class="page-title">🏭 仓库总览</h1>
-        <p class="page-subtitle">Warehouse Manager · 货位管理与拣货导航</p>
+        <h1 class="page-title">🏭 {{ $t('dashboard.title') }}</h1>
+        <p class="page-subtitle">{{ $t('dashboard.subtitle') }}</p>
       </div>
       <div class="header-actions">
         <el-button type="primary" @click="$router.push('/picking')">
-          <el-icon><List /></el-icon> 拣货任务
+          <el-icon><List /></el-icon> {{ $t('dashboard.pickingTasks') }}
         </el-button>
         <el-button @click="$router.push('/map')">
-          <el-icon><MapLocation /></el-icon> 查看地图
+          <el-icon><MapLocation /></el-icon> {{ $t('dashboard.viewMap') }}
         </el-button>
       </div>
     </div>
+
+    <el-alert v-if="authStore.isAdmin && legacyTasks.length" type="warning" :closable="false" show-icon class="legacy-alert">
+      <template #title>{{ $t('dashboard.legacyTitle', { count: legacyTasks.length }) }}</template>
+      <template #default>
+        {{ $t('dashboard.legacyDescription') }}
+        <el-button size="small" type="warning" plain @click="legacyDialog = true">{{ $t('dashboard.reviewLegacy') }}</el-button>
+      </template>
+    </el-alert>
 
     <!-- 可调拨提醒横幅 -->
     <div v-if="transferAlertCount > 0" class="transfer-banner" @click="$router.push('/locations')">
       <div class="banner-left">
         <span class="banner-icon">🔄</span>
         <div>
-          <div class="banner-title">有货位可内部调拨</div>
-          <div class="banner-desc">{{ transferAlertCount }} 个货位的备库有货可调拨到上架区，点击查看</div>
+          <div class="banner-title">{{ $t('dashboard.transferTitle') }}</div>
+          <div class="banner-desc">{{ $t('dashboard.transferDesc', { count: transferAlertCount }) }}</div>
         </div>
       </div>
-      <el-button type="success" size="small">立即处理 →</el-button>
+      <el-button type="success" size="small">{{ $t('dashboard.actNow') }}</el-button>
     </div>
 
     <!-- 补货提醒横幅 -->
@@ -32,11 +40,11 @@
       <div class="banner-left">
         <span class="banner-icon">🚚</span>
         <div>
-          <div class="banner-title">有新货物待补货</div>
-          <div class="banner-desc">共 {{ pendingReplenishCount }} 条补货明细待确认，点击进入补货界面</div>
+          <div class="banner-title">{{ $t('dashboard.replenishTitle') }}</div>
+          <div class="banner-desc">{{ $t('dashboard.replenishDesc', { count: pendingReplenishCount }) }}</div>
         </div>
       </div>
-      <el-button type="warning" size="small">立即处理 →</el-button>
+      <el-button type="warning" size="small">{{ $t('dashboard.actNow') }}</el-button>
     </div>
 
     <!-- 统计卡片 -->
@@ -56,22 +64,22 @@
         <el-card>
           <template #header>
             <div class="card-header">
-              <span>最近拣货任务</span>
-              <el-button text type="primary" @click="$router.push('/picking')">查看全部</el-button>
+              <span>{{ $t('dashboard.recentTasks') }}</span>
+              <el-button text type="primary" @click="$router.push('/picking')">{{ $t('dashboard.viewAll') }}</el-button>
             </div>
           </template>
           <el-table :data="recentTasks" size="small" v-loading="tasksLoading">
-            <el-table-column label="任务" min-width="160">
+            <el-table-column :label="$t('dashboard.task')" min-width="160">
               <template #default="{ row }">
                 <div class="task-name">
                   <el-tag size="small" :type="row.task_type === 'order' ? 'primary' : 'warning'" style="margin-right:6px">
-                    {{ row.task_type === 'order' ? '订单' : '展会' }}
+                    {{ row.task_type === 'order' ? $t('pickingList.orderPicking') : $t('common.exhibition') }}
                   </el-tag>
                   {{ row.shopify_order_name || row.exhibition_name || row.id }}
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="进度" width="120">
+            <el-table-column :label="$t('dashboard.progress')" width="120">
               <template #default="{ row }">
                 <el-progress
                   :percentage="row.total_lines ? Math.round(row.picked_lines / row.total_lines * 100) : 0"
@@ -80,7 +88,7 @@
                 />
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="80">
+            <el-table-column :label="$t('common.status')" width="100">
               <template #default="{ row }">
                 <el-tag size="small" :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
               </template>
@@ -93,14 +101,14 @@
               </template>
             </el-table-column>
           </el-table>
-          <el-empty v-if="!tasksLoading && recentTasks.length === 0" description="暂无拣货任务" :image-size="60" />
+          <el-empty v-if="!tasksLoading && recentTasks.length === 0" :description="$t('dashboard.noTasks')" :image-size="60" />
         </el-card>
       </el-col>
 
       <!-- 快捷操作 -->
       <el-col :span="10">
         <el-card>
-          <template #header><span>快捷操作</span></template>
+          <template #header><span>{{ $t('dashboard.quickActions') }}</span></template>
           <div class="quick-actions">
             <div class="quick-item" @click="$router.push('/replenishment')">
               <div class="quick-icon" style="background: linear-gradient(135deg, #f7971e, #ffd200)">
@@ -108,79 +116,121 @@
                 <span v-if="pendingReplenishCount > 0" class="badge">{{ pendingReplenishCount }}</span>
               </div>
               <div class="quick-text">
-                <div class="quick-title">补货管理</div>
-                <div class="quick-desc">处理 inbound 入库后的货位补货</div>
+                <div class="quick-title">{{ $t('dashboard.replenishManage') }}</div>
+                <div class="quick-desc">{{ $t('dashboard.replenishHelp') }}</div>
               </div>
             </div>
             <div class="quick-item" @click="$router.push('/picking')">
               <div class="quick-icon" style="background: linear-gradient(135deg, #667eea, #764ba2)">📦</div>
               <div class="quick-text">
-                <div class="quick-title">创建拣货任务</div>
-                <div class="quick-desc">从 Shopify 订单或展会备货</div>
+                <div class="quick-title">{{ $t('dashboard.createPicking') }}</div>
+                <div class="quick-desc">{{ $t('dashboard.createPickingHelp') }}</div>
               </div>
             </div>
             <div class="quick-item" @click="$router.push('/locations')">
               <div class="quick-icon" style="background: linear-gradient(135deg, #f093fb, #f5576c)">📍</div>
               <div class="quick-text">
-                <div class="quick-title">货位管理</div>
-                <div class="quick-desc">查看货位库存、录入货物</div>
+                <div class="quick-title">{{ $t('dashboard.locationManage') }}</div>
+                <div class="quick-desc">{{ $t('dashboard.locationHelp') }}</div>
               </div>
             </div>
             <div class="quick-item" @click="$router.push('/map')">
               <div class="quick-icon" style="background: linear-gradient(135deg, #4facfe, #00f2fe)">🗺️</div>
               <div class="quick-text">
-                <div class="quick-title">仓库地图</div>
-                <div class="quick-desc">可视化货位分布</div>
+                <div class="quick-title">{{ $t('nav.map') }}</div>
+                <div class="quick-desc">{{ $t('dashboard.mapHelp') }}</div>
               </div>
             </div>
             <div v-if="authStore.isAdmin" class="quick-item" @click="$router.push('/map/builder')">
               <div class="quick-icon" style="background: linear-gradient(135deg, #43e97b, #38f9d7)">🔧</div>
               <div class="quick-text">
-                <div class="quick-title">地图构建器</div>
-                <div class="quick-desc">拖拽设计仓库布局</div>
+                <div class="quick-title">{{ $t('pageTitle.builder') }}</div>
+                <div class="quick-desc">{{ $t('dashboard.builderHelp') }}</div>
               </div>
             </div>
           </div>
         </el-card>
       </el-col>
     </el-row>
+    <el-dialog v-model="legacyDialog" :title="$t('dashboard.legacyDialogTitle')" width="min(750px, 96vw)">
+      <p class="legacy-explanation">{{ $t('dashboard.legacyInstructions') }}</p>
+      <el-table :data="legacyTasks" max-height="420" size="small" style="width:100%">
+        <el-table-column :label="$t('dashboard.task')" min-width="170">
+          <template #default="{ row }">{{ row.kind === 'picking' ? $t('dashboard.legacyPicking') : $t('dashboard.legacyReplenishment') }} · {{ row.id.slice(0, 12) }}…</template>
+        </el-table-column>
+        <el-table-column :label="$t('common.status')" min-width="96">
+          <template #default="{ row }">{{ statusLabel(row.status) }}</template>
+        </el-table-column>
+        <el-table-column :label="$t('dashboard.legacyEvidence')" min-width="130">
+          <template #default="{ row }">
+            {{ row.line_count }} {{ $t('dashboard.legacyLines') }} · {{ row.candidate_layout_ids?.length || 0 }} {{ $t('dashboard.legacyMatches') }}
+            <el-tag v-if="row.missing_locations || row.candidate_layout_ids?.length > 1" type="danger" size="small">{{ $t('dashboard.legacyManualOnly') }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column :label="$t('nav.selectWarehouse')" min-width="190">
+          <template #default="{ row }">
+            <el-select v-model="legacyChoices[row.kind + ':' + row.id]" :placeholder="$t('nav.selectWarehouse')"
+              :disabled="Boolean(row.missing_locations || row.candidate_layout_ids?.length > 1)" size="small">
+              <el-option v-for="layout in warehouseStore.layouts" :key="layout.id" :value="layout.id"
+                :label="`${layout.name} · #${layout.id.slice(-6)}`" />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column width="90" fixed="right">
+          <template #default="{ row }">
+            <el-button type="primary" text :disabled="!legacyChoices[row.kind + ':' + row.id] || Boolean(row.missing_locations || row.candidate_layout_ids?.length > 1)"
+              @click="assignLegacy(row)">{{ $t('dashboard.legacyAssign') }}</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, computed, watch, reactive } from 'vue'
 import { layoutApi, pickingApi, replenishmentApi, locationApi } from '@/api/index.js'
+import { localizedError } from '@/i18n'
+import { ElMessage } from 'element-plus'
 import { useAuthStore } from '@/stores/auth'
+import { useWarehouseStore } from '@/stores/warehouse'
+import { useI18n } from 'vue-i18n'
 import { List, MapLocation, ArrowRight } from '@element-plus/icons-vue'
 
 const authStore = useAuthStore()
+const warehouseStore = useWarehouseStore()
+const { t } = useI18n()
 const statsLoading = ref(false)
 const tasksLoading = ref(false)
 const recentTasks = ref([])
 const layoutData = ref(null)
 const pendingReplenishCount = ref(0)
 const transferAlertCount = ref(0)
+const legacyTasks = ref([])
+const legacyDialog = ref(false)
+const legacyChoices = reactive({})
 
 const stats = computed(() => [
-  { label: '货位总数', value: layoutData.value?.locations?.length || 0, icon: '📍', color: '#667eea' },
-  { label: '已使用货位', value: layoutData.value?.locations?.filter(l => l.total_qty > 0).length || 0, icon: '📦', color: '#f093fb' },
-  { label: '待补货', value: pendingReplenishCount.value, icon: '🚚', color: '#f7971e' },
-  { label: '今日完成', value: recentTasks.value.filter(t => t.status === 'completed').length, icon: '✅', color: '#43e97b' },
+  { label: t('dashboard.totalLocations'), value: layoutData.value?.locations?.length || 0, icon: '📍', color: '#667eea' },
+  { label: t('dashboard.occupiedLocations'), value: layoutData.value?.locations?.filter(l => l.total_qty > 0).length || 0, icon: '📦', color: '#f093fb' },
+  { label: t('dashboard.awaitingReplenishment'), value: pendingReplenishCount.value, icon: '🚚', color: '#f7971e' },
+  { label: t('dashboard.completedToday'), value: recentTasks.value.filter(task => task.status === 'completed').length, icon: '✅', color: '#43e97b' },
 ])
 
 function statusType(s) {
   return { pending: 'info', in_progress: 'warning', completed: 'success', cancelled: 'danger' }[s] || 'info'
 }
 function statusLabel(s) {
-  return { pending: '待处理', in_progress: '进行中', completed: '已完成', cancelled: '已取消' }[s] || s
+  const labels = { pending: 'common.pending', in_progress: 'common.inProgress', completed: 'common.completed', cancelled: 'common.cancelled' }
+  return labels[s] ? t(labels[s]) : s
 }
 
-onMounted(async () => {
+async function loadOverview() {
   statsLoading.value = true
   tasksLoading.value = true
   try {
     const [layoutRes, tasksRes, replenishRes, alertsRes] = await Promise.all([
-      layoutApi.getActive().catch(() => ({ data: null })),
+      (warehouseStore.selectedLayoutId ? layoutApi.get(warehouseStore.selectedLayoutId) : layoutApi.getActive()).catch(() => ({ data: null })),
       pickingApi.listTasks({ limit: 8 }).catch(() => ({ data: [] })),
       replenishmentApi.getPendingCount().catch(() => ({ data: { count: 0 } })),
       locationApi.getAlerts().catch(() => ({ data: [] })),
@@ -194,11 +244,32 @@ onMounted(async () => {
     statsLoading.value = false
     tasksLoading.value = false
   }
-})
+}
+watch(() => warehouseStore.selectedLayoutId, loadOverview, { immediate: true })
+async function loadLegacy() {
+  if (!authStore.isAdmin) { legacyTasks.value = []; return }
+  try {
+    const response = await layoutApi.unassigned()
+    legacyTasks.value = response.data || []
+  } catch (error) { ElMessage.error(localizedError(error, t, 'common.requestFailed')) }
+}
+async function assignLegacy(row) {
+  const selectedId = legacyChoices[row.kind + ':' + row.id]
+  if (!selectedId) return
+  try {
+    await layoutApi.assignUnassigned(row.kind, row.id, selectedId)
+    ElMessage.success(t('dashboard.legacyAssigned'))
+    await Promise.all([loadLegacy(), loadOverview()])
+  } catch (error) { ElMessage.error(localizedError(error, t, 'common.requestFailed')) }
+}
+watch(() => authStore.isAdmin, loadLegacy, { immediate: true })
 </script>
 
 <style scoped>
 .warehouse-home { animation: fadeIn 0.3s ease; }
+.legacy-alert { margin-bottom: 16px; }
+.legacy-alert :deep(.el-button) { margin-left: 12px; }
+.legacy-explanation { color: #606266; font-size: 13px; margin: 0 0 16px; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
 .page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; }

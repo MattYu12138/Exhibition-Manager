@@ -6,6 +6,12 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
   withCredentials: true,
 })
+api.interceptors.request.use((config) => {
+  const warehouseId = localStorage.getItem('warehouse_layout_id')
+  if (warehouseId) config.headers['X-Warehouse-Id'] = warehouseId
+  config.headers['Accept-Language'] = localStorage.getItem('lang') === 'en' ? 'en' : 'zh'
+  return config
+})
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
@@ -52,8 +58,10 @@ export const layoutApi = {
   get: (id) => api.get(`/layouts/${id}`),
   create: (data) => api.post('/layouts', data),
   update: (id, data) => api.put(`/layouts/${id}`, data),
-  activate: (id) => api.post(`/layouts/${id}/activate`),
+  activate: (id) => api.patch(`/layouts/${id}/activate`),
   delete: (id) => api.delete(`/layouts/${id}`),
+  unassigned: () => api.get('/layouts/unassigned'),
+  assignUnassigned: (kind, taskId, layoutId) => api.patch(`/layouts/unassigned/${kind}/${encodeURIComponent(taskId)}`, { layout_id: layoutId }),
 }
 export const pickingApi = {
   listTasks: (params) => api.get('/picking/tasks', { params }),

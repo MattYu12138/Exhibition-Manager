@@ -5,6 +5,7 @@ const SQLiteStore = require('connect-sqlite3')(session);
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const { localizeResponse } = require('./middleware/localizeResponse');
 
 // 初始化数据库（建表）
 require('./db');
@@ -24,6 +25,7 @@ app.use(cors({
   origin: process.env.FRONTEND_URL || 'http://localhost:5174',
   credentials: true,
 }));
+app.use(localizeResponse);
 
 // Session（与 exhibition-backend 使用相同的 session DB，实现跨服务 session 共享）
 const SESSION_DB_PATH = process.env.SESSION_DB_PATH || path.join(__dirname, '../data/database/sessions.db');

@@ -1,36 +1,36 @@
 <template>
   <div class="location-detail">
     <div class="page-header">
-      <el-button text @click="$router.back()"><el-icon><ArrowLeft /></el-icon> 返回</el-button>
+      <el-button text @click="$router.back()"><el-icon><ArrowLeft /></el-icon> {{ $t('common.back') }}</el-button>
       <div class="header-center" v-if="location">
-        <h1 class="page-title">📍 货位 {{ location.code }}</h1>
-        <p class="page-subtitle">{{ location.shelf_code }} · {{ location.row_label }} 行 {{ location.col_label }} 列</p>
+        <h1 class="page-title">📍 {{ $t('locationDetail.location', { code: location.code }) }}</h1>
+        <p class="page-subtitle">{{ $t('locationDetail.coordinates', { shelf: location.shelf_code, row: location.row_label, column: location.col_label }) }}</p>
       </div>
       <div class="header-actions">
-        <el-button @click="printQrCode"><el-icon><Printer /></el-icon> 打印二维码</el-button>
-        <el-button type="primary" @click="showAddDialog = true"><el-icon><Plus /></el-icon> 录入货物</el-button>
+        <el-button @click="printQrCode"><el-icon><Printer /></el-icon> {{ $t('locationDetail.printQr') }}</el-button>
+        <el-button type="primary" @click="showAddDialog = true"><el-icon><Plus /></el-icon> {{ $t('locationDetail.addGoods') }}</el-button>
       </div>
     </div>
 
     <div v-loading="loading" class="detail-body">
       <el-row :gutter="20">
         <el-col :span="16">
-          <el-alert v-if="stockAlert === 'empty'" title="⚠️ 上架货位已空" type="error"
-            :description="transferAvailable.length > 0 ? `发现 ${transferAvailable.length} 个 SKU 在备库中有货，可内部调拨↓` : '请通过补货流程从入库批次补货'"
+          <el-alert v-if="stockAlert === 'empty'" :title="`⚠️ ${$t('locationDetail.displayEmpty')}`" type="error"
+            :description="transferAvailable.length > 0 ? $t('locationDetail.transferAvailable', { count: transferAvailable.length }) : $t('locationDetail.replenishViaInbound')"
             show-icon :closable="false" style="margin-bottom:16px" />
           <el-alert v-else-if="stockAlert === 'low'"
-            :title="`⚠️ 库存不足（当前 ${totalQty} 件，预警阈值 ${location?.low_stock_threshold || 10} 件）`"
+            :title="`⚠️ ${$t('locationDetail.lowStock', { count: totalQty, threshold: location?.low_stock_threshold || 10 })}`"
             type="warning" show-icon :closable="false" style="margin-bottom:16px" />
 
           <el-card>
             <template #header>
               <div class="card-header">
-                <span>当前库存</span>
-                <el-tag :type="stockAlert === 'ok' ? 'success' : stockAlert === 'low' ? 'warning' : 'danger'">{{ totalQty }} 件</el-tag>
+                <span>{{ $t('locationDetail.currentInventory') }}</span>
+                <el-tag :type="stockAlert === 'ok' ? 'success' : stockAlert === 'low' ? 'warning' : 'danger'">{{ $t('common.pieces', { count: totalQty }) }}</el-tag>
               </div>
             </template>
             <el-table :data="inventory" size="default">
-              <el-table-column label="商品" min-width="200">
+              <el-table-column :label="$t('common.product')" min-width="200">
                 <template #default="{ row }">
                   <div class="product-cell">
                     <img v-if="row.image_url" :src="row.image_url" class="product-thumb" />
@@ -42,114 +42,115 @@
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column label="类型" width="110">
+              <el-table-column :label="$t('common.type')" width="110">
                 <template #default="{ row }">
                   <el-tag size="small" :type="row.stock_type === 'exhibition' ? 'warning' : row.stock_type === 'retail_storage' ? 'info' : 'primary'">
                     {{ stockTypeLabel(row.stock_type) }}
                   </el-tag>
                 </template>
               </el-table-column>
-              <el-table-column label="数量" width="120">
+              <el-table-column :label="$t('common.quantity')" width="120">
                 <template #default="{ row }">
                   <div class="qty-control">
-                    <el-button text size="small" @click="adjustQty(row, -1)" :disabled="row.quantity <= 0"><el-icon><Minus /></el-icon></el-button>
+                    <el-button text size="small" @click="adjustQty(row, -1)" :disabled="row.quantity <= 0 || adjustingInventoryIds.has(row.id)"><el-icon><Minus /></el-icon></el-button>
                     <span class="qty-value">{{ row.quantity }}</span>
-                    <el-button text size="small" @click="adjustQty(row, 1)"><el-icon><Plus /></el-icon></el-button>
+                    <el-button text size="small" @click="adjustQty(row, 1)" :disabled="adjustingInventoryIds.has(row.id)"><el-icon><Plus /></el-icon></el-button>
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column label="关联展会" min-width="120">
+              <el-table-column :label="$t('locationDetail.linkedExhibition')" min-width="120">
                 <template #default="{ row }">
                   <span v-if="row.exhibition_name" class="exhibition-tag">{{ row.exhibition_name }}</span>
                   <span v-else class="no-link">—</span>
                 </template>
               </el-table-column>
-              <el-table-column label="入库时间" width="110">
+              <el-table-column :label="$t('locationDetail.receivedAt')" width="110">
                 <template #default="{ row }"><span class="date-text">{{ formatDate(row.created_at) }}</span></template>
               </el-table-column>
               <el-table-column label="" width="50">
                 <template #default="{ row }">
-                  <el-button text type="danger" size="small" @click="deleteInventory(row)"><el-icon><Delete /></el-icon></el-button>
+                  <el-button v-if="row.quantity === 0 && !row.movement_count" text type="danger" size="small"
+                    :title="$t('locationDetail.deleteEmptyDraft')" @click="deleteInventory(row)"><el-icon><Delete /></el-icon></el-button>
                 </template>
               </el-table-column>
             </el-table>
-            <el-empty v-if="!loading && inventory.length === 0" description="此货位暂无库存" :image-size="60" />
+            <el-empty v-if="!loading && inventory.length === 0" :description="$t('common.noInventory')" :image-size="60" />
           </el-card>
         </el-col>
 
         <el-col :span="8">
           <el-card class="qr-card">
-            <template #header><span>货位二维码</span></template>
+            <template #header><span>{{ $t('locationDetail.qrCode') }}</span></template>
             <div class="qr-wrapper">
               <img v-if="qrCodeUrl" :src="qrCodeUrl" class="qr-image" />
               <div v-else class="qr-loading"><el-icon class="is-loading"><Loading /></el-icon></div>
             </div>
             <div class="qr-code-text">{{ location?.code }}</div>
-            <div class="qr-hint">扫码后可直接录入货物到此货位</div>
-            <el-button style="width:100%;margin-top:12px" @click="printQrCode"><el-icon><Printer /></el-icon> 打印二维码</el-button>
+            <div class="qr-hint">{{ $t('locationDetail.qrHint') }}</div>
+            <el-button style="width:100%;margin-top:12px" @click="printQrCode"><el-icon><Printer /></el-icon> {{ $t('locationDetail.printQr') }}</el-button>
           </el-card>
 
           <el-card style="margin-top:16px">
             <template #header>
               <div class="card-header">
-                <span>⚙️ 库存预警阈值</span>
+                <span>⚙️ {{ $t('locationDetail.warningThreshold') }}</span>
                 <el-tag size="small" :type="stockAlert === 'ok' ? 'success' : stockAlert === 'low' ? 'warning' : 'danger'">
-                  {{ stockAlert === 'ok' ? '正常' : stockAlert === 'low' ? '低库存' : '空货位' }}
+                  {{ stockAlert === 'ok' ? $t('locationDetail.normal') : stockAlert === 'low' ? $t('locationDetail.low') : $t('locations.emptyLocations') }}
                 </el-tag>
               </div>
             </template>
             <div class="threshold-body">
-              <p class="threshold-hint">当库存低于此数值时触发预警提醒</p>
+              <p class="threshold-hint">{{ $t('locationDetail.thresholdHint') }}</p>
               <div class="threshold-row">
                 <el-input-number v-model="thresholdInput" :min="0" :max="9999" style="width:120px" @change="thresholdDirty = true" />
-                <span class="threshold-unit">件</span>
-                <el-button type="primary" size="small" :disabled="!thresholdDirty" :loading="thresholdSaving" @click="saveThreshold">保存</el-button>
+                <span class="threshold-unit">{{ $t('common.piece') }}</span>
+                <el-button type="primary" size="small" :disabled="!thresholdDirty" :loading="thresholdSaving" @click="saveThreshold">{{ $t('common.save') }}</el-button>
               </div>
-              <div class="threshold-current">当前库存：<strong :class="stockAlert !== 'ok' ? 'text-warn' : ''">{{ totalQty }} 件</strong></div>
+              <div class="threshold-current">{{ $t('locationDetail.currentStock') }} <strong :class="stockAlert !== 'ok' ? 'text-warn' : ''">{{ $t('common.pieces', { count: totalQty }) }}</strong></div>
             </div>
           </el-card>
 
           <el-card v-if="transferAvailable.length > 0" style="margin-top:16px" class="transfer-card">
             <template #header>
               <div class="card-header">
-                <span>🔄 内部调拨（备库→上架）</span>
-                <el-tag type="success" size="small">可调拨</el-tag>
+                <span>🔄 {{ $t('locationDetail.transferTitle') }}</span>
+                <el-tag type="success" size="small">{{ $t('locationDetail.transferReady') }}</el-tag>
               </div>
             </template>
-            <p class="transfer-hint">以下 SKU 在备库中有货，可直接调拨到本货位上架</p>
+            <p class="transfer-hint">{{ $t('locationDetail.transferHint') }}</p>
             <div v-for="item in transferAvailable" :key="item.shopify_variant_id" class="transfer-item">
               <div class="transfer-item-info">
                 <div class="transfer-sku-name">{{ item.product_title }}</div>
-                <div class="transfer-sku-sub">{{ item.variant_title }} · 备库共 {{ item.storage_qty }} 件</div>
-                <div class="transfer-sku-from">来自：{{ item.from_location_code }}</div>
+                <div class="transfer-sku-sub">{{ item.variant_title }} · {{ $t('locationDetail.storageQty', { count: item.storage_qty }) }}</div>
+                <div class="transfer-sku-from">{{ $t('locationDetail.fromLocation', { code: item.from_location_code }) }}</div>
               </div>
               <div class="transfer-item-action">
                 <el-input-number v-model="item.transfer_qty" :min="1" :max="item.storage_qty" size="small" style="width:100px" />
-                <el-button type="success" size="small" :loading="item.transferring" @click="doTransfer(item)">调拨</el-button>
+                <el-button type="success" size="small" :loading="item.transferring" @click="doTransfer(item)">{{ $t('locationDetail.transfer') }}</el-button>
               </div>
             </div>
           </el-card>
 
           <el-card style="margin-top:16px">
-            <template #header><span>操作日志</span></template>
+            <template #header><span>{{ $t('locationDetail.activityLog') }}</span></template>
             <div class="log-list">
               <div v-for="log in logs" :key="log.id" class="log-item">
-                <div class="log-action" :class="log.action">{{ logLabel(log.action) }}</div>
-                <div class="log-detail">{{ log.product_title }} × {{ log.quantity }}</div>
-                <div class="log-time">{{ formatDate(log.created_at) }}</div>
+                <div class="log-action" :class="log.movement_type">{{ logLabel(log) }}</div>
+                <div class="log-detail">{{ log.product_title }} · {{ log.quantity_delta > 0 ? '+' : '' }}{{ log.quantity_delta }}</div>
+                <div class="log-time">{{ formatDate(log.operated_at) }}</div>
               </div>
-              <el-empty v-if="logs.length === 0" description="暂无日志" :image-size="40" />
+              <el-empty v-if="logs.length === 0" :description="$t('locationDetail.noLogs')" :image-size="40" />
             </div>
           </el-card>
         </el-col>
       </el-row>
     </div>
 
-    <el-dialog v-model="showAddDialog" title="录入货物" width="500px" :close-on-click-modal="false">
+    <el-dialog v-model="showAddDialog" :title="$t('locationDetail.addGoods')" width="500px" :close-on-click-modal="false">
       <el-form :model="addForm" label-position="top">
-        <el-form-item label="搜索商品（名称/SKU/条码）" required>
+        <el-form-item :label="$t('common.searchProduct')" required>
           <el-select v-model="addForm.shopify_variant_id" filterable remote :remote-method="searchProducts"
-            :loading="searchLoading" placeholder="输入关键词搜索..." style="width:100%" @change="onVariantSelect">
+            :loading="searchLoading" :placeholder="$t('common.searchKeyword')" style="width:100%" @change="onVariantSelect">
             <el-option v-for="item in searchResults" :key="item.variant_id"
               :label="`${item.title} - ${item.variant_title} (${item.sku})`" :value="item.shopify_variant_id" />
           </el-select>
@@ -164,45 +165,51 @@
         </div>
         <el-row :gutter="16">
           <el-col :span="12">
-            <el-form-item label="数量" required>
+            <el-form-item :label="$t('common.quantity')" required>
               <el-input-number v-model="addForm.quantity" :min="1" :max="9999" style="width:100%" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="货物类型" required>
+            <el-form-item :label="$t('locationDetail.stockType')" required>
               <el-select v-model="addForm.stock_type" style="width:100%">
-                <el-option label="零售上架" value="retail_display" />
-                <el-option label="零售备库" value="retail_storage" />
-                <el-option label="展会货物" value="exhibition" />
+                <el-option :label="$t('common.retailDisplay')" value="retail_display" />
+                <el-option :label="$t('common.retailStorage')" value="retail_storage" />
+                <el-option :label="$t('common.exhibition')" value="exhibition" />
               </el-select>
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item v-if="addForm.stock_type === 'exhibition'" label="关联展会（可选）">
-          <el-select v-model="addForm.exhibition_id" clearable placeholder="选择展会" style="width:100%">
+        <el-form-item v-if="addForm.stock_type === 'exhibition'" :label="$t('locationDetail.linkedExhibitionRequired')" required>
+          <el-select v-model="addForm.exhibition_id" clearable :placeholder="$t('common.selectExhibition')" style="width:100%">
             <el-option v-for="ex in exhibitions" :key="ex.id" :label="ex.name" :value="ex.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="备注">
-          <el-input v-model="addForm.notes" placeholder="可选备注" />
+        <el-form-item :label="$t('common.notes')">
+          <el-input v-model="addForm.note" :placeholder="$t('locationDetail.notesPlaceholder')" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showAddDialog = false">取消</el-button>
-        <el-button type="primary" :loading="addLoading" @click="addInventory">确认录入</el-button>
+        <el-button @click="showAddDialog = false">{{ $t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="addLoading" @click="addInventory">{{ $t('locationDetail.confirmAdd') }}</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { locationApi, productApi } from '@/api/index.js'
 import { ArrowLeft, Plus, Minus, Delete, Printer, Loading } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
+import { localizedError } from '@/i18n'
+import { useWarehouseStore } from '@/stores/warehouse'
 
 const route = useRoute()
+const router = useRouter()
+const warehouseStore = useWarehouseStore()
+const { t, locale } = useI18n()
 const locationId = route.params.id
 
 const location = ref(null)
@@ -220,8 +227,8 @@ const thresholdInput = ref(10)
 const thresholdDirty = ref(false)
 const thresholdSaving = ref(false)
 const transferAvailable = ref([])
-
-const addForm = ref({ shopify_variant_id: null, quantity: 1, stock_type: 'retail_display', exhibition_id: null, notes: '' })
+const adjustingInventoryIds = ref(new Set())
+const addForm = ref({ shopify_variant_id: null, quantity: 1, stock_type: 'retail_display', exhibition_id: null, note: '' })
 const totalQty = computed(() => inventory.value.reduce((s, i) => s + i.quantity, 0))
 const stockAlert = computed(() => {
   if (!location.value) return 'ok'
@@ -232,14 +239,20 @@ const stockAlert = computed(() => {
 })
 
 function stockTypeLabel(t) {
-  return { retail_display: '上架中', retail_storage: '备库中', exhibition: '展会', retail: '零售' }[t] || t
+  const labels = { retail_display: 'common.displayStock', retail_storage: 'common.storageStock', exhibition: 'common.exhibition', retail: 'common.retail' }
+  return labels[t] ? useLabel(labels[t]) : t
 }
+function useLabel(key) { return t(key) }
 function formatDate(d) {
   if (!d) return '—'
-  return new Date(d).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+  return new Date(d).toLocaleDateString(locale.value === 'en' ? 'en-AU' : 'zh-CN', { month: '2-digit', day: '2-digit' })
 }
-function logLabel(a) {
-  return { add: '入库', remove: '出库', adjust: '调整', pick: '拣货', transfer: '调拨' }[a] || a
+function logLabel(log) {
+  const labels = {
+    inbound: 'locationDetail.logAdd', outbound: log.reference_type === 'pick_task' ? 'locationDetail.logPick' : 'locationDetail.logRemove',
+    adjustment: 'locationDetail.logAdjust', transfer: 'locationDetail.logTransfer',
+  }
+  return labels[log.movement_type] ? t(labels[log.movement_type]) : log.movement_type
 }
 
 async function loadData() {
@@ -288,20 +301,20 @@ async function saveThreshold() {
     await locationApi.updateThreshold(locationId, thresholdInput.value)
     location.value.low_stock_threshold = thresholdInput.value
     thresholdDirty.value = false
-    ElMessage.success('预警阈值已更新')
+    ElMessage.success(t('locationDetail.thresholdSaved'))
   } catch (err) {
-    ElMessage.error(err.message || '保存失败')
+    ElMessage.error(localizedError(err, t, 'common.saveFailed'))
   } finally {
     thresholdSaving.value = false
   }
 }
 
 async function doTransfer(item) {
-  if (!item.transfer_qty || item.transfer_qty < 1) { ElMessage.warning('请输入调拨数量'); return }
+  if (!item.transfer_qty || item.transfer_qty < 1) { ElMessage.warning(t('locationDetail.transferQtyRequired')); return }
   try {
     await ElMessageBox.confirm(
-      `确认从备库货位 ${item.from_location_code} 调拨 ${item.transfer_qty} 件「${item.product_title} ${item.variant_title}」到本货位上架？`,
-      '确认内部调拨', { type: 'info', confirmButtonText: '确认调拨', cancelButtonText: '取消' }
+      t('locationDetail.transferConfirm', { from: item.from_location_code, count: item.transfer_qty, product: `${item.product_title} ${item.variant_title}` }),
+      t('locationDetail.transferConfirmTitle'), { type: 'info', confirmButtonText: t('locationDetail.confirmTransfer'), cancelButtonText: t('common.cancel') }
     )
   } catch { return }
   item.transferring = true
@@ -310,12 +323,12 @@ async function doTransfer(item) {
       shopify_variant_id: item.shopify_variant_id,
       quantity: item.transfer_qty,
       from_location_id: item.from_location_id,
-      note: `内部调拨：从 ${item.from_location_code} 调拨 ${item.transfer_qty} 件到 ${location.value?.code}`,
+      note: t('locationDetail.transferNote', { from: item.from_location_code, to: location.value?.code, count: item.transfer_qty }),
     })
-    ElMessage.success(`已成功调拨 ${item.transfer_qty} 件到本货位`)
+    ElMessage.success(t('locationDetail.transferSuccess', { count: item.transfer_qty }))
     await loadData()
   } catch (err) {
-    ElMessage.error(err.message || '调拨失败')
+    ElMessage.error(localizedError(err, t, 'locationDetail.transferFailed'))
   } finally {
     item.transferring = false
   }
@@ -335,45 +348,58 @@ function onVariantSelect(variantId) {
 }
 
 async function addInventory() {
-  if (!addForm.value.shopify_variant_id) { ElMessage.warning('请选择商品'); return }
+  if (!addForm.value.shopify_variant_id) { ElMessage.warning(t('locationDetail.selectProduct')); return }
+  if (addForm.value.stock_type === 'exhibition' && !addForm.value.exhibition_id) { ElMessage.warning(t('locationDetail.selectExhibition')); return }
   addLoading.value = true
   try {
     await locationApi.addInventory(locationId, addForm.value)
-    ElMessage.success('录入成功')
+    ElMessage.success(t('locationDetail.addSuccess'))
     showAddDialog.value = false
-    addForm.value = { shopify_variant_id: null, quantity: 1, stock_type: 'retail_display', exhibition_id: null, notes: '' }
+    addForm.value = { shopify_variant_id: null, quantity: 1, stock_type: 'retail_display', exhibition_id: null, note: '' }
     selectedVariant.value = null
     await loadData()
   } catch (err) {
-    ElMessage.error(err.message || '录入失败')
+    ElMessage.error(localizedError(err, t, 'locationDetail.addFailed'))
   } finally { addLoading.value = false }
 }
 
 async function adjustQty(row, delta) {
+  if (adjustingInventoryIds.value.has(row.id)) return
+  adjustingInventoryIds.value.add(row.id)
   try {
-    await locationApi.adjustInventory(locationId, row.id, { quantity_delta: delta })
-    row.quantity += delta
-    if (row.quantity <= 0) inventory.value = inventory.value.filter(i => i.id !== row.id)
-  } catch (err) { ElMessage.error(err.message) }
+    await locationApi.adjustInventory(locationId, row.id, { quantity: row.quantity + delta, expected_quantity: row.quantity })
+    await loadData() // Keep zero-quantity records and their movement history visible.
+  } catch (err) { ElMessage.error(localizedError(err, t)) }
+  finally { adjustingInventoryIds.value.delete(row.id) }
 }
 
 async function deleteInventory(row) {
-  await ElMessageBox.confirm(`确认删除 ${row.product_title} × ${row.quantity}？`, '确认删除', { type: 'warning' })
-  await locationApi.deleteInventory(locationId, row.id)
-  inventory.value = inventory.value.filter(i => i.id !== row.id)
-  ElMessage.success('已删除')
+  if (row.quantity !== 0) return
+  try {
+    await ElMessageBox.confirm(t('locationDetail.deleteEmptyConfirm', { product: row.product_title }), t('locationDetail.deleteEmptyDraft'), { type: 'warning', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') })
+    await locationApi.deleteInventory(locationId, row.id)
+    await loadData()
+    ElMessage.success(t('locationDetail.deleted'))
+  } catch (err) {
+    if (err !== 'cancel' && err !== 'close') ElMessage.error(localizedError(err, t, 'common.deleteFailed'))
+  }
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+}
 function printQrCode() {
   if (!qrCodeUrl.value) return
   // 构建库存货物行 HTML
   const invRows = inventory.value.map(item => {
-    const typeLabel = { retail_display: '上架', retail_storage: '备库', exhibition: '展会' }[item.stock_type] || item.stock_type
+    const labels = { retail_display: 'locationDetail.printDisplay', retail_storage: 'locationDetail.printStorage', exhibition: 'common.exhibition' }
+    const typeLabel = labels[item.stock_type] ? t(labels[item.stock_type]) : item.stock_type
     const name = [item.product_title, item.variant_title].filter(Boolean).join(' · ')
-    return `<div class="inv-row"><div class="inv-name">${name}</div><div class="inv-meta">SKU: ${item.sku || '—'} &nbsp;|&nbsp; ${typeLabel} × ${item.quantity}</div></div>`
+    return `<div class="inv-row"><div class="inv-name">${escapeHtml(name)}</div><div class="inv-meta">SKU: ${escapeHtml(item.sku || '—')} &nbsp;|&nbsp; ${escapeHtml(typeLabel)} × ${escapeHtml(item.quantity)}</div></div>`
   }).join('')
   const win = window.open('', '_blank')
-  win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>货位 ${location.value?.code}</title>
+  if (!win) return
+  win.document.write(`<!DOCTYPE html><html lang="${locale.value === 'en' ? 'en' : 'zh-CN'}"><head><meta charset="UTF-8"><title>${escapeHtml(t('locationDetail.printTitle', { code: location.value?.code || '' }))}</title>
 <style>
 @page { size: 46mm 150mm; margin: 0; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -393,15 +419,18 @@ body { width: 46mm; height: 150mm; font-family: Arial, 'PingFang SC', sans-serif
 .no-inv { font-size: 6.5pt; color: #bbb; text-align: center; padding: 3mm 0; }
 </style></head>
 <body><div class="label-wrap">
-  <div class="qr-section"><img src="${qrCodeUrl.value}" /></div>
-  <div class="code-section"><div class="code">${location.value?.code || ''}</div><div class="shelf">${location.value?.shelf_code || ''}</div></div>
-  <div class="inv-section">${invRows ? '<div class="inv-title">库存货物</div>' + invRows : '<div class="no-inv">暂无库存</div>'}</div>
+  <div class="qr-section"><img src="${escapeHtml(qrCodeUrl.value)}" /></div>
+  <div class="code-section"><div class="code">${escapeHtml(location.value?.code || '')}</div><div class="shelf">${escapeHtml(location.value?.shelf_code || '')}</div></div>
+  <div class="inv-section">${invRows ? `<div class="inv-title">${escapeHtml(t('locationDetail.printInventory'))}</div>` + invRows : `<div class="no-inv">${escapeHtml(t('locationDetail.printEmpty'))}</div>`}</div>
 </div>
 <script>window.onload = function(){ window.print(); }<\/script>
 </body></html>`)
   win.document.close()
 }
 
+watch(() => warehouseStore.selectedLayoutId, (id, oldId) => {
+  if (String(id) !== String(oldId)) router.replace('/locations')
+})
 onMounted(loadData)
 </script>
 
@@ -448,10 +477,9 @@ onMounted(loadData)
 .log-list{display:flex;flex-direction:column;gap:8px;max-height:300px;overflow-y:auto}
 .log-item{padding:8px;border-radius:6px;background:#f9f9f9}
 .log-action{font-size:11px;font-weight:600;margin-bottom:2px}
-.log-action.add{color:#67C23A}
-.log-action.remove{color:#F56C6C}
-.log-action.pick{color:#409EFF}
-.log-action.adjust{color:#E6A23C}
+.log-action.inbound{color:#67C23A}
+.log-action.outbound{color:#F56C6C}
+.log-action.adjustment{color:#E6A23C}
 .log-action.transfer{color:#67C23A}
 .log-detail{font-size:12px;color:#606266}
 .log-time{font-size:11px;color:#c0c4cc;margin-top:2px}

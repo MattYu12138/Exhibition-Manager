@@ -2,12 +2,12 @@
   <div class="picking-list">
     <div class="page-header">
       <div>
-        <h1 class="page-title">📦 拣货任务</h1>
-        <p class="page-subtitle">从 Shopify 订单或展会备货创建拣货任务</p>
+        <h1 class="page-title">📦 {{ $t('pickingList.title') }}</h1>
+        <p class="page-subtitle">{{ $t('pickingList.subtitle') }}</p>
       </div>
       <div class="header-actions">
         <el-button type="primary" @click="showCreateDialog = true">
-          <el-icon><Plus /></el-icon> 新建任务
+          <el-icon><Plus /></el-icon> {{ $t('pickingList.newTask') }}
         </el-button>
       </div>
     </div>
@@ -15,17 +15,17 @@
     <!-- 筛选 -->
     <el-card class="filter-card">
       <div class="filter-row">
-        <el-select v-model="filterStatus" placeholder="状态" clearable style="width:130px" @change="loadTasks">
-          <el-option label="全部" value="" />
-          <el-option label="待处理" value="pending" />
-          <el-option label="进行中" value="in_progress" />
-          <el-option label="已完成" value="completed" />
-          <el-option label="已取消" value="cancelled" />
+        <el-select v-model="filterStatus" :placeholder="$t('common.status')" clearable style="width:130px" @change="loadTasks">
+          <el-option :label="$t('common.all')" value="" />
+          <el-option :label="$t('common.pending')" value="pending" />
+          <el-option :label="$t('common.inProgress')" value="in_progress" />
+          <el-option :label="$t('common.completed')" value="completed" />
+          <el-option :label="$t('common.cancelled')" value="cancelled" />
         </el-select>
-        <el-select v-model="filterType" placeholder="类型" clearable style="width:130px" @change="loadTasks">
-          <el-option label="全部" value="" />
-          <el-option label="订单拣货" value="order" />
-          <el-option label="展会备货" value="exhibition" />
+        <el-select v-model="filterType" :placeholder="$t('common.type')" clearable style="width:130px" @change="loadTasks">
+          <el-option :label="$t('common.all')" value="" />
+          <el-option :label="$t('pickingList.orderPicking')" value="order" />
+          <el-option :label="$t('pickingList.exhibitionPicking')" value="exhibition" />
         </el-select>
       </div>
     </el-card>
@@ -35,10 +35,10 @@
       <div v-for="task in tasks" :key="task.id" class="task-card" @click="$router.push(`/picking/${task.id}`)">
         <div class="task-left">
           <el-tag :type="task.task_type === 'order' ? 'primary' : 'warning'" style="margin-bottom:6px">
-            {{ task.task_type === 'order' ? '📦 订单拣货' : '🎪 展会备货' }}
+            {{ task.task_type === 'order' ? `📦 ${$t('pickingList.orderPicking')}` : `🎪 ${$t('pickingList.exhibitionPicking')}` }}
           </el-tag>
           <div class="task-name">{{ task.shopify_order_name || task.exhibition_name || task.id }}</div>
-          <div class="task-meta">{{ task.total_lines }} 个商品 · {{ formatDate(task.created_at) }}</div>
+          <div class="task-meta">{{ $t('pickingList.productLines', { count: task.total_lines }) }} · {{ formatDate(task.created_at) }}</div>
         </div>
         <div class="task-center">
           <el-progress
@@ -47,7 +47,7 @@
             :stroke-width="8"
             style="width:160px"
           />
-          <div class="progress-text">{{ task.picked_lines }}/{{ task.total_lines }} 已拣</div>
+          <div class="progress-text">{{ $t('pickingList.pickedProgress', { picked: task.picked_lines, total: task.total_lines }) }}</div>
         </div>
         <div class="task-right">
           <el-tag :type="statusType(task.status)" size="large">{{ statusLabel(task.status) }}</el-tag>
@@ -57,21 +57,21 @@
             circle
             size="small"
             @click.stop="deleteTask(task)"
-            title="删除任务"
+            :title="$t('pickingList.deleteTask')"
           />
           <el-icon class="arrow-icon"><ArrowRight /></el-icon>
         </div>
       </div>
     </div>
 
-    <el-empty v-if="!loading && tasks.length === 0" description="暂无拣货任务" :image-size="80" />
+    <el-empty v-if="!loading && tasks.length === 0" :description="$t('pickingList.noTasks')" :image-size="80" />
 
     <!-- 新建任务对话框 -->
-    <el-dialog v-model="showCreateDialog" title="新建拣货任务" width="560px" :close-on-click-modal="false">
+    <el-dialog v-model="showCreateDialog" :title="$t('pickingList.newTaskTitle')" width="560px" :close-on-click-modal="false">
       <el-tabs v-model="createTab">
-        <el-tab-pane label="📦 从 Shopify 订单" name="order">
+        <el-tab-pane :label="`📦 ${$t('pickingList.fromOrders')}`" name="order">
           <div class="tab-content">
-            <div class="tab-hint">从 Shopify 拉取待发货订单，选择后自动匹配仓库货位</div>
+            <div class="tab-hint">{{ $t('pickingList.ordersHint') }}</div>
             <div v-loading="ordersLoading" class="orders-list">
               <div v-for="order in shopifyOrders" :key="order.id"
                 class="order-item"
@@ -83,19 +83,19 @@
                   <div class="order-customer">{{ order.customer_name }}</div>
                 </div>
                 <div class="order-right">
-                  <div class="order-items">{{ order.line_items.reduce((s, i) => s + i.quantity, 0) }} 件</div>
+                  <div class="order-items">{{ $t('common.pieces', { count: order.line_items.reduce((s, i) => s + i.quantity, 0) }) }}</div>
                   <div class="order-date">{{ formatDate(order.created_at) }}</div>
                 </div>
                 <el-icon v-if="selectedOrderId === order.id" class="check-icon" color="#409EFF"><Check /></el-icon>
               </div>
-              <el-empty v-if="!ordersLoading && shopifyOrders.length === 0" description="暂无待发货订单" :image-size="60" />
+              <el-empty v-if="!ordersLoading && shopifyOrders.length === 0" :description="$t('pickingList.noOrders')" :image-size="60" />
             </div>
           </div>
         </el-tab-pane>
 
-        <el-tab-pane label="🎪 展会备货" name="exhibition">
+        <el-tab-pane :label="`🎪 ${$t('pickingList.exhibitionPicking')}`" name="exhibition">
           <div class="tab-content">
-            <div class="tab-hint">为即将举行的展会批量备货，系统自动匹配展会商品的仓库货位</div>
+            <div class="tab-hint">{{ $t('pickingList.exhibitionHint') }}</div>
             <div class="exhibitions-list">
               <div v-for="ex in exhibitions" :key="ex.id"
                 class="exhibition-item"
@@ -104,32 +104,37 @@
               >
                 <div class="ex-name">{{ ex.name }}</div>
                 <div class="ex-date">{{ ex.date || ex.location }}</div>
-                <el-tag size="small" :type="ex.status === 'upcoming' ? 'warning' : 'info'">{{ ex.status }}</el-tag>
+                <el-tag size="small" :type="ex.status === 'active' ? 'warning' : ex.status === 'completed' ? 'success' : 'info'">{{ exhibitionStatusLabel(ex.status) }}</el-tag>
                 <el-icon v-if="selectedExhibitionId === ex.id" class="check-icon" color="#409EFF"><Check /></el-icon>
               </div>
-              <el-empty v-if="exhibitions.length === 0" description="暂无展会" :image-size="60" />
+              <el-empty v-if="exhibitions.length === 0" :description="$t('pickingList.noExhibitions')" :image-size="60" />
             </div>
           </div>
         </el-tab-pane>
       </el-tabs>
 
       <template #footer>
-        <el-button @click="showCreateDialog = false">取消</el-button>
-        <el-button type="primary" :loading="createLoading" @click="createTask">创建任务</el-button>
+        <el-button @click="showCreateDialog = false">{{ $t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="createLoading" @click="createTask">{{ $t('pickingList.createTask') }}</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { pickingApi, productApi } from '@/api/index.js'
 import { ElMessageBox } from 'element-plus'
 import { Plus, ArrowRight, Check, Delete } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
+import { localizedError } from '@/i18n'
+import { useWarehouseStore } from '@/stores/warehouse'
 
 const router = useRouter()
+const warehouseStore = useWarehouseStore()
+const { t, locale } = useI18n()
 const tasks = ref([])
 const loading = ref(false)
 const filterStatus = ref('')
@@ -148,17 +153,22 @@ function statusType(s) {
   return { pending: 'info', in_progress: 'warning', completed: 'success', cancelled: 'danger' }[s] || 'info'
 }
 function statusLabel(s) {
-  return { pending: '待处理', in_progress: '进行中', completed: '已完成', cancelled: '已取消' }[s] || s
+  const labels = { pending: 'common.pending', in_progress: 'common.inProgress', completed: 'common.completed', cancelled: 'common.cancelled' }
+  return labels[s] ? t(labels[s]) : s
+}
+function exhibitionStatusLabel(status) {
+  const labels = { preparing: 'pickingList.exhibitionPreparing', active: 'pickingList.exhibitionActive', completed: 'pickingList.exhibitionCompleted', upcoming: 'pickingList.exhibitionUpcoming' }
+  return labels[status] ? t(labels[status]) : status
 }
 function formatDate(d) {
   if (!d) return '—'
-  return new Date(d).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+  return new Date(d).toLocaleDateString(locale.value === 'en' ? 'en-AU' : 'zh-CN', { month: '2-digit', day: '2-digit' })
 }
 
 async function loadTasks() {
   loading.value = true
   try {
-    const res = await pickingApi.listTasks({ status: filterStatus.value || undefined, task_type: filterType.value || undefined })
+    const res = await pickingApi.listTasks({ status: filterStatus.value || undefined, task_type: filterType.value || undefined, layout_id: warehouseStore.selectedLayoutId || undefined })
     tasks.value = res.data || []
   } finally {
     loading.value = false
@@ -183,10 +193,10 @@ async function createTask() {
   try {
     let res
     if (createTab.value === 'order') {
-      if (!selectedOrderId.value) { ElMessage.warning('请选择订单'); return }
+      if (!selectedOrderId.value) { ElMessage.warning(t('pickingList.selectOrder')); return }
       const order = shopifyOrders.value.find(o => o.id === selectedOrderId.value)
       if (!order || !order.line_items || order.line_items.length === 0) {
-        ElMessage.warning('所选订单没有商品行项目')
+        ElMessage.warning(t('pickingList.orderEmpty'))
         return
       }
       res = await pickingApi.createFromOrder({
@@ -194,17 +204,18 @@ async function createTask() {
         shopify_order_name: order.name,
         customer_name: order.customer_name,
         line_items: order.line_items,
+        layout_id: warehouseStore.selectedLayoutId || undefined,
       })
     } else {
-      if (!selectedExhibitionId.value) { ElMessage.warning('请选择展会'); return }
-      res = await pickingApi.createFromExhibition({ exhibition_id: selectedExhibitionId.value })
+      if (!selectedExhibitionId.value) { ElMessage.warning(t('pickingList.selectExhibition')); return }
+      res = await pickingApi.createFromExhibition({ exhibition_id: selectedExhibitionId.value, layout_id: warehouseStore.selectedLayoutId || undefined })
     }
-    ElMessage.success('任务创建成功')
+    ElMessage.success(t('pickingList.created'))
     showCreateDialog.value = false
     await loadTasks()
     router.push(`/picking/${res.data.id}`)
   } catch (err) {
-    ElMessage.error(err.message || '创建失败')
+    ElMessage.error(localizedError(err, t, 'pickingList.createFailed'))
   } finally {
     createLoading.value = false
   }
@@ -223,19 +234,19 @@ Object.defineProperty(showCreateDialog, 'value', {
 async function deleteTask(task) {
   try {
     await ElMessageBox.confirm(
-      `确定要删除拣货任务「${task.shopify_order_name || task.exhibition_name || task.id}」吗？此操作不可恢复。`,
-      '删除任务',
-      { confirmButtonText: '确定删除', cancelButtonText: '取消', type: 'warning' }
+      t('pickingList.deleteConfirm', { name: task.shopify_order_name || task.exhibition_name || task.id }),
+      t('pickingList.deleteTitle'),
+      { confirmButtonText: t('pickingList.confirmDelete'), cancelButtonText: t('common.cancel'), type: 'warning' }
     )
     await pickingApi.deleteTask(task.id)
-    ElMessage.success('任务已删除')
+    ElMessage.success(t('pickingList.deleted'))
     await loadTasks()
   } catch (err) {
-    if (err !== 'cancel') ElMessage.error(err.message || '删除失败')
+    if (err !== 'cancel') ElMessage.error(localizedError(err, t, 'common.deleteFailed'))
   }
 }
 
-onMounted(loadTasks)
+watch(() => warehouseStore.selectedLayoutId, loadTasks, { immediate: true })
 </script>
 
 <style scoped>

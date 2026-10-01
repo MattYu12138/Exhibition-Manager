@@ -2,31 +2,31 @@
   <div class="location-list">
     <div class="page-header">
       <div>
-        <h1 class="page-title">📍 货位管理</h1>
-        <p class="page-subtitle">查看所有货位库存，点击货位进入详情</p>
+        <h1 class="page-title">📍 {{ $t('locations.title') }}</h1>
+        <p class="page-subtitle">{{ $t('locations.subtitle') }}</p>
       </div>
     </div>
 
     <!-- 筛选栏 -->
     <el-card class="filter-card">
       <div class="filter-row">
-        <el-input v-model="search" placeholder="搜索货位编码..." clearable style="width:220px" @input="loadLocations">
+        <el-input v-model="search" :placeholder="$t('locations.search')" clearable style="width:220px" @input="loadLocations">
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
-        <el-select v-model="filterType" placeholder="货物类型" clearable style="width:140px" @change="loadLocations">
-          <el-option label="全部" value="" />
-          <el-option label="零售货物" value="retail" />
-          <el-option label="展会货物" value="exhibition" />
+        <el-select v-model="filterType" :placeholder="$t('locations.stockType')" clearable style="width:140px" @change="loadLocations">
+          <el-option :label="$t('common.all')" value="" />
+          <el-option :label="$t('common.retail')" value="retail" />
+          <el-option :label="$t('common.exhibition')" value="exhibition" />
         </el-select>
-        <el-select v-model="filterEmpty" placeholder="库存状态" clearable style="width:140px" @change="loadLocations">
-          <el-option label="全部" value="" />
-          <el-option label="有货" value="stocked" />
-          <el-option label="空货位" value="empty" />
-          <el-option label="库存不足" value="low_stock" />
+        <el-select v-model="filterEmpty" :placeholder="$t('locations.stockStatus')" clearable style="width:140px" @change="loadLocations">
+          <el-option :label="$t('common.all')" value="" />
+          <el-option :label="$t('locations.stocked')" value="stocked" />
+          <el-option :label="$t('locations.emptyLocations')" value="empty" />
+          <el-option :label="$t('locations.lowStock')" value="low_stock" />
         </el-select>
-        <el-tag type="info" style="margin-left:auto">共 {{ total }} 个货位</el-tag>
+        <el-tag type="info" style="margin-left:auto">{{ $t('common.locations', { count: total }) }}</el-tag>
         <el-tag v-if="alertCount > 0" type="danger" style="cursor:pointer" @click="filterEmpty='low_stock';loadLocations()">
-          ⚠️ {{ alertCount }} 个货位需关注
+          ⚠️ {{ $t('locations.needsAttention', { count: alertCount }) }}
         </el-tag>
       </div>
     </el-card>
@@ -49,15 +49,15 @@
           <span class="loc-code">{{ loc.code }}</span>
           <el-tag size="small"
             :type="loc.total_qty === 0 ? 'info' : loc.stock_alert === 'low' ? 'warning' : 'success'">
-            {{ loc.total_qty > 0 ? `${loc.total_qty} 件` : '空' }}
+            {{ loc.total_qty > 0 ? $t('common.pieces', { count: loc.total_qty }) : $t('common.empty') }}
           </el-tag>
         </div>
         <!-- 预警提示条 -->
         <div v-if="loc.stock_alert === 'low'" class="alert-bar alert-low">
-          ⚠️ 库存不足（阈值 {{ loc.low_stock_threshold || 10 }} 件）
+          ⚠️ {{ $t('locations.lowStockWarning', { threshold: loc.low_stock_threshold || 10 }) }}
         </div>
         <div v-else-if="loc.stock_alert === 'empty' && loc.total_qty === 0 && loc.has_display_binding" class="alert-bar alert-empty">
-          🔴 上架货位已空，需补货
+          🔴 {{ $t('locations.displayEmpty') }}
         </div>
         <div class="loc-body">
           <div v-if="loc.top_items?.length" class="top-items">
@@ -66,27 +66,29 @@
               <span class="item-qty">×{{ item.quantity }}</span>
             </div>
           </div>
-          <div v-else class="empty-hint">空货位</div>
+          <div v-else class="empty-hint">{{ $t('locations.emptyLocations') }}</div>
         </div>
         <div class="loc-footer">
-          <el-tag v-if="loc.has_exhibition" size="small" type="warning" style="margin-right:4px">展会</el-tag>
-          <el-tag v-if="loc.has_retail" size="small" type="primary">零售</el-tag>
+          <el-tag v-if="loc.has_exhibition" size="small" type="warning" style="margin-right:4px">{{ $t('common.exhibition') }}</el-tag>
+          <el-tag v-if="loc.has_retail" size="small" type="primary">{{ $t('common.retail') }}</el-tag>
         </div>
       </div>
     </div>
 
-    <el-empty v-if="!loading && locations.length === 0" description="暂无货位，请先在地图构建器中创建仓库布局" :image-size="80">
-      <el-button type="primary" @click="$router.push('/map/builder')">前往构建器</el-button>
+    <el-empty v-if="!loading && locations.length === 0" :description="$t('locations.noLocations')" :image-size="80">
+      <el-button type="primary" @click="$router.push('/map/builder')">{{ $t('locations.goToBuilder') }}</el-button>
     </el-empty>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, watch } from 'vue'
 import { locationApi } from '@/api/index.js'
+import { useWarehouseStore } from '@/stores/warehouse'
 import { Search } from '@element-plus/icons-vue'
 
 const locations = ref([])
+const warehouseStore = useWarehouseStore()
 const loading = ref(false)
 const search = ref('')
 const filterType = ref('')
@@ -98,6 +100,7 @@ async function loadLocations() {
   loading.value = true
   try {
     const res = await locationApi.list({
+      layout_id: warehouseStore.selectedLayoutId || undefined,
       search: search.value || undefined,
       stock_type: filterType.value || undefined,
       stock_status: filterEmpty.value || undefined,
@@ -111,7 +114,7 @@ async function loadLocations() {
   }
 }
 
-onMounted(loadLocations)
+watch(() => warehouseStore.selectedLayoutId, loadLocations, { immediate: true })
 </script>
 
 <style scoped>

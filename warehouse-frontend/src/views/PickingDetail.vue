@@ -1,10 +1,10 @@
 <template>
   <div class="picking-detail">
     <div class="page-header">
-      <el-button text @click="$router.back()"><el-icon><ArrowLeft /></el-icon> 返回</el-button>
+      <el-button text @click="$router.back()"><el-icon><ArrowLeft /></el-icon> {{ $t('common.back') }}</el-button>
       <div class="header-center" v-if="task">
         <el-tag :type="task.task_type === 'order' ? 'primary' : 'warning'" style="margin-right:8px">
-          {{ task.task_type === 'order' ? '📦 订单拣货' : '🎪 展会备货' }}
+          {{ task.task_type === 'order' ? `📦 ${$t('pickingList.orderPicking')}` : `🎪 ${$t('pickingList.exhibitionPicking')}` }}
         </el-tag>
         <h1 class="page-title">{{ task.shopify_order_name || task.exhibition_name || task.id }}</h1>
       </div>
@@ -20,7 +20,7 @@
           <el-card class="picking-card">
             <template #header>
               <div class="card-header">
-                <span>拣货清单</span>
+                <span>{{ $t('pickingDetail.pickingList') }}</span>
                 <el-progress
                   :percentage="progressPct"
                   :status="task?.status === 'completed' ? 'success' : undefined"
@@ -52,12 +52,15 @@
                     <div class="line-location">
                       <el-icon size="12"><Location /></el-icon>
                       <span v-if="line.location_code">{{ line.location_code }}</span>
-                      <span v-else class="no-location">未找到货位</span>
+                      <span v-else class="no-location">{{ $t('pickingDetail.locationNotFound') }}</span>
                     </div>
                   </div>
                   <div class="line-qty">
                     <span class="qty-needed">{{ line.required_qty }}</span>
-                    <span class="qty-label">件</span>
+                    <span class="qty-label">{{ $t('common.piece') }}</span>
+                    <div v-if="line.status === 'partial'" class="qty-partial">
+                      {{ $t('pickingDetail.partialQty', { picked: line.picked_qty, required: line.required_qty }) }}
+                    </div>
                   </div>
                 </div>
               </transition-group>
@@ -70,7 +73,7 @@
                 :disabled="progressPct < 100"
                 @click="completeTask"
               >
-                ✅ 完成拣货
+                ✅ {{ $t('pickingDetail.completePicking') }}
               </el-button>
             </div>
           </el-card>
@@ -81,12 +84,12 @@
           <el-card class="map-card">
             <template #header>
               <div class="card-header">
-                <span>仓库地图导航</span>
+                <span>{{ $t('pickingDetail.mapNavigation') }}</span>
                 <div class="map-controls">
                   <div class="map-legend">
-                    <span class="legend-dot" style="background:#409EFF"></span>货架
-                    <span class="legend-dot" style="background:#F56C6C;margin-left:8px"></span>目标
-                    <span class="legend-dot" style="background:#67C23A;margin-left:8px"></span>已完成
+                    <span class="legend-dot" style="background:#409EFF"></span>{{ $t('pickingDetail.shelves') }}
+                    <span class="legend-dot" style="background:#F56C6C;margin-left:8px"></span>{{ $t('pickingDetail.target') }}
+                    <span class="legend-dot" style="background:#67C23A;margin-left:8px"></span>{{ $t('pickingDetail.done') }}
                   </div>
                   <div class="zoom-controls">
                     <el-button size="small" circle @click="zoomIn"><el-icon><ZoomIn /></el-icon></el-button>
@@ -109,7 +112,8 @@
                     gridTemplateColumns: `repeat(${parsedLayout.grid_cols}, ${cellSize}px)`,
                     gridTemplateRows: `repeat(${parsedLayout.grid_rows}, ${cellSize}px)`,
                   }">
-                  <div v-for="(_, idx) in parsedLayout.grid_cols * parsedLayout.grid_rows" :key="`bg-${idx}`" class="bg-cell" />
+                  <div v-for="(_, idx) in parsedLayout.grid_cols * parsedLayout.grid_rows" :key="`bg-${idx}`" class="bg-cell"
+                    :style="{ gridColumn: idx % parsedLayout.grid_cols + 1, gridRow: Math.floor(idx / parsedLayout.grid_cols) + 1 }" />
                   <div
                     v-for="cell in parsedLayout.cells"
                     :key="cell.id"
@@ -141,7 +145,7 @@
                 <div class="hint-body">
                   <div class="hint-product">{{ activeLine.product_title }} · {{ activeLine.variant_title }}</div>
                   <div class="hint-location">
-                    前往货位：<strong>{{ activeLine.location_code || '未知' }}</strong>
+                    {{ $t('pickingDetail.goToLocation') }}<strong>{{ activeLine.location_code || $t('pickingDetail.unknown') }}</strong>
                   </div>
                 </div>
                 <el-button
@@ -150,15 +154,23 @@
                   size="small"
                   @click="handleCheckChange(activeLine, true)"
                 >
-                  确认拣取
+                  {{ $t('pickingDetail.confirmPick') }}
                 </el-button>
                 <el-button
-                  v-else
+                  v-if="activeLine.status === 'partial'"
                   type="warning"
                   size="small"
                   @click="confirmUnpick(activeLine)"
                 >
-                  取消拣货
+                  {{ $t('pickingDetail.cancelPick') }}
+                </el-button>
+                <el-button
+                  v-if="activeLine.status === 'picked'"
+                  type="warning"
+                  size="small"
+                  @click="confirmUnpick(activeLine)"
+                >
+                  {{ $t('pickingDetail.cancelPick') }}
                 </el-button>
               </div>
             </transition>
@@ -170,14 +182,19 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { pickingApi, layoutApi } from '@/api/index.js'
 import { ArrowLeft, Location, ZoomIn, ZoomOut, FullScreen } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
+import { localizedError } from '@/i18n'
+import { useWarehouseStore } from '@/stores/warehouse'
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
+const warehouseStore = useWarehouseStore()
 const taskId = route.params.id
 
 const task = ref(null)
@@ -191,7 +208,7 @@ const mapViewport = ref(null)
 const scale = ref(1)
 const cellSize = 48
 
-const iconMap = { shelf: '📦', aisle: '⟶', entrance: '🚪', wall: '█', workstation: '🖥' }
+const iconMap = { shelf: '📦', aisle: '⟶', entrance: '🚪', door: '🚪', wall: '█', workstation: '🖥', workbench: '🖥', pillar: '▣' }
 function getCellIcon(type) { return iconMap[type] || '📦' }
 
 function zoomIn() { scale.value = Math.min(scale.value + 0.2, 3) }
@@ -261,7 +278,8 @@ function statusType(s) {
   return { pending: 'info', in_progress: 'warning', completed: 'success', cancelled: 'danger' }[s] || 'info'
 }
 function statusLabel(s) {
-  return { pending: '待处理', in_progress: '进行中', completed: '已完成', cancelled: '已取消' }[s] || s
+  const labels = { pending: 'common.pending', in_progress: 'common.inProgress', completed: 'common.completed', cancelled: 'common.cancelled' }
+  return labels[s] ? t(labels[s]) : s
 }
 
 // 点击货物行（不管状态，都只做选中/取消选中）
@@ -284,30 +302,24 @@ function focusCell(cell) {
 
 // 确认取消拣货（必须经过弹窗确认）
 async function confirmUnpick(line) {
-  // 前端状态检查：如果尚未拣货，直接提示无需取消
-  if (line.status !== 'picked') {
-    ElMessage.warning('该行尚未拣货，无需取消')
+  // A partial line also has inventory deductions that can be restored.
+  if (line.status !== 'picked' && line.status !== 'partial') {
+    ElMessage.warning(t('pickingDetail.notPicked'))
     return
   }
   try {
     await ElMessageBox.confirm(
-      `确认取消「${line.product_title} - ${line.variant_title}」的拣货？\n库存将回滚到原货位。`,
-      '取消拣货',
-      { type: 'warning', confirmButtonText: '确认取消', cancelButtonText: '保持不变' }
+      t('pickingDetail.unpickConfirm', { product: `${line.product_title} - ${line.variant_title}` }),
+      t('pickingDetail.cancelPick'),
+      { type: 'warning', confirmButtonText: t('pickingDetail.confirmUndo'), cancelButtonText: t('pickingDetail.keepAsIs') }
     )
     await pickingApi.unpickLine(taskId, line.id)
-    line.status = 'pending'
-    line.picked_qty = 0
-    // 更新任务状态
-    const anyPicked = lines.value.some(l => l.id !== line.id && (l.status === 'picked' || l.status === 'partial'))
-    if (task.value) {
-      task.value.status = anyPicked ? 'in_progress' : 'pending'
-    }
-    ElMessage.success('已取消拣货，库存已回滚')
-    activeLine.value = line
+    await loadData()
+    ElMessage.success(t('pickingDetail.undoSuccess'))
+    activeLine.value = lines.value.find(item => item.id === line.id) || activeLine.value
   } catch (e) {
     if (e !== 'cancel' && e?.toString() !== 'cancel') {
-      ElMessage.error(e.response?.data?.message || e.message || '取消失败')
+      ElMessage.error(localizedError(e, t, 'pickingDetail.undoFailed'))
     }
   }
 }
@@ -316,16 +328,21 @@ async function confirmUnpick(line) {
 async function handleCheckChange(line, picked) {
   if (picked) {
     try {
-      await pickingApi.pickLine(taskId, line.id, { picked_qty: line.required_qty })
-      line.status = 'picked'
-      line.picked_qty = line.required_qty
-      if (task.value) task.value.status = 'in_progress'
-      // 自动跳到下一个未拣货项
-      const next = lines.value.find(l => l.status !== 'picked' && l.id !== line.id)
-      activeLine.value = next || null
-      ElMessage.success('拣货确认')
+      const remaining = Number(line.required_qty) - Number(line.picked_qty || 0)
+      if (remaining <= 0) { await loadData(); return }
+      const response = await pickingApi.pickLine(taskId, line.id, { picked_qty: remaining })
+      // The write response owns the picked quantity/status, not the requested quantity.
+      const updatedLine = response.data?.line
+      const index = lines.value.findIndex(item => item.id === line.id)
+      if (updatedLine && index !== -1) lines.value[index] = { ...lines.value[index], ...updatedLine }
+      if (task.value && response.data?.task_status) task.value.status = response.data.task_status
+      await loadData() // Refresh locations, remaining quantity, shortfall and task progress.
+      if (updatedLine?.status === 'picked') ElMessage.success(t('pickingDetail.pickSuccess'))
+      else if (updatedLine?.status === 'partial') ElMessage.warning(t('pickingDetail.partialPick'))
     } catch (err) {
-      ElMessage.error(err.response?.data?.message || err.message)
+      ElMessage.error(localizedError(err, t))
+      // A stock-conflict (409) is atomic server-side; recover latest task state.
+      await loadData().catch(() => {})
     }
   } else {
     // 取消勾选 = 取消拣货（必须经过弹窗确认）
@@ -335,11 +352,12 @@ async function handleCheckChange(line, picked) {
 }
 
 async function completeTask() {
-  await ElMessageBox.confirm('确认所有货物已拣取完毕？', '完成拣货', { type: 'success' })
   try {
-    task.value.status = 'completed'
-    ElMessage.success('拣货任务已完成！')
-  } catch {}
+    await ElMessageBox.confirm(t('pickingDetail.finishConfirm'), t('pickingDetail.completePicking'), { type: 'success', confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel') })
+    await loadData()
+    if (task.value?.status === 'completed') ElMessage.success(t('pickingDetail.finished'))
+    else ElMessage.warning(t('pickingDetail.notCompleted'))
+  } catch (err) { if (err !== 'cancel' && err !== 'close') ElMessage.error(localizedError(err, t)) }
 }
 
 /**
@@ -353,18 +371,28 @@ function parseLayoutJson(layoutData) {
   let modules
   try {
     modules = typeof layout_json === 'string' ? JSON.parse(layout_json) : layout_json
+    if (typeof modules === 'string') modules = JSON.parse(modules)
+    if (!Array.isArray(modules)) return null
   } catch (e) {
     console.error('Failed to parse layout_json:', e)
     return null
   }
 
   const cells = []
+  let cols = Number(grid_cols) || 20
+  let rows = Number(grid_rows) || 15
   for (const mod of modules) {
-    if (!mod.cells || !Array.isArray(mod.cells)) continue
-    for (const cellStr of mod.cells) {
-      const [rowStr, colStr] = cellStr.split(',')
-      const row = parseInt(rowStr, 10)
-      const col = parseInt(colStr, 10)
+    const moduleCells = Array.isArray(mod.cells) ? mod.cells
+      : mod.col != null && mod.row != null
+        ? Array.from({ length: (Number(mod.colSpan) || 1) * (Number(mod.rowSpan) || 1) }, (_, index) =>
+            `${Number(mod.col) + index % (Number(mod.colSpan) || 1)},${Number(mod.row) + Math.floor(index / (Number(mod.colSpan) || 1))}`)
+        : []
+    for (const cellStr of moduleCells) {
+      // MapBuilder, WarehouseMap and backend locations all use "col,row".
+      const [col, row] = String(cellStr).split(',').map(Number)
+      if (!Number.isInteger(col) || !Number.isInteger(row) || col < 0 || row < 0) continue
+      cols = Math.max(cols, col + 1)
+      rows = Math.max(rows, row + 1)
       cells.push({
         id: `${mod.id}_${cellStr}`,
         type: mod.type || 'shelf',
@@ -373,14 +401,14 @@ function parseLayoutJson(layoutData) {
         col,
         colSpan: 1,
         rowSpan: 1,
-        cellKey: cellStr,
+        cellKey: `${col},${row}`,
       })
     }
   }
 
   return {
-    grid_cols: grid_cols || 20,
-    grid_rows: grid_rows || 15,
+    grid_cols: cols,
+    grid_rows: rows,
     cells,
   }
 }
@@ -400,7 +428,7 @@ async function loadData() {
       parsedLayout.value = parseLayoutJson(layoutData)
     } else {
       try {
-        const layoutRes = await layoutApi.getActive()
+        const layoutRes = warehouseStore.selectedLayoutId ? await layoutApi.get(warehouseStore.selectedLayoutId) : await layoutApi.getActive()
         if (layoutRes.data) {
           parsedLayout.value = parseLayoutJson(layoutRes.data)
         }
@@ -418,6 +446,9 @@ async function loadData() {
   }
 }
 
+watch(() => warehouseStore.selectedLayoutId, (id, oldId) => {
+  if (String(id) !== String(oldId)) router.replace('/picking')
+})
 onMounted(loadData)
 </script>
 
@@ -458,6 +489,7 @@ onMounted(loadData)
 .line-qty { text-align: center; }
 .qty-needed { font-size: 20px; font-weight: 700; color: #1a1a2e; }
 .qty-label { font-size: 11px; color: #909399; }
+.qty-partial { font-size: 11px; color: #e6a23c; }
 
 .complete-btn-wrapper { padding-top: 12px; border-top: 1px solid #f0f0f0; margin-top: 8px; }
 
@@ -503,8 +535,11 @@ onMounted(loadData)
 }
 .map-module.type-aisle { background: #E6E6E6; }
 .map-module.type-entrance { background: #F56C6C; }
+.map-module.type-door { background: #F56C6C; }
 .map-module.type-wall { background: #909399; }
 .map-module.type-workstation { background: #E6A23C; }
+.map-module.type-workbench { background: #E6A23C; }
+.map-module.type-pillar { background: #606266; }
 .map-module.clickable { cursor: pointer; }
 .map-module.clickable:hover { transform: scale(1.08); z-index: 10; }
 

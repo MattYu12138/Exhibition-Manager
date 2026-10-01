@@ -2,34 +2,34 @@
   <div class="warehouse-map">
     <div class="map-header">
       <div>
-        <h1 class="page-title">🗺️ 仓库地图</h1>
-        <p class="page-subtitle">点击货架查看货位详情 · 高亮显示拣货位置</p>
+        <h1 class="page-title">🗺️ {{ $t('warehouseMap.title') }}</h1>
+        <p class="page-subtitle">{{ $t('warehouseMap.subtitle') }}</p>
       </div>
       <div class="header-actions">
-        <el-select v-model="activeLayoutId" placeholder="选择仓库" style="width:200px" @change="onLayoutChange">
-          <el-option v-for="l in layouts" :key="l.id" :label="l.name" :value="l.id" />
+        <el-select v-model="activeLayoutId" :placeholder="$t('warehouseMap.selectWarehouse')" style="width:220px" @change="onLayoutChange">
+          <el-option v-for="l in layouts" :key="l.id" :label="`${l.name} · #${String(l.id).slice(-6)}`" :value="l.id" />
         </el-select>
         <el-button v-if="authStore.isAdmin" type="primary" plain @click="showCreateDialog = true">
-          <el-icon><Plus /></el-icon> 新建仓库
+          <el-icon><Plus /></el-icon> {{ $t('warehouseMap.createWarehouse') }}
         </el-button>
         <el-button v-if="authStore.isAdmin && activeLayoutId" @click="$router.push(`/map/builder?id=${activeLayoutId}`)">
-          <el-icon><Edit /></el-icon> 编辑布局
+          <el-icon><Edit /></el-icon> {{ $t('warehouseMap.editLayout') }}
         </el-button>
         <el-button
           v-if="authStore.isAdmin && activeLayoutId && layouts.length > 1"
           type="danger" plain
           @click="confirmDelete"
         >
-          <el-icon><Delete /></el-icon> 删除仓库
+          <el-icon><Delete /></el-icon> {{ $t('warehouseMap.deleteWarehouse') }}
         </el-button>
       </div>
     </div>
 
     <!-- 图例 -->
     <div class="legend">
-      <div class="legend-item" v-for="item in legend" :key="item.label">
+      <div class="legend-item" v-for="item in legend" :key="item.labelKey">
         <div class="legend-dot" :style="{ background: item.color }"></div>
-        <span>{{ item.label }}</span>
+          <span>{{ $t(item.labelKey) }}</span>
       </div>
     </div>
 
@@ -45,11 +45,10 @@
         <span class="zoom-label">{{ Math.round(scale * 100) }}%</span>
       </div>
       <div v-if="layout && regions.length > 0" class="map-viewport" ref="mapViewport" @wheel.prevent="handleWheel">
-        <div class="map-transform" :style="{ transform: `scale(${scale})`, transformOrigin: 'top center' }">
         <svg
           class="map-svg"
-          :width="svgWidth"
-          :height="svgHeight"
+          :width="renderWidth"
+          :height="renderHeight"
           :viewBox="`0 0 ${svgWidth} ${svgHeight}`"
         >
           <defs>
@@ -126,18 +125,17 @@
             </template>
           </g>
         </svg>
-        </div>
       </div>
 
-      <el-empty v-if="!loading && (!layout || regions.length === 0)" description="暂无仓库布局，请先在构建器中创建" :image-size="80">
-        <el-button type="primary" @click="$router.push('/map/builder')">前往构建器</el-button>
+      <el-empty v-if="!loading && (!layout || regions.length === 0)" :description="$t('warehouseMap.noLayout')" :image-size="80">
+        <el-button type="primary" @click="$router.push('/map/builder')">{{ $t('warehouseMap.builderLink') }}</el-button>
       </el-empty>
     </div>
 
     <!-- ── 货架侧边栏 ── -->
     <el-drawer
       v-model="showPanel"
-      :title="selectedLocation ? selectedLocation.code : (panelRegion?.code ? `货架 ${panelRegion.code}` : '货位详情')"
+      :title="selectedLocation ? selectedLocation.code : (panelRegion?.code ? $t('warehouseMap.shelfTitle', { code: panelRegion.code }) : $t('warehouseMap.locationDetail'))"
       direction="rtl"
       size="420px"
       :before-close="handleDrawerClose"
@@ -145,17 +143,17 @@
       <!-- 货架列表视图 -->
       <div v-if="!selectedLocation && panelRegion" class="location-panel">
         <div class="panel-section">
-          <div class="section-title">货架信息</div>
+          <div class="section-title">{{ $t('warehouseMap.shelfInfo') }}</div>
           <div class="info-grid">
-            <div class="info-item"><span class="info-label">编码前缀</span><el-tag>{{ panelRegion.code || '-' }}</el-tag></div>
-            <div class="info-item"><span class="info-label">格子数</span><span>{{ getRegionCells(panelRegion).length }}</span></div>
-            <div class="info-item"><span class="info-label">层数</span><span>{{ panelRegion.levels || 1 }} 层</span></div>
-            <div class="info-item"><span class="info-label">货位总数</span><span>{{ getRegionCells(panelRegion).length * (panelRegion.levels || 1) }} 个</span></div>
+            <div class="info-item"><span class="info-label">{{ $t('warehouseMap.codePrefix') }}</span><el-tag>{{ panelRegion.code || '-' }}</el-tag></div>
+            <div class="info-item"><span class="info-label">{{ $t('warehouseMap.cellCount') }}</span><span>{{ getRegionCells(panelRegion).length }}</span></div>
+            <div class="info-item"><span class="info-label">{{ $t('warehouseMap.levels') }}</span><span>{{ $t('warehouseMap.levelsCount', { count: panelRegion.levels || 1 }) }}</span></div>
+            <div class="info-item"><span class="info-label">{{ $t('warehouseMap.totalLocations') }}</span><span>{{ getRegionCells(panelRegion).length * (panelRegion.levels || 1) }}</span></div>
           </div>
         </div>
 
         <div class="panel-section">
-          <div class="section-title">货位列表</div>
+          <div class="section-title">{{ $t('warehouseMap.locationList') }}</div>
           <div v-loading="locationsLoading" class="locations-list">
             <div v-for="loc in panelLocations" :key="loc.id" class="location-row"
               :class="{
@@ -173,20 +171,20 @@
                 </div>
               </div>
               <div class="loc-right">
-                <el-tag v-if="loc.stock_alert === 'empty'" size="small" type="danger">空</el-tag>
+                <el-tag v-if="loc.stock_alert === 'empty'" size="small" type="danger">{{ $t('common.empty') }}</el-tag>
                 <el-tag v-else-if="loc.stock_alert === 'low'" size="small" type="warning">⚠ {{ loc.total_qty }}</el-tag>
-                <el-tag v-else-if="loc.total_qty > 0" size="small" type="success">{{ loc.total_qty }} 件</el-tag>
-                <el-tag v-else size="small" type="info">空</el-tag>
+                <el-tag v-else-if="loc.total_qty > 0" size="small" type="success">{{ $t('common.pieces', { count: loc.total_qty }) }}</el-tag>
+                <el-tag v-else size="small" type="info">{{ $t('common.empty') }}</el-tag>
                 <el-icon class="loc-arrow"><ArrowRight /></el-icon>
               </div>
             </div>
-            <el-empty v-if="!locationsLoading && panelLocations.length === 0" description="暂无货位" :image-size="40" />
+            <el-empty v-if="!locationsLoading && panelLocations.length === 0" :description="$t('common.noLocations')" :image-size="40" />
           </div>
         </div>
 
         <div class="panel-section">
           <el-button style="width:100%" @click="$router.push('/locations')">
-            管理所有货位
+            {{ $t('warehouseMap.manageLocations') }}
           </el-button>
         </div>
       </div>
@@ -196,21 +194,21 @@
         <!-- 返回按钮 -->
         <div class="loc-detail-back" @click="selectedLocation = null">
           <el-icon><ArrowLeft /></el-icon>
-          <span>返回货架 {{ panelRegion?.code }}</span>
+          <span>{{ $t('warehouseMap.backToShelf', { code: panelRegion?.code }) }}</span>
         </div>
 
         <!-- 预警横幅 -->
         <el-alert
           v-if="locDetail?.stock_alert === 'empty'"
-          title="⚠️ 此货位已空"
+          :title="`⚠️ ${$t('warehouseMap.locationEmpty')}`"
           type="error"
-          :description="locDetailTransfer.length > 0 ? `备库中有 ${locDetailTransfer.length} 个 SKU 可调拨` : '请通过补货流程补货'"
+          :description="locDetailTransfer.length > 0 ? $t('warehouseMap.storageTransferAvailable', { count: locDetailTransfer.length }) : $t('warehouseMap.replenishViaInbound')"
           show-icon :closable="false"
           style="margin-bottom:12px"
         />
         <el-alert
           v-else-if="locDetail?.stock_alert === 'low'"
-          :title="`⚠️ 库存不足（${locDetail.total_qty} 件，阈值 ${locDetail.low_stock_threshold || 10} 件）`"
+          :title="`⚠️ ${$t('warehouseMap.lowStock', { count: locDetail.total_qty, threshold: locDetail.low_stock_threshold || 10 })}`"
           type="warning"
           show-icon :closable="false"
           style="margin-bottom:12px"
@@ -219,9 +217,9 @@
         <!-- 库存列表 -->
         <div class="panel-section">
           <div class="section-title-row">
-            <span class="section-title">当前库存</span>
+            <span class="section-title">{{ $t('warehouseMap.currentInventory') }}</span>
             <el-tag :type="locDetail?.stock_alert === 'ok' ? 'success' : locDetail?.stock_alert === 'low' ? 'warning' : 'danger'" size="small">
-              {{ locDetail?.total_qty || 0 }} 件
+              {{ $t('common.pieces', { count: locDetail?.total_qty || 0 }) }}
             </el-tag>
           </div>
           <div v-if="locDetail?.inventory?.length > 0" class="inv-list">
@@ -237,99 +235,104 @@
                 <el-tag size="small" :type="inv.stock_type === 'exhibition' ? 'warning' : inv.stock_type === 'retail_storage' ? 'info' : 'primary'">
                   {{ stockTypeLabel(inv.stock_type) }}
                 </el-tag>
-                <div class="inv-qty">{{ inv.quantity }} 件</div>
+                <div class="inv-qty">{{ $t('common.pieces', { count: inv.quantity }) }}</div>
               </div>
             </div>
           </div>
-          <el-empty v-else-if="!locDetailLoading" description="此货位暂无库存" :image-size="40" />
+          <el-empty v-else-if="!locDetailLoading" :description="$t('common.noInventory')" :image-size="40" />
         </div>
 
         <!-- 可调拨 -->
         <div v-if="locDetailTransfer.length > 0" class="panel-section">
           <div class="section-title-row">
-            <span class="section-title">🔄 可调拨（备库→上架）</span>
-            <el-tag type="success" size="small">{{ locDetailTransfer.length }} 个 SKU</el-tag>
+            <span class="section-title">🔄 {{ $t('warehouseMap.transferAvailable') }}</span>
+            <el-tag type="success" size="small">{{ $t('common.skuCount', { count: locDetailTransfer.length }) }}</el-tag>
           </div>
           <div v-for="item in locDetailTransfer" :key="item.shopify_variant_id" class="transfer-mini-item">
             <div class="transfer-mini-info">
               <div class="transfer-mini-name">{{ item.product_title }}</div>
-              <div class="transfer-mini-sub">{{ item.variant_title }} · 备库 {{ item.storage_qty }} 件 · 来自 {{ item.from_location_code }}</div>
+              <div class="transfer-mini-sub">{{ $t('warehouseMap.transferSource', { variant: item.variant_title, count: item.storage_qty, from: item.from_location_code }) }}</div>
             </div>
-            <el-button type="success" size="small" plain @click="quickTransfer(item)">调拨</el-button>
+            <el-button type="success" size="small" plain @click="quickTransfer(item)">{{ $t('warehouseMap.transfer') }}</el-button>
           </div>
         </div>
 
         <!-- 操作按钮 -->
         <div class="panel-section loc-detail-actions">
           <el-button type="primary" style="width:100%" @click="$router.push(`/locations/${selectedLocation.id}`)">
-            <el-icon><ArrowRight /></el-icon> 查看完整详情
+            <el-icon><ArrowRight /></el-icon> {{ $t('warehouseMap.fullDetails') }}
           </el-button>
         </div>
       </div>
     </el-drawer>
 
     <!-- 新建仓库对话框 -->
-    <el-dialog v-model="showCreateDialog" title="新建仓库" width="420px" :close-on-click-modal="false">
-      <el-form :model="createForm" label-width="80px">
-        <el-form-item label="仓库名称" required>
-          <el-input v-model="createForm.name" placeholder="如：主仓库、B区仓库" maxlength="50" />
+    <el-dialog v-model="showCreateDialog" :title="$t('warehouseMap.createWarehouse')" width="420px" :close-on-click-modal="false">
+      <el-form label-position="top">
+        <el-form-item :label="$t('warehouseMap.warehouseName')" required>
+          <el-input v-model="createForm.name" :placeholder="$t('warehouseMap.warehouseNamePlaceholder')" maxlength="50" />
         </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="createForm.description" type="textarea" :rows="2" placeholder="可选" />
+        <el-form-item :label="$t('common.description')">
+          <el-input v-model="createForm.description" type="textarea" :rows="2" :placeholder="$t('warehouseMap.descriptionPlaceholder')" />
         </el-form-item>
-        <el-form-item label="画布列数">
-          <el-input-number v-model="createForm.grid_cols" :min="10" :max="60" />
+        <el-form-item :label="$t('warehouseMap.gridColumns')">
+          <el-input-number v-model="createForm.grid_cols" :min="10" :max="120" />
         </el-form-item>
-        <el-form-item label="画布行数">
-          <el-input-number v-model="createForm.grid_rows" :min="8" :max="40" />
+        <el-form-item :label="$t('warehouseMap.gridRows')">
+          <el-input-number v-model="createForm.grid_rows" :min="8" :max="120" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showCreateDialog = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="createLayout">创建并进入构建器</el-button>
+        <el-button @click="showCreateDialog = false">{{ $t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="creating" @click="createLayout">{{ $t('warehouseMap.createAndBuild') }}</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, nextTick, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 import { layoutApi, locationApi } from '@/api/index.js'
 import { useAuthStore } from '@/stores/auth'
+import { useWarehouseStore } from '@/stores/warehouse'
+import { useI18n } from 'vue-i18n'
+import { localizedError } from '@/i18n'
 import { Edit, ArrowRight, ArrowLeft, Plus, Delete } from '@element-plus/icons-vue'
 
 const authStore = useAuthStore()
+const warehouseStore = useWarehouseStore()
+const { t } = useI18n()
 const router = useRouter()
 
 const CELL_SIZE = 64
 
 const typeConfig = {
-  shelf:       { label: '货架',   icon: '📦', color: '#3b82f6', stroke: '#1d4ed8' },
-  wall:        { label: '墙壁',   icon: '🧱', color: '#6b7280', stroke: '#374151' },
-  door:        { label: '出入口', icon: '🚪', color: '#f59e0b', stroke: '#d97706' },
-  aisle:       { label: '通道',   icon: '↔',  color: '#d1fae5', stroke: '#6ee7b7' },
-  workbench:   { label: '工作台', icon: '🖥',  color: '#8b5cf6', stroke: '#6d28d9' },
-  pillar:      { label: '柱子',   icon: '⬛',  color: '#374151', stroke: '#111827' },
-  shelf_h:     { label: '货架',   icon: '📦', color: '#3b82f6', stroke: '#1d4ed8' },
-  shelf_v:     { label: '货架',   icon: '📦', color: '#3b82f6', stroke: '#1d4ed8' },
-  entrance:    { label: '出入口', icon: '🚪', color: '#f59e0b', stroke: '#d97706' },
-  workstation: { label: '工作台', icon: '🖥',  color: '#8b5cf6', stroke: '#6d28d9' },
+  shelf:       { labelKey: 'warehouseMap.shelf', icon: '📦', color: '#3b82f6', stroke: '#1d4ed8' },
+  wall:        { labelKey: 'warehouseMap.wall', icon: '🧱', color: '#6b7280', stroke: '#374151' },
+  door:        { labelKey: 'warehouseMap.door', icon: '🚪', color: '#f59e0b', stroke: '#d97706' },
+  aisle:       { labelKey: 'warehouseMap.aisle', icon: '↔', color: '#d1fae5', stroke: '#6ee7b7' },
+  workbench:   { labelKey: 'warehouseMap.workbench', icon: '🖥', color: '#8b5cf6', stroke: '#6d28d9' },
+  pillar:      { labelKey: 'warehouseMap.pillar', icon: '⬛', color: '#374151', stroke: '#111827' },
+  shelf_h:     { labelKey: 'warehouseMap.shelf', icon: '📦', color: '#3b82f6', stroke: '#1d4ed8' },
+  shelf_v:     { labelKey: 'warehouseMap.shelf', icon: '📦', color: '#3b82f6', stroke: '#1d4ed8' },
+  entrance:    { labelKey: 'warehouseMap.door', icon: '🚪', color: '#f59e0b', stroke: '#d97706' },
+  workstation: { labelKey: 'warehouseMap.workbench', icon: '🖥', color: '#8b5cf6', stroke: '#6d28d9' },
 }
 
 const legend = [
-  { label: '货架（有货）',     color: '#3b82f6' },
-  { label: '货架（空）',       color: '#93c5fd' },
-  { label: '高亮（拣货目标）', color: '#ef4444' },
-  { label: '通道',             color: '#d1fae5' },
-  { label: '出入口',           color: '#f59e0b' },
-  { label: '墙壁',             color: '#6b7280' },
+  { labelKey: 'warehouseMap.stockedShelf', color: '#3b82f6' },
+  { labelKey: 'warehouseMap.emptyShelf', color: '#93c5fd' },
+  { labelKey: 'warehouseMap.pickingTarget', color: '#ef4444' },
+  { labelKey: 'warehouseMap.aisle', color: '#d1fae5' },
+  { labelKey: 'warehouseMap.door', color: '#f59e0b' },
+  { labelKey: 'warehouseMap.wall', color: '#6b7280' },
 ]
 
 // ── State ──────────────────────────────────────────────────────────────────
-const layouts = ref([])
-const activeLayoutId = ref(null)
+const layouts = computed(() => warehouseStore.layouts)
+const activeLayoutId = ref(warehouseStore.selectedLayoutId)
 const layout = ref(null)
 const loading = ref(false)
 
@@ -338,7 +341,7 @@ const mapViewport = ref(null)
 const scale = ref(1)
 
 function zoomIn() { scale.value = Math.min(scale.value + 0.15, 3) }
-function zoomOut() { scale.value = Math.max(scale.value - 0.15, 0.3) }
+function zoomOut() { scale.value = Math.max(scale.value - 0.1, 0.02) }
 function resetZoom() { fitMapToViewport() }
 function handleWheel(e) {
   if (e.deltaY < 0) zoomIn()
@@ -347,11 +350,9 @@ function handleWheel(e) {
 function fitMapToViewport() {
   if (!layout.value || !mapViewport.value) return
   const vp = mapViewport.value
-  const mapW = (layout.value.grid_cols || 20) * CELL_SIZE
-  const mapH = (layout.value.grid_rows || 15) * CELL_SIZE
-  const scaleX = vp.clientWidth / mapW
-  const scaleY = vp.clientHeight / mapH
-  scale.value = Math.min(scaleX, scaleY, 1) * 0.92
+  const scaleX = (vp.clientWidth - 32) / svgWidth.value
+  const scaleY = (vp.clientHeight - 32) / svgHeight.value
+  scale.value = Math.max(0.02, Math.min(scaleX, scaleY, 1))
 }
 
 const showPanel = ref(false)
@@ -398,8 +399,24 @@ const regions = computed(() => {
   } catch { return [] }
 })
 
-const svgWidth = computed(() => (layout.value?.grid_cols || 20) * CELL_SIZE)
-const svgHeight = computed(() => (layout.value?.grid_rows || 15) * CELL_SIZE)
+const effectiveGrid = computed(() => {
+  let cols = Number(layout.value?.grid_cols) || 20
+  let rows = Number(layout.value?.grid_rows) || 15
+  for (const region of regions.value) {
+    for (const key of region.cells) {
+      const [col, row] = key.split(',').map(Number)
+      if (Number.isFinite(col) && Number.isFinite(row)) {
+        cols = Math.max(cols, col + 1)
+        rows = Math.max(rows, row + 1)
+      }
+    }
+  }
+  return { cols, rows }
+})
+const svgWidth = computed(() => effectiveGrid.value.cols * CELL_SIZE)
+const svgHeight = computed(() => effectiveGrid.value.rows * CELL_SIZE)
+const renderWidth = computed(() => Math.round(svgWidth.value * scale.value))
+const renderHeight = computed(() => Math.round(svgHeight.value * scale.value))
 
 // ── Cell helpers ───────────────────────────────────────────────────────────
 function getRegionCells(region) {
@@ -519,43 +536,54 @@ function hasStockByCode(region, idx) {
   return !!locationStockMap.value[code]
 }
 
-function stockTypeLabel(t) {
-  return { retail_display: '上架中', retail_storage: '备库中', exhibition: '展会', retail: '零售' }[t] || t
+function stockTypeLabel(stockType) {
+  const labels = { retail_display: 'common.displayStock', retail_storage: 'common.storageStock', exhibition: 'common.exhibition', retail: 'common.retail' }
+  return labels[stockType] ? t(labels[stockType]) : stockType
 }
 
 // ── Data loading ───────────────────────────────────────────────────────────
 async function loadLayouts() {
-  const res = await layoutApi.list().catch(() => ({ data: [] }))
-  layouts.value = res.data || []
-  if (layouts.value.length > 0) {
-    const active = layouts.value.find(l => l.is_active) || layouts.value[0]
-    activeLayoutId.value = active.id
-    await loadLayout()
-  }
+  await warehouseStore.loadLayouts()
+  activeLayoutId.value = warehouseStore.selectedLayoutId
+  if (activeLayoutId.value && layout.value?.id !== activeLayoutId.value) await loadLayout()
+  if (!activeLayoutId.value) layout.value = null
 }
 
+let loadSequence = 0
 async function loadLayout() {
   if (!activeLayoutId.value) return
+  const selectedId = activeLayoutId.value
+  const currentLoad = ++loadSequence
   loading.value = true
   try {
-    const res = await layoutApi.get(activeLayoutId.value)
+    const res = await layoutApi.get(selectedId)
+    if (currentLoad !== loadSequence) return
     layout.value = res.data
-    const locRes = await locationApi.list({ layout_id: activeLayoutId.value }).catch(() => ({ data: [] }))
+    const locRes = await locationApi.list({ layout_id: selectedId })
+    if (currentLoad !== loadSequence) return
     const locs = locRes.data || []
     const stockMap = {}
     locs.forEach(l => { if (l.total_qty > 0) stockMap[l.code] = true })
     locationStockMap.value = stockMap
     // 加载完成后自适应缩放
     await nextTick()
-    setTimeout(fitMapToViewport, 100)
+    fitMapToViewport()
   } finally {
-    loading.value = false
+    if (currentLoad === loadSequence) loading.value = false
   }
 }
 
 async function onLayoutChange() {
-  await loadLayout()
+  warehouseStore.selectLayout(activeLayoutId.value)
 }
+watch(() => warehouseStore.selectedLayoutId, async id => {
+  if (id === activeLayoutId.value && layout.value?.id === id) return
+  activeLayoutId.value = id
+  showPanel.value = false
+  layout.value = null
+  locationStockMap.value = {}
+  if (id) await loadLayout()
+})
 
 async function openLocationPanel(region) {
   panelRegion.value = region
@@ -617,9 +645,10 @@ async function openLocationDetail(loc) {
 async function quickTransfer(item) {
   try {
     await ElMessageBox.confirm(
-      `从备库货位 ${item.from_location_code} 调拨 ${item.transfer_qty} 件「${item.product_title} ${item.variant_title}」到本货位？`,
-      '确认内部调拨',
-      { type: 'info', confirmButtonText: '确认调拨', cancelButtonText: '取消' }
+      t('warehouseMap.transferConfirm', { from: item.from_location_code, count: item.transfer_qty,
+        product: `${item.product_title} ${item.variant_title}` }),
+      t('warehouseMap.transferTitle'),
+      { type: 'info', confirmButtonText: t('warehouseMap.confirmTransfer'), cancelButtonText: t('common.cancel') }
     )
   } catch { return }
   try {
@@ -627,9 +656,9 @@ async function quickTransfer(item) {
       shopify_variant_id: item.shopify_variant_id,
       quantity: item.transfer_qty,
       from_location_id: item.from_location_id,
-      note: `地图快捷调拨：从 ${item.from_location_code} 调拨 ${item.transfer_qty} 件`,
+      note: t('warehouseMap.transferNote', { from: item.from_location_code, count: item.transfer_qty }),
     })
-    ElMessage.success(`已调拨 ${item.transfer_qty} 件`)
+    ElMessage.success(t('warehouseMap.transferred', { count: item.transfer_qty }))
     await openLocationDetail(selectedLocation.value)
     // 刷新地图库存点
     const locRes = await locationApi.list({ layout_id: activeLayoutId.value }).catch(() => ({ data: [] }))
@@ -638,7 +667,7 @@ async function quickTransfer(item) {
     locs.forEach(l => { if (l.total_qty > 0) stockMap[l.code] = true })
     locationStockMap.value = stockMap
   } catch (err) {
-    ElMessage.error(err.message || '调拨失败')
+    ElMessage.error(localizedError(err, t, 'warehouseMap.transferFailed'))
   }
 }
 
@@ -654,7 +683,7 @@ function handleDrawerClose(done) {
 
 // ── Create layout ──────────────────────────────────────────────────────────
 async function createLayout() {
-  if (!createForm.value.name.trim()) { ElMessage.warning('请输入仓库名称'); return }
+  if (!createForm.value.name.trim()) { ElMessage.warning(t('warehouseMap.nameRequired')); return }
   creating.value = true
   try {
     const res = await layoutApi.create({
@@ -664,14 +693,15 @@ async function createLayout() {
       grid_rows: createForm.value.grid_rows,
     })
     const newLayout = res.data
-    layouts.value.push(newLayout)
+    await warehouseStore.loadLayouts()
+    warehouseStore.selectLayout(newLayout.id)
     activeLayoutId.value = newLayout.id
     showCreateDialog.value = false
     createForm.value = { name: '', description: '', grid_cols: 20, grid_rows: 15 }
-    ElMessage.success('仓库创建成功，正在进入构建器...')
+    ElMessage.success(t('warehouseMap.created'))
     setTimeout(() => router.push(`/map/builder?id=${newLayout.id}`), 800)
   } catch (err) {
-    ElMessage.error(err?.response?.data?.message || '创建失败')
+    ElMessage.error(localizedError(err, t, 'warehouseMap.createFailed'))
   } finally {
     creating.value = false
   }
@@ -683,20 +713,32 @@ async function confirmDelete() {
   if (!current) return
   try {
     await ElMessageBox.confirm(
-      `确定要删除仓库「${current.name}」吗？此操作不可恢复。`,
-      '删除仓库',
-      { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' }
+      t('warehouseMap.deleteConfirm', { name: current.name }),
+      t('warehouseMap.deleteTitle'),
+      { type: 'warning', confirmButtonText: t('warehouseMap.confirmDelete'), cancelButtonText: t('common.cancel'), confirmButtonClass: 'el-button--danger' }
     )
     await layoutApi.delete(activeLayoutId.value)
-    ElMessage.success('仓库已删除')
+    ElMessage.success(t('warehouseMap.deleted'))
     await loadLayouts()
   } catch (err) {
     if (err === 'cancel') return
-    ElMessage.error(err?.response?.data?.message || '删除失败')
+    ElMessage.error(localizedError(err, t, 'warehouseMap.deleteFailed'))
   }
 }
 
-onMounted(loadLayouts)
+let resizeObserver
+watch(mapViewport, async element => {
+  resizeObserver?.disconnect()
+  if (!element || !window.ResizeObserver) return
+  resizeObserver = new ResizeObserver(fitMapToViewport)
+  resizeObserver.observe(element)
+  await nextTick()
+  fitMapToViewport()
+})
+onMounted(async () => {
+  await loadLayouts()
+})
+onBeforeUnmount(() => resizeObserver?.disconnect())
 </script>
 
 <style scoped>
@@ -717,9 +759,16 @@ onMounted(loadLayouts)
   border-radius: 12px;
   padding: 24px;
   box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-  min-height: 400px;
+  height: clamp(430px, calc(100dvh - 238px), 920px);
+  min-height: 0;
   display: flex;
   flex-direction: column;
+}
+@media (max-width: 1500px) {
+  .map-canvas-wrapper { height: clamp(400px, calc(100dvh - 298px), 860px); }
+}
+@media (max-width: 720px) {
+  .map-canvas-wrapper { height: clamp(380px, calc(100dvh - 345px), 740px); padding: 12px; }
 }
 .zoom-toolbar {
   display: flex;
@@ -730,16 +779,12 @@ onMounted(loadLayouts)
 .zoom-label { font-size: 12px; color: #909399; min-width: 40px; }
 .map-viewport {
   flex: 1;
+  min-height: 0;
   overflow: auto;
   border-radius: 8px;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
+  background: #f8fafc;
 }
-.map-transform {
-  transition: transform 0.2s ease;
-}
-.map-svg { display: block; border-radius: 8px; }
+.map-svg { display: block; margin: auto; border-radius: 8px; transition: width 0.18s ease, height 0.18s ease; }
 .region-shape { transition: filter 0.15s; }
 .region-shape.clickable { cursor: pointer; }
 .region-shape.clickable:hover { filter: brightness(1.12) drop-shadow(0 2px 8px rgba(0,0,0,0.25)); }

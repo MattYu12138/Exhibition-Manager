@@ -199,16 +199,110 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_wpl_task     ON warehouse_pick_lines(task_id);
   CREATE INDEX IF NOT EXISTS idx_wpl_variant  ON warehouse_pick_lines(shopify_variant_id);
   CREATE INDEX IF NOT EXISTS idx_wpl_location ON warehouse_pick_lines(location_id);
+
+  -- Tables also used by inbound replenishment. CREATE IF NOT EXISTS preserves
+  -- the pre-existing production schema and records on upgraded installations.
+  CREATE TABLE IF NOT EXISTS warehouse_sku_bindings (
+    id TEXT PRIMARY KEY,
+    location_id TEXT NOT NULL REFERENCES warehouse_locations(id),
+    shopify_variant_id TEXT NOT NULL,
+    stock_type TEXT NOT NULL,
+    capacity INTEGER,
+    priority INTEGER DEFAULT 0,
+    is_active INTEGER DEFAULT 1,
+    created_by TEXT,
+    UNIQUE(location_id, shopify_variant_id, stock_type)
+  );
+  CREATE INDEX IF NOT EXISTS idx_warehouse_bindings_location ON warehouse_sku_bindings(location_id);
+
+  CREATE TABLE IF NOT EXISTS warehouse_replenishment_tasks (
+    id TEXT PRIMARY KEY,
+    inbound_shipment_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    completed_at DATETIME
+  );
+  CREATE INDEX IF NOT EXISTS idx_warehouse_replenishment_shipment ON warehouse_replenishment_tasks(inbound_shipment_id);
+
+  CREATE TABLE IF NOT EXISTS warehouse_replenishment_lines (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES warehouse_replenishment_tasks(id),
+    location_id TEXT NOT NULL REFERENCES warehouse_locations(id),
+    location_code TEXT,
+    shopify_variant_id TEXT NOT NULL,
+    product_title TEXT,
+    variant_title TEXT,
+    stock_type TEXT NOT NULL,
+    required_qty INTEGER NOT NULL DEFAULT 0,
+    confirmed_qty INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'pending',
+    confirmed_by TEXT,
+    confirmed_at DATETIME
+  );
+  CREATE INDEX IF NOT EXISTS idx_warehouse_replenishment_lines_task ON warehouse_replenishment_lines(task_id);
 `);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// 增量迁移（安全添加字段，已存在则忽略）
-// ─────────────────────────────────────────────────────────────────────────────
-const migrations = [
-  // 预留迁移槽，未来按需添加
-];
-for (const sql of migrations) {
-  try { db.exec(sql); } catch (e) { /* 字段已存在，忽略 */ }
+// Ownership belongs to the immutable warehouse ID, not a display name. The
+// replenishment tables are installed by the inbound subsystem on older sites;
+// migrate them only when present. Never guess a warehouse for a legacy task
+// linked to locations in multiple warehouses.
+function hasTable(name) {
+  return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
+}
+function addColumn(table, column, sql) {
+  if (hasTable(table) && !db.prepare(`PRAGMA table_info(${table})`).all().some(info => info.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${sql}`);
+  }
+}
+
+addColumn('warehouse_locations', 'low_stock_threshold', 'INTEGER NOT NULL DEFAULT 10');
+addColumn('warehouse_pick_tasks', 'layout_id', 'TEXT REFERENCES warehouse_layouts(id) ON DELETE SET NULL');
+if (hasTable('warehouse_pick_tasks')) {
+  db.exec(`
+    UPDATE warehouse_pick_tasks
+    SET layout_id = (
+      SELECT MIN(wl.layout_id) FROM warehouse_pick_lines line
+      JOIN warehouse_locations wl ON wl.id = line.location_id
+      WHERE line.task_id = warehouse_pick_tasks.id
+    )
+    WHERE layout_id IS NULL AND 1 = (
+      SELECT COUNT(DISTINCT wl.layout_id) FROM warehouse_pick_lines line
+      JOIN warehouse_locations wl ON wl.id = line.location_id
+      WHERE line.task_id = warehouse_pick_tasks.id
+    ) AND NOT EXISTS (
+      SELECT 1 FROM warehouse_pick_lines line
+      LEFT JOIN warehouse_locations wl ON wl.id = line.location_id
+      WHERE line.task_id = warehouse_pick_tasks.id
+        AND (wl.id IS NULL OR wl.is_active != 1)
+    );
+  `);
+}
+if (hasTable('warehouse_replenishment_tasks') && hasTable('warehouse_replenishment_lines')) {
+  addColumn('warehouse_replenishment_tasks', 'layout_id', 'TEXT REFERENCES warehouse_layouts(id) ON DELETE SET NULL');
+  db.exec(`
+    UPDATE warehouse_replenishment_tasks
+    SET layout_id = (
+      SELECT MIN(wl.layout_id) FROM warehouse_replenishment_lines line
+      JOIN warehouse_locations wl ON wl.id = line.location_id
+      WHERE line.task_id = warehouse_replenishment_tasks.id
+    )
+    WHERE layout_id IS NULL AND 1 = (
+      SELECT COUNT(DISTINCT wl.layout_id) FROM warehouse_replenishment_lines line
+      JOIN warehouse_locations wl ON wl.id = line.location_id
+      WHERE line.task_id = warehouse_replenishment_tasks.id
+    ) AND NOT EXISTS (
+      SELECT 1 FROM warehouse_replenishment_lines line
+      LEFT JOIN warehouse_locations wl ON wl.id = line.location_id
+      WHERE line.task_id = warehouse_replenishment_tasks.id
+        AND (wl.id IS NULL OR wl.is_active != 1)
+    );
+  `);
+}
+
+const unassignedPicking = db.prepare('SELECT COUNT(*) AS count FROM warehouse_pick_tasks WHERE layout_id IS NULL').get().count;
+const unassignedReplenishment = db.prepare('SELECT COUNT(*) AS count FROM warehouse_replenishment_tasks WHERE layout_id IS NULL').get().count;
+if (unassignedPicking || unassignedReplenishment) {
+  console.warn(`[warehouse] ${unassignedPicking} picking and ${unassignedReplenishment} replenishment legacy tasks require manual warehouse assignment in the admin overview.`);
 }
 
 module.exports = { db, nextWarehouseId, nextLocationId, nextInventoryId, nextPickTaskId, nextPickLineId, nextMovementId };

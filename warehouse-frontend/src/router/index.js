@@ -1,12 +1,14 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import axios from 'axios'
+import { watch } from 'vue'
+import i18n from '@/i18n'
 const routes = [
   {
     path: '/login',
     name: 'Login',
     component: () => import('@/views/Login.vue'),
-    meta: { title: '登录', public: true },
+    meta: { titleKey: 'pageTitle.login', public: true },
   },
   {
     path: '/',
@@ -16,63 +18,67 @@ const routes = [
     path: '/warehouse',
     name: 'WarehouseHome',
     component: () => import('@/views/WarehouseHome.vue'),
-    meta: { title: '仓库总览' },
+    meta: { titleKey: 'pageTitle.overview' },
   },
   {
     path: '/map',
     name: 'WarehouseMap',
     component: () => import('@/views/WarehouseMap.vue'),
-    meta: { title: '仓库地图' },
+    meta: { titleKey: 'pageTitle.map' },
   },
   {
     path: '/map/builder',
     name: 'MapBuilder',
     component: () => import('@/views/MapBuilder.vue'),
-    meta: { title: '地图构建器', requireAdmin: true },
+    meta: { titleKey: 'pageTitle.builder', requireAdmin: true },
   },
   {
     path: '/locations',
     name: 'LocationList',
     component: () => import('@/views/LocationList.vue'),
-    meta: { title: '货位管理' },
+    meta: { titleKey: 'pageTitle.locations' },
   },
   {
     path: '/locations/:id',
     name: 'LocationDetail',
     component: () => import('@/views/LocationDetail.vue'),
-    meta: { title: '货位详情' },
+    meta: { titleKey: 'pageTitle.locationDetail' },
   },
   {
     path: '/replenishment',
     name: 'Replenishment',
     component: () => import('@/views/Replenishment.vue'),
-    meta: { title: '补货管理' },
+    meta: { titleKey: 'pageTitle.replenishment' },
   },
   {
     path: '/picking',
     name: 'PickingList',
     component: () => import('@/views/PickingList.vue'),
-    meta: { title: '拣货任务' },
+    meta: { titleKey: 'pageTitle.picking' },
   },
   {
     path: '/picking/:id',
     name: 'PickingDetail',
     component: () => import('@/views/PickingDetail.vue'),
-    meta: { title: '拣货导航' },
+    meta: { titleKey: 'pageTitle.pickingDetail' },
   },
   {
     path: '/scan/:token',
     name: 'ScanEntry',
     component: () => import('@/views/ScanLocation.vue'),
-    meta: { title: '扫码录入', public: true },
+    meta: { titleKey: 'pageTitle.scan', public: true },
   },
 ]
 const router = createRouter({
   history: createWebHistory(),
   routes,
 })
+function updateTitle(route) {
+  document.title = `${i18n.global.t(route.meta.titleKey || 'common.appName')} - Warehouse Manager`
+}
+watch(i18n.global.locale, () => updateTitle(router.currentRoute.value))
 router.beforeEach(async (to) => {
-  document.title = `${to.meta.title || '仓库管理'} - Warehouse Manager`
+  updateTitle(to)
   // 公开页面（登录页、扫码页）直接放行
   if (to.meta.public) return true
   const authStore = useAuthStore()

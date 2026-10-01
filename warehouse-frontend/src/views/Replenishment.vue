@@ -2,19 +2,19 @@
   <div class="replenishment">
     <div class="page-header">
       <div>
-        <h1 class="page-title">🚚 补货管理</h1>
-        <p class="page-subtitle">处理 Inbound 入库后的货位补货，确认货物到位后更新库存</p>
+        <h1 class="page-title">🚚 {{ $t('replenishment.title') }}</h1>
+        <p class="page-subtitle">{{ $t('replenishment.subtitle') }}</p>
       </div>
       <el-button type="primary" @click="showGenerateDialog = true">
-        <el-icon><Plus /></el-icon> 从入库批次生成补货任务
+        <el-icon><Plus /></el-icon> {{ $t('replenishment.fromShipment') }}
       </el-button>
     </div>
 
     <!-- 补货任务列表 -->
     <div v-loading="loading">
       <div v-if="tasks.length === 0 && !loading" class="empty-state">
-        <el-empty description="暂无补货任务">
-          <el-button type="primary" @click="showGenerateDialog = true">创建补货任务</el-button>
+        <el-empty :description="$t('replenishment.noTasks')">
+          <el-button type="primary" @click="showGenerateDialog = true">{{ $t('replenishment.createTask') }}</el-button>
         </el-empty>
       </div>
 
@@ -26,13 +26,13 @@
                 {{ statusLabel(task.status) }}
               </el-tag>
               <span class="task-title">
-                批次：{{ task.reference_no || task.inbound_shipment_id }}
+                {{ $t('replenishment.batch', { reference: task.reference_no || task.inbound_shipment_id }) }}
                 <span v-if="task.supplier_name" class="supplier">· {{ task.supplier_name }}</span>
               </span>
               <span class="task-meta">{{ formatDate(task.created_at) }}</span>
             </div>
             <div class="task-progress">
-              <span class="progress-text">{{ task.confirmed_lines || 0 }} / {{ task.total_lines || 0 }} 已确认</span>
+              <span class="progress-text">{{ $t('replenishment.confirmedProgress', { confirmed: task.confirmed_lines || 0, total: task.total_lines || 0 }) }}</span>
               <el-progress
                 :percentage="task.total_lines ? Math.round((task.confirmed_lines || 0) / task.total_lines * 100) : 0"
                 :status="task.status === 'completed' ? 'success' : undefined"
@@ -45,9 +45,9 @@
                 size="small"
                 @click="openTask(task.id)"
               >
-                处理补货
+                {{ $t('replenishment.process') }}
               </el-button>
-              <el-button v-else size="small" @click="openTask(task.id)">查看详情</el-button>
+              <el-button v-else size="small" @click="openTask(task.id)">{{ $t('replenishment.viewDetails') }}</el-button>
             </div>
           </div>
         </template>
@@ -55,13 +55,13 @@
     </div>
 
     <!-- 补货任务详情抽屉 -->
-    <el-drawer v-model="drawerVisible" :title="`补货任务 · ${currentTask?.task?.reference_no || ''}`" size="60%" direction="rtl">
+    <el-drawer v-model="drawerVisible" :title="$t('replenishment.taskTitle', { reference: currentTask?.task?.reference_no || '' })" size="60%" direction="rtl">
       <div v-if="currentTask" v-loading="drawerLoading">
         <div v-for="group in currentTask.locations" :key="group.location_id" class="location-group">
           <div class="location-header">
             <span class="location-code">📍 {{ group.location_code }}</span>
             <span class="location-layout">{{ group.layout_name }}</span>
-            <el-tag size="small" type="info">{{ group.zone }} 区</el-tag>
+            <el-tag size="small" type="info">{{ $t('common.zone', { name: group.zone }) }}</el-tag>
           </div>
 
           <div v-for="line in group.lines" :key="line.id" class="replenish-line" :class="{ 'is-done': line.status !== 'pending' }">
@@ -79,12 +79,12 @@
             </div>
 
             <div class="line-qty">
-              <div class="qty-required">需补 <strong>{{ line.required_qty }}</strong> 件</div>
+              <div class="qty-required">{{ $t('replenishment.required', { count: line.required_qty }) }}</div>
               <div v-if="line.status === 'confirmed'" class="qty-confirmed">
                 <el-icon color="#67c23a"><CircleCheck /></el-icon>
-                已确认 {{ line.confirmed_qty }} 件
+                {{ $t('replenishment.confirmedQty', { count: line.confirmed_qty }) }}
               </div>
-              <div v-else-if="line.status === 'skipped'" class="qty-skipped">已跳过</div>
+              <div v-else-if="line.status === 'skipped'" class="qty-skipped">{{ $t('replenishment.skipped') }}</div>
             </div>
 
             <div class="line-actions" v-if="line.status === 'pending'">
@@ -101,14 +101,14 @@
                 :loading="confirmingLines[line.id]"
                 @click="confirmLine(line)"
               >
-                确认到位
+                {{ $t('replenishment.confirmArrival') }}
               </el-button>
               <el-button
                 size="small"
                 text
                 @click="skipLine(line)"
               >
-                跳过
+                {{ $t('replenishment.skip') }}
               </el-button>
             </div>
           </div>
@@ -117,31 +117,31 @@
     </el-drawer>
 
     <!-- 生成补货任务对话框 -->
-    <el-dialog v-model="showGenerateDialog" title="从入库批次生成补货任务" width="600px">
+    <el-dialog v-model="showGenerateDialog" :title="$t('replenishment.fromShipment')" width="600px">
       <div v-loading="shipmentsLoading">
-        <p class="dialog-hint">选择一个已收货的入库批次，系统将根据 SKU 绑定的货位自动生成补货任务。</p>
+        <p class="dialog-hint">{{ $t('replenishment.selectShipment') }}</p>
         <el-table :data="inboundShipments" size="small" highlight-current-row @current-change="selectedShipment = $event">
-          <el-table-column label="批次号" prop="reference_no" min-width="120" />
-          <el-table-column label="供应商" prop="supplier_name" min-width="100" />
-          <el-table-column label="SKU数" prop="sku_count" width="70" align="center" />
-          <el-table-column label="收货数" prop="total_received" width="70" align="center" />
-          <el-table-column label="状态" width="100">
+          <el-table-column :label="$t('replenishment.batchNumber')" prop="reference_no" min-width="120" />
+          <el-table-column :label="$t('replenishment.supplier')" prop="supplier_name" min-width="100" />
+          <el-table-column :label="$t('replenishment.skuCount')" prop="sku_count" width="90" align="center" />
+          <el-table-column :label="$t('replenishment.receivedCount')" prop="total_received" width="90" align="center" />
+          <el-table-column :label="$t('common.status')" width="110">
             <template #default="{ row }">
-              <el-tag v-if="row.has_task" type="success" size="small">已有任务</el-tag>
-              <el-tag v-else type="warning" size="small">待处理</el-tag>
+              <el-tag v-if="row.has_task" type="success" size="small">{{ $t('replenishment.alreadyHasTask') }}</el-tag>
+              <el-tag v-else type="warning" size="small">{{ $t('common.pending') }}</el-tag>
             </template>
           </el-table-column>
         </el-table>
       </div>
       <template #footer>
-        <el-button @click="showGenerateDialog = false">取消</el-button>
+        <el-button @click="showGenerateDialog = false">{{ $t('common.cancel') }}</el-button>
         <el-button
           type="primary"
           :disabled="!selectedShipment || selectedShipment.has_task"
           :loading="generating"
           @click="generateTask"
         >
-          生成补货任务
+          {{ $t('replenishment.generateTask') }}
         </el-button>
       </template>
     </el-dialog>
@@ -149,10 +149,16 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, watch } from 'vue'
 import { replenishmentApi } from '@/api/index.js'
 import { ElMessage } from 'element-plus'
 import { Plus, CircleCheck } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
+import { useWarehouseStore } from '@/stores/warehouse'
+import { localizedError } from '@/i18n'
+
+const { t, locale } = useI18n()
+const warehouseStore = useWarehouseStore()
 
 const loading = ref(false)
 const tasks = ref([])
@@ -168,12 +174,15 @@ const selectedShipment = ref(null)
 const generating = ref(false)
 
 function statusLabel(s) {
-  return { pending: '待处理', completed: '已完成', cancelled: '已取消' }[s] || s
+  const labels = { pending: 'common.pending', in_progress: 'common.inProgress', completed: 'common.completed', cancelled: 'common.cancelled' }
+  return labels[s] ? t(labels[s]) : s
 }
 
 function stockTypeLabel(t) {
-  return { retail_display: '零售-上架', retail_storage: '零售-备库', retail: '零售', exhibition: '展会' }[t] || t
+  const labels = { retail_display: 'common.retailDisplay', retail_storage: 'common.retailStorage', retail: 'common.retail', exhibition: 'common.exhibition' }
+  return labels[t] ? translate(labels[t]) : t
 }
+function translate(key) { return t(key) }
 
 function stockTypeColor(t) {
   return { retail_display: 'primary', retail_storage: 'info', retail: 'primary', exhibition: 'warning' }[t] || 'info'
@@ -181,7 +190,7 @@ function stockTypeColor(t) {
 
 function formatDate(d) {
   if (!d) return ''
-  return new Date(d).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  return new Date(d).toLocaleString(locale.value === 'en' ? 'en-AU' : 'zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 async function loadTasks() {
@@ -220,10 +229,10 @@ async function confirmLine(line) {
     await replenishmentApi.confirmLine(line.id, confirmQtys[line.id] ?? line.required_qty)
     line.status = 'confirmed'
     line.confirmed_qty = confirmQtys[line.id] ?? line.required_qty
-    ElMessage.success('已确认到位，库存已更新')
+    ElMessage.success(t('replenishment.stockUpdated'))
     loadTasks()
   } catch (e) {
-    ElMessage.error(e.message)
+    ElMessage.error(localizedError(e, t))
   } finally {
     confirmingLines[line.id] = false
   }
@@ -235,7 +244,7 @@ async function skipLine(line) {
     line.status = 'skipped'
     loadTasks()
   } catch (e) {
-    ElMessage.error(e.message)
+    ElMessage.error(localizedError(e, t))
   }
 }
 
@@ -255,23 +264,22 @@ async function generateTask() {
   generating.value = true
   try {
     const res = await replenishmentApi.generateTask(selectedShipment.value.id)
-    ElMessage.success(`补货任务已生成，共 ${res.data.lines_count} 条明细`)
+    ElMessage.success(t('replenishment.generated', { count: res.data.lines_count }))
     showGenerateDialog.value = false
     loadTasks()
   } catch (e) {
-    ElMessage.error(e.message)
+    ElMessage.error(localizedError(e, t))
   } finally {
     generating.value = false
   }
 }
 
 // 监听对话框打开
-import { watch } from 'vue'
 watch(showGenerateDialog, (val) => {
   if (val) openGenerateDialog()
 })
 
-onMounted(loadTasks)
+watch(() => warehouseStore.selectedLayoutId, loadTasks, { immediate: true })
 </script>
 
 <style scoped>
