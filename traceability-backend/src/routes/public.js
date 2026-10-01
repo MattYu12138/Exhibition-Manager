@@ -114,9 +114,33 @@ function performLookup(req, res) {
     INNER JOIN products p ON p.id = pv.product_id
     LEFT JOIN traceability_records tr
       ON tr.product_variant_id = pv.id
+      -- Audit-safe publication lock. Self-entered document references do not
+      -- constitute independently verified SC, TC, lot or approved-label proof.
+      -- Keep this fail-closed until a verified-evidence release is built.
+      AND 1 = 0
       AND tr.is_default = 1
       AND tr.is_published = 1
-    WHERE trim(pv.gtin) = ?
+      AND tr.evidence_reviewed_at IS NOT NULL
+      AND tr.reviewed_barcode = TRIM(pv.gtin)
+      AND tr.reviewed_sku = pv.sku
+      AND tr.reviewed_product_title = p.title
+      AND COALESCE(tr.reviewed_variant_title, '') = COALESCE(pv.variant_title, '')
+      AND tr.on_product_label_checked = 1
+      AND tr.certification_standard IN ('GOTS organic', 'GOTS made with organic')
+      AND TRIM(COALESCE(tr.batch_no, '')) <> ''
+      AND TRIM(COALESCE(tr.fiber_composition_en, '')) <> ''
+      AND TRIM(COALESCE(tr.production_origin_en, '')) <> ''
+      AND TRIM(COALESCE(tr.certifying_body, '')) <> ''
+      AND TRIM(COALESCE(tr.licence_no, '')) <> ''
+      AND TRIM(COALESCE(tr.manufacture_lot_evidence_ref, '')) <> ''
+      AND TRIM(COALESCE(tr.fibre_evidence_ref, '')) <> ''
+      AND TRIM(COALESCE(tr.origin_evidence_ref, '')) <> ''
+      AND TRIM(COALESCE(tr.supplier_scope_certificate_ref, '')) <> ''
+      AND TRIM(COALESCE(tr.transaction_certificate_ref, '')) <> ''
+      AND TRIM(COALESCE(tr.approved_label_release_ref, '')) <> ''
+      AND TRIM(COALESCE(tr.buyer_eligibility_evidence_ref, '')) <> ''
+      AND TRIM(COALESCE(tr.barcode_lot_mapping_ref, '')) <> ''
+    WHERE trim(pv.gtin) = ? AND COALESCE(p.status, '') != 'archived'
     ORDER BY tr.updated_at DESC, pv.updated_at DESC
   `).all(barcode);
 
@@ -130,18 +154,17 @@ function performLookup(req, res) {
     });
   }
 
+  if (rows.length > 1) {
+    recordQuery({ req, barcode, status: 'ambiguous' });
+    return res.status(409).json({
+      success: false,
+      code: 'AMBIGUOUS_BARCODE',
+      message: 'This barcode matches multiple products. Please contact support.',
+      support_email: SUPPORT_EMAIL,
+    });
+  }
   const publishedRows = rows.filter(row => row.traceability_record_id);
   if (publishedRows.length === 0) {
-    if (rows.length > 1) {
-      recordQuery({ req, barcode, status: 'ambiguous' });
-      return res.status(409).json({
-        success: false,
-        code: 'AMBIGUOUS_BARCODE',
-        message: 'This barcode matches multiple products. Please contact support.',
-        support_email: SUPPORT_EMAIL,
-      });
-    }
-
     const matchedProduct = rows[0];
     recordQuery({ req, barcode, status: 'not_published' });
     return res.status(404).json({
@@ -154,16 +177,6 @@ function performLookup(req, res) {
         style_number: matchedProduct.sku,
         variant: matchedProduct.variant_title,
       },
-      support_email: SUPPORT_EMAIL,
-    });
-  }
-
-  if (publishedRows.length > 1) {
-    recordQuery({ req, barcode, status: 'ambiguous' });
-    return res.status(409).json({
-      success: false,
-      code: 'AMBIGUOUS_BARCODE',
-      message: 'This barcode matches multiple products. Please contact support.',
       support_email: SUPPORT_EMAIL,
     });
   }

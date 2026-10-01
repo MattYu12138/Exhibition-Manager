@@ -74,6 +74,24 @@
             </div>
           </template>
           <div v-else class="no-stock-note">{{ $t('barcodeLookup.catalogueOnly') }}</div>
+          <section v-if="evidenceAccess" class="evidence-box" :aria-label="$t('barcodeLookup.tradeHeading')">
+            <h4>{{ $t('barcodeLookup.tradeHeading') }}</h4>
+            <p class="evidence-warning">{{ $t('barcodeLookup.tradeWarning') }}</p>
+            <div v-if="match.trade_documents?.length" class="evidence-list">
+              <div v-for="line in match.trade_documents" :key="`${line.invoice_ref}:${line.document_sku}`" class="evidence-row">
+                <div class="evidence-row-title">
+                  <strong>{{ line.document_title }} · {{ line.document_sku }}</strong>
+                  <el-tag size="small" :type="line.relation === 'catalogue_sku_candidate' ? 'info' : 'warning'" effect="plain">
+                    {{ $t(line.relation === 'catalogue_sku_candidate' ? 'barcodeLookup.exactSku' : 'barcodeLookup.barcodeCandidate') }}
+                  </el-tag>
+                </div>
+                <span>{{ $t('barcodeLookup.docs', { po: line.po_ref, invoice: line.invoice_ref, bol: line.bol_ref || '—' }) }}</span>
+                <span>{{ $t('barcodeLookup.documentQuantity', { qty: line.invoice_quantity }) }} · {{ line.supplier_name }} · {{ line.shipped_at }}</span>
+              </div>
+            </div>
+            <p v-else class="evidence-empty">{{ $t('barcodeLookup.noTradeDocuments') }}</p>
+            <p class="receipt-status">{{ $t('barcodeLookup.receiptMissing') }}</p>
+          </section>
         </div>
       </article>
     </section>
@@ -96,6 +114,7 @@ const selectedWarehouse = computed(() => warehouseStore.layouts.find(layout => l
 const barcodeInput = ref(null)
 const barcode = ref('')
 const matches = ref([])
+const evidenceAccess = ref(false)
 const hasSearched = ref(false)
 const errorText = ref('')
 const loading = ref(false)
@@ -135,6 +154,7 @@ async function lookup() {
       throw new Error(t('barcodeLookup.warehouseChanged'))
     }
     matches.value = result.data.matches || []
+    evidenceAccess.value = result.data.evidence_access === true
     hasSearched.value = true
     await nextTick()
     barcodeInput.value?.select?.()
@@ -142,6 +162,7 @@ async function lookup() {
     if (sequence !== requestSequence) return
     errorText.value = localizedError(error, t, 'common.requestFailed')
     matches.value = []
+    evidenceAccess.value = false
     hasSearched.value = false
   } finally {
     if (sequence === requestSequence) loading.value = false
@@ -151,6 +172,7 @@ async function lookup() {
 watch(() => warehouseStore.selectedLayoutId, () => {
   ++requestSequence
   matches.value = []
+  evidenceAccess.value = false
   hasSearched.value = false
   errorText.value = ''
   loading.value = false
@@ -202,6 +224,13 @@ onMounted(() => barcodeInput.value?.focus?.())
 .location-kind { color: #84796d; font-size: 12px; }
 .stock-location strong { margin-top: 3px; font-size: 15px; }
 .no-stock-note { color: #8a7a6c; font-size: 13px; background: #faf5ef; border-radius: 8px; padding: 10px 13px; }
+.evidence-box { border-top: 1px solid #eee8df; margin-top: 17px; padding-top: 15px; }
+.evidence-box h4 { font-size: 14px; margin: 0 0 6px; color: #3b4540; }
+.evidence-warning, .evidence-empty, .receipt-status { color: #785c47; font-size: 12px; line-height: 1.55; margin: 6px 0; }
+.evidence-list { display: grid; gap: 8px; margin: 12px 0; }
+.evidence-row { background: #f8f7f3; border: 1px solid #ebe6dc; padding: 11px 13px; border-radius: 10px; display: grid; gap: 4px; font-size: 12px; color: #676b63; }
+.evidence-row-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; color: #373b37; }
+.receipt-status { font-weight: 600; }
 @media (max-width: 640px) {
   .barcode-page { padding: 6px 0 34px; }
   .page-heading { display: block; margin-bottom: 18px; }

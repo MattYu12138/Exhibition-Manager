@@ -24,30 +24,53 @@ function normalizeRecordInput(body) {
     trace_code: cleanText(body.trace_code, 160) || null,
     is_default: body.is_default === undefined ? true : booleanValue(body.is_default),
     fiber_composition_en: cleanText(body.fiber_composition_en, 500),
-    certification_standard: cleanText(body.certification_standard, 160) || 'GOTS organic',
+    certification_standard: cleanText(body.certification_standard, 160),
     certifying_body: cleanText(body.certifying_body, 240) || null,
     licence_no: cleanText(body.licence_no, 160) || null,
     production_origin_en: cleanText(body.production_origin_en, 240) || null,
     gots_verification_url: cleanText(body.gots_verification_url, 1000) || DEFAULT_GOTS_URL,
     is_published: booleanValue(body.is_published),
+    manufacture_lot_evidence_ref: cleanText(body.manufacture_lot_evidence_ref, 240),
+    fibre_evidence_ref: cleanText(body.fibre_evidence_ref, 240),
+    origin_evidence_ref: cleanText(body.origin_evidence_ref, 240),
+    supplier_scope_certificate_ref: cleanText(body.supplier_scope_certificate_ref, 240),
+    transaction_certificate_ref: cleanText(body.transaction_certificate_ref, 240),
+    approved_label_release_ref: cleanText(body.approved_label_release_ref, 240),
+    buyer_eligibility_evidence_ref: cleanText(body.buyer_eligibility_evidence_ref, 240),
+    barcode_lot_mapping_ref: cleanText(body.barcode_lot_mapping_ref, 240),
+    on_product_label_checked: booleanValue(body.on_product_label_checked),
   };
 
-  if (!data.product_variant_id || !data.batch_no || !data.fiber_composition_en) {
-    const error = new Error('Product variant, product batch and fibre composition are required.');
+  if (!data.product_variant_id) {
+    const error = new Error('Product variant is required.');
     error.statusCode = 400;
     throw error;
   }
 
   try {
     const parsed = new URL(data.gots_verification_url);
-    if (!['https:', 'http:'].includes(parsed.protocol)) throw new Error('invalid protocol');
+    if (parsed.protocol !== 'https:' ||
+        !['global-standards.org', 'www.global-standards.org'].includes(parsed.hostname)) {
+      throw new Error('invalid official GOTS directory URL');
+    }
   } catch {
-    const error = new Error('The GOTS verification URL must be a valid HTTP/HTTPS address.');
+    const error = new Error('The GOTS verification URL must be an official HTTPS GOTS directory URL.');
     error.statusCode = 400;
     throw error;
   }
 
   return data;
+}
+
+function checkPublication(data) {
+  if (!data.is_published) return;
+  // References typed by the same administrator are only an audit index. They
+  // cannot prove certificate validity, shipment coverage or physical origin.
+  // Deliberately fail closed until an independently verified evidence workflow
+  // (immutable documents, scope/TC/lot reconciliation, reviewer approval) ships.
+  const locked = new Error('GOTS publication is locked pending independent verification of source certificates, the shipment TC, physical lot mapping and certifier-approved label release. Save this record as a private draft.');
+  locked.statusCode = 409;
+  throw locked;
 }
 
 function getActorId(req) {
@@ -174,7 +197,7 @@ router.post('/records', (req, res) => {
   try {
     const data = normalizeRecordInput(req.body);
     const variant = db.prepare(`
-      SELECT pv.id, pv.gtin, p.title
+      SELECT pv.id, pv.gtin, pv.sku, pv.variant_title, p.title
       FROM product_variants pv
       INNER JOIN products p ON p.id = pv.product_id
       WHERE pv.id = ?
@@ -184,6 +207,10 @@ router.post('/records', (req, res) => {
     if (!variant.gtin || !String(variant.gtin).trim()) {
       return res.status(400).json({ success: false, message: 'This product variant has no barcode and cannot be used for public lookup.' });
     }
+    if (data.is_published && (!variant.sku || !variant.title)) {
+      return res.status(400).json({ success: false, message: 'Published claims require a stable product name and SKU.' });
+    }
+    checkPublication(data);
 
     const id = `TR${snowflakeId()}`;
     const actorId = getActorId(req);
@@ -197,13 +224,28 @@ router.post('/records', (req, res) => {
           id, product_variant_id, batch_no, trace_code, is_default,
           fiber_composition_zh, fiber_composition_en, certification_standard,
           certifying_body, licence_no, production_origin_zh, production_origin_en,
-          gots_verification_url, is_published, created_by, updated_by
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          gots_verification_url, is_published, created_by, updated_by,
+          manufacture_lot_evidence_ref, fibre_evidence_ref, origin_evidence_ref,
+          supplier_scope_certificate_ref, transaction_certificate_ref,
+          approved_label_release_ref, on_product_label_checked,
+          evidence_reviewed_at, evidence_reviewed_by,
+          reviewed_barcode, reviewed_sku, reviewed_product_title, reviewed_variant_title,
+          buyer_eligibility_evidence_ref, barcode_lot_mapping_ref
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id, data.product_variant_id, data.batch_no, data.trace_code, data.is_default ? 1 : 0,
         data.fiber_composition_en, data.fiber_composition_en, data.certification_standard,
         data.certifying_body, data.licence_no, data.production_origin_en, data.production_origin_en,
-        data.gots_verification_url, data.is_published ? 1 : 0, actorId, actorId
+        data.gots_verification_url, data.is_published ? 1 : 0, actorId, actorId,
+        data.manufacture_lot_evidence_ref, data.fibre_evidence_ref, data.origin_evidence_ref,
+        data.supplier_scope_certificate_ref, data.transaction_certificate_ref,
+        data.approved_label_release_ref, data.on_product_label_checked ? 1 : 0,
+        data.is_published ? new Date().toISOString() : null, data.is_published ? actorId : null,
+        data.is_published ? String(variant.gtin).trim() : null,
+        data.is_published ? variant.sku : null,
+        data.is_published ? variant.title : null,
+        data.is_published ? variant.variant_title : null,
+        data.buyer_eligibility_evidence_ref, data.barcode_lot_mapping_ref
       );
       audit(db, id, 'create', actorId, data);
     });
@@ -223,11 +265,16 @@ router.put('/records/:id', (req, res) => {
     if (!existing) return res.status(404).json({ success: false, message: 'Traceability record not found.' });
 
     const data = normalizeRecordInput(req.body);
-    const variant = db.prepare('SELECT id, gtin FROM product_variants WHERE id = ?').get(data.product_variant_id);
+    const variant = db.prepare(`SELECT pv.id, pv.gtin, pv.sku, pv.variant_title, p.title
+      FROM product_variants pv JOIN products p ON p.id = pv.product_id WHERE pv.id = ?`).get(data.product_variant_id);
     if (!variant) return res.status(404).json({ success: false, message: 'Product variant not found.' });
     if (!variant.gtin || !String(variant.gtin).trim()) {
       return res.status(400).json({ success: false, message: 'This product variant has no barcode and cannot be used for public lookup.' });
     }
+    if (data.is_published && (!variant.sku || !variant.title)) {
+      return res.status(400).json({ success: false, message: 'Published claims require a stable product name and SKU.' });
+    }
+    checkPublication(data);
 
     const actorId = getActorId(req);
     const update = db.transaction(() => {
@@ -240,13 +287,30 @@ router.put('/records/:id', (req, res) => {
           product_variant_id = ?, batch_no = ?, trace_code = ?, is_default = ?,
           fiber_composition_zh = ?, fiber_composition_en = ?, certification_standard = ?,
           certifying_body = ?, licence_no = ?, production_origin_zh = ?, production_origin_en = ?,
-          gots_verification_url = ?, is_published = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP
+          gots_verification_url = ?, is_published = ?, updated_by = ?, updated_at = CURRENT_TIMESTAMP,
+          manufacture_lot_evidence_ref = ?, fibre_evidence_ref = ?, origin_evidence_ref = ?,
+          supplier_scope_certificate_ref = ?, transaction_certificate_ref = ?,
+          approved_label_release_ref = ?, on_product_label_checked = ?,
+          evidence_reviewed_at = ?, evidence_reviewed_by = ?,
+          reviewed_barcode = ?, reviewed_sku = ?,
+          reviewed_product_title = ?, reviewed_variant_title = ?,
+          buyer_eligibility_evidence_ref = ?, barcode_lot_mapping_ref = ?
         WHERE id = ?
       `).run(
         data.product_variant_id, data.batch_no, data.trace_code, data.is_default ? 1 : 0,
         data.fiber_composition_en, data.fiber_composition_en, data.certification_standard,
         data.certifying_body, data.licence_no, data.production_origin_en, data.production_origin_en,
-        data.gots_verification_url, data.is_published ? 1 : 0, actorId, req.params.id
+        data.gots_verification_url, data.is_published ? 1 : 0, actorId,
+        data.manufacture_lot_evidence_ref, data.fibre_evidence_ref, data.origin_evidence_ref,
+        data.supplier_scope_certificate_ref, data.transaction_certificate_ref,
+        data.approved_label_release_ref, data.on_product_label_checked ? 1 : 0,
+        data.is_published ? new Date().toISOString() : null, data.is_published ? actorId : null,
+        data.is_published ? String(variant.gtin).trim() : null,
+        data.is_published ? variant.sku : null,
+        data.is_published ? variant.title : null,
+        data.is_published ? variant.variant_title : null,
+        data.buyer_eligibility_evidence_ref, data.barcode_lot_mapping_ref,
+        req.params.id
       );
       audit(db, req.params.id, 'update', actorId, { before: existing, after: data });
     });

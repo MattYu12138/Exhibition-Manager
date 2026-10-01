@@ -128,19 +128,43 @@ async function api(url, options = {}, cookie = '') {
     assert.equal(records.total, 1);
     assert.equal(records.data[0].barcode, '52845505');
 
-    const updateResponse = await api(`/api/traceability/records/${created.data.id}`, {
+    const unsupportedResponse = await api(`/api/traceability/records/${created.data.id}`, {
       method: 'PUT',
       body: JSON.stringify({
         ...records.data[0],
         product_variant_id: 'V1',
         batch_no: 'LIC-2026-001',
-        fiber_composition_zh: '100% 有机棉',
         fiber_composition_en: '100% Organic Cotton',
         is_default: true,
         is_published: true,
       }),
     }, cookie);
-    assert.equal(updateResponse.status, 200);
+    assert.equal(unsupportedResponse.status, 409);
+    assert.match((await unsupportedResponse.json()).message, /locked/i);
+
+    const updateResponse = await api(`/api/traceability/records/${created.data.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        ...records.data[0], product_variant_id: 'V1', batch_no: 'FACTORY-LOT-001',
+        fiber_composition_en: '100% Organic Cotton', certification_standard: 'GOTS organic',
+        certifying_body: 'Example Certifier', licence_no: 'SC-EXAMPLE',
+        production_origin_en: 'China', manufacture_lot_evidence_ref: 'factory-record-001',
+        fibre_evidence_ref: 'composition-record-001', origin_evidence_ref: 'factory-record-001',
+        supplier_scope_certificate_ref: 'SC-EXAMPLE', transaction_certificate_ref: 'TC-EXAMPLE',
+        approved_label_release_ref: 'APPROVED-EXAMPLE', on_product_label_checked: true,
+        buyer_eligibility_evidence_ref: 'BUYER-ROLE-EXAMPLE',
+        barcode_lot_mapping_ref: 'PHYSICAL-LOT-EXAMPLE',
+        is_default: true, is_published: true,
+      }),
+    }, cookie);
+    assert.equal(updateResponse.status, 409);
+    assert.match((await updateResponse.json()).message, /independent verification/i);
+    const saveDraft = await api(`/api/traceability/records/${created.data.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...records.data[0], product_variant_id: 'V1',
+        batch_no: 'FACTORY-LOT-UNVERIFIED', is_default: true, is_published: false }),
+    }, cookie);
+    assert.equal(saveDraft.status, 200);
 
     const testDb = new Database(dbPath);
     testDb.prepare(`
@@ -152,7 +176,7 @@ async function api(url, options = {}, cookie = '') {
     const statsResponse = await api('/api/traceability/stats?days=30', {}, cookie);
     const stats = await statsResponse.json();
     assert.equal(stats.data.summary.total_records, 1);
-    assert.equal(stats.data.summary.published_records, 1);
+    assert.equal(stats.data.summary.published_records, 0);
     assert.equal(stats.data.summary.total_queries, 1);
 
     const deleteResponse = await api(`/api/traceability/records/${created.data.id}`, { method: 'DELETE' }, cookie);

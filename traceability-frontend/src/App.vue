@@ -175,12 +175,8 @@
         </dl>
 
         <div class="certification-panel">
-          <div class="gots-seal" aria-hidden="true">
-            <span>GOTS</span>
-            <small>ORGANIC</small>
-          </div>
           <div class="certificate-copy">
-            <h3>{{ result.certification_standard || 'GOTS organic' }}</h3>
+            <h3>{{ result.certification_standard }}</h3>
             <p>{{ copy.certifiedBy }} <strong>{{ displayValue(result.certifying_body) }}</strong></p>
             <p>{{ copy.licenceNumber }} <strong>{{ displayValue(result.licence_no) }}</strong></p>
           </div>
@@ -239,9 +235,9 @@ import axios from 'axios'
 const copy = {
   brandLine: 'Naturally considered essentials',
   heroTitle: 'Know the story behind every piece.',
-  heroSubtitle: 'Enter the barcode on your Lummi in Colour product to view its origin, materials and certification details.',
-  verifiedTitle: 'Made with care. Verified with clarity.',
-  verifiedSubtitle: 'A transparent record of the materials and certification behind your product.',
+  heroSubtitle: 'Enter the barcode to identify your product. Supporting details appear only after document review.',
+  verifiedTitle: 'Your product information.',
+  verifiedSubtitle: 'Published product details supported by documentation reviewed by our team.',
   identifiedHeroTitle: 'Product found. Its story is coming soon.',
   identifiedHeroSubtitle: 'We identified your product and are preparing its detailed traceability record.',
   searchTitle: 'Trace your product',
@@ -263,11 +259,11 @@ const copy = {
   closeScanner: 'Close camera',
   traceabilityEnglish: 'PRODUCT TRACEABILITY',
   traceabilityTitle: 'Product traceability',
-  verified: 'Verified record',
+  verified: 'Document-reviewed record',
   productIdentified: 'Product identified',
   preparing: 'Preparing',
   pendingTitle: 'Traceability details are being prepared',
-  pendingDescription: 'The product has been identified successfully. Its origin, materials and certification details will appear here once published.',
+  pendingDescription: 'The product has been identified. Materials, origin, lot and certification claims are withheld until the relevant evidence is reviewed and approved.',
   productName: 'Product name',
   styleNumber: 'Style number',
   variant: 'Product variant',

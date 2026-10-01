@@ -121,12 +121,44 @@ async function request(barcode, lang = 'en') {
   try {
     await waitForServer();
 
-    const found = await request('12345678', 'zh');
-    assert.equal(found.status, 200);
-    assert.equal(found.body.data.product_name, 'Organic Cotton Baby Wrap');
-    assert.equal(found.body.data.style_number, 'BW26001');
-    assert.equal(found.body.data.fiber_composition, '100% 有机棉');
-    assert.equal(found.body.support_email, 'admin@lummiincolour.com.au');
+    const legacy = await request('12345678');
+    assert.equal(legacy.status, 404);
+    assert.equal(legacy.body.code, 'NOT_PUBLISHED');
+    assert.ok(!JSON.stringify(legacy.body).includes('BATCH-001'));
+    assert.ok(!JSON.stringify(legacy.body).includes('GOTS organic'));
+
+    const evidenceDb = new Database(dbPath);
+    evidenceDb.prepare(`UPDATE traceability_records SET
+      is_published = 1, manufacture_lot_evidence_ref = 'factory-lot-proof',
+      fibre_evidence_ref = 'composition-proof', origin_evidence_ref = 'factory-proof',
+      supplier_scope_certificate_ref = 'supplier-SC', transaction_certificate_ref = 'shipment-TC',
+      approved_label_release_ref = 'certifier-release', on_product_label_checked = 1,
+      buyer_eligibility_evidence_ref = 'buyer-role-review',
+      barcode_lot_mapping_ref = 'product-physical-lot-register',
+      evidence_reviewed_at = datetime('now'), evidence_reviewed_by = 'test-reviewer',
+      reviewed_barcode = '12345678', reviewed_sku = 'BW26001',
+      reviewed_product_title = 'Organic Cotton Baby Wrap', reviewed_variant_title = '110cm x 100cm'
+      WHERE id = 'TR1'`).run();
+    evidenceDb.close();
+
+    const locked = await request('12345678', 'zh');
+    assert.equal(locked.status, 404);
+    assert.equal(locked.body.code, 'NOT_PUBLISHED');
+    assert.equal(locked.body.data.product_name, 'Organic Cotton Baby Wrap');
+    assert.equal(locked.body.data.style_number, 'BW26001');
+    assert.ok(!JSON.stringify(locked.body).includes('supplier-SC'));
+    assert.ok(!JSON.stringify(locked.body).includes('100% Organic Cotton'));
+
+    const changedDb = new Database(dbPath);
+    changedDb.prepare("UPDATE products SET title = 'Changed catalogue identity' WHERE id = 'P1'").run();
+    changedDb.close();
+    const changed = await request('12345678');
+    assert.equal(changed.status, 404);
+    assert.equal(changed.body.code, 'NOT_PUBLISHED');
+    const restoredDb = new Database(dbPath);
+    restoredDb.prepare("UPDATE products SET title = 'Organic Cotton Baby Wrap' WHERE id = 'P1'").run();
+    restoredDb.close();
+    assert.equal(locked.body.support_email, 'admin@lummiincolour.com.au');
 
     const draft = await request('20000002');
     assert.equal(draft.status, 404);
@@ -155,7 +187,7 @@ async function request(barcode, lang = 'en') {
     const checkDb = new Database(dbPath);
     const logSummary = checkDb.prepare('SELECT result_status, COUNT(*) AS count FROM traceability_query_log GROUP BY result_status').all();
     const statuses = Object.fromEntries(logSummary.map(row => [row.result_status, row.count]));
-    assert.deepEqual(statuses, { ambiguous: 1, found: 1, invalid: 2, not_found: 1, not_published: 1 });
+    assert.deepEqual(statuses, { ambiguous: 1, invalid: 2, not_found: 1, not_published: 4 });
     const visitor = checkDb.prepare('SELECT visitor_hash FROM traceability_query_log LIMIT 1').get();
     assert.ok(visitor.visitor_hash && visitor.visitor_hash.length === 32);
     checkDb.close();

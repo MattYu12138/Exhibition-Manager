@@ -68,13 +68,15 @@ router.get('/barcode/:barcode', requireLogin, (req, res) => {
     const stockRows = variantIds.length ? db.prepare(`
       SELECT wi.shopify_variant_id, wl.id AS location_id, wl.code AS location_code,
         wi.stock_type, wi.exhibition_id, e.name AS exhibition_name,
+        wi.inbound_shipment_id, wi.inbound_box_id,
         SUM(wi.quantity) AS quantity
       FROM warehouse_inventory wi
       JOIN warehouse_locations wl ON wl.id = wi.location_id
       LEFT JOIN exhibitions e ON e.id = wi.exhibition_id
       WHERE wl.layout_id = ? AND wl.is_active = 1 AND wi.quantity > 0
         AND wi.shopify_variant_id IN (${variantIds.map(() => '?').join(',')})
-      GROUP BY wi.shopify_variant_id, wl.id, wi.stock_type, wi.exhibition_id
+      GROUP BY wi.shopify_variant_id, wl.id, wi.stock_type, wi.exhibition_id,
+        wi.inbound_shipment_id, wi.inbound_box_id
       ORDER BY wl.code, wi.stock_type, wi.exhibition_id
     `).all(layoutId, ...variantIds) : [];
 
@@ -84,11 +86,39 @@ router.get('/barcode/:barcode', requireLogin, (req, res) => {
       list.push(stock);
       stockByVariant.set(stock.shopify_variant_id, list);
     }
+    const evidenceAccess = req.session?.user?.role === 'admin';
+    if (evidenceAccess) {
+      db.prepare(`INSERT INTO warehouse_trade_access_log (actor_user_id, warehouse_id, barcode)
+        VALUES (?, ?, ?)`).run(String(req.session.user.id), layoutId, barcode);
+    }
     for (const match of matches) {
       match.locations = stockByVariant.get(match.shopify_variant_id) || [];
       match.total_quantity = match.locations.reduce((total, row) => total + row.quantity, 0);
+      // PO/invoice/packing/B/L are trade evidence, never a verified lot or
+      // a GOTS certificate. Shared barcodes across years do not establish a
+      // physical link: show those lines only as candidates to review.
+      const documentaryLines = evidenceAccess ? db.prepare(`
+        SELECT tl.document_sku, tl.document_title, tl.document_size,
+          tl.po_quantity, tl.invoice_quantity, tl.packing_quantity,
+          tl.match_method, tl.shopify_variant_id,
+          s.po_ref, s.invoice_ref, s.packing_ref, s.bol_ref,
+          s.supplier_name, s.shipped_at, s.port_of_loading,
+          s.port_of_discharge, s.declared_cartons, s.declared_units
+        FROM warehouse_trade_shipment_lines tl
+        JOIN warehouse_trade_shipments s ON s.id = tl.shipment_id
+        WHERE tl.shopify_variant_id = ? OR tl.barcode = ?
+        ORDER BY s.shipped_at DESC, tl.document_sku LIMIT 30
+      `).all(match.shopify_variant_id, barcode) : [];
+      match.trade_documents = documentaryLines.map(({ shopify_variant_id, match_method, ...line }) => ({
+        ...line,
+        relation: match_method === 'exact_sku' && shopify_variant_id === match.shopify_variant_id
+          ? 'catalogue_sku_candidate' : 'barcode_candidate',
+        evidence_status: 'commercial_documents_only',
+      }));
+      match.stock_source_status = 'trade_shipment_to_stock_unverified';
     }
-    res.json({ success: true, data: { barcode, layout_id: layoutId, matches, ambiguous: matches.length > 1 } });
+    res.json({ success: true, data: { barcode, layout_id: layoutId, matches,
+      ambiguous: matches.length > 1, evidence_access: evidenceAccess } });
   } catch (err) {
     console.error('[products] barcode lookup:', err.message);
     res.status(500).json({ success: false, message: '条码查询失败，请稍后重试' });

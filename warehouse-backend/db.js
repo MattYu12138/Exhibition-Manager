@@ -240,6 +240,51 @@ db.exec(`
     confirmed_at DATETIME
   );
   CREATE INDEX IF NOT EXISTS idx_warehouse_replenishment_lines_task ON warehouse_replenishment_lines(task_id);
+
+  -- Private documentary leads only. PO/invoice/packing/B/L are not Scope or
+  -- Transaction Certificates and these rows do not identify a production lot.
+  CREATE TABLE IF NOT EXISTS warehouse_trade_shipments (
+    id TEXT PRIMARY KEY,
+    po_ref TEXT NOT NULL,
+    invoice_ref TEXT NOT NULL,
+    packing_ref TEXT NOT NULL,
+    bol_ref TEXT,
+    supplier_name TEXT,
+    shipped_at TEXT,
+    port_of_loading TEXT,
+    port_of_discharge TEXT,
+    declared_cartons INTEGER,
+    declared_units INTEGER,
+    source_checksums TEXT NOT NULL,
+    imported_by TEXT NOT NULL DEFAULT 'unknown',
+    importer_version TEXT NOT NULL DEFAULT 'unknown',
+    imported_at TEXT NOT NULL DEFAULT (datetime('now')),
+    evidence_status TEXT NOT NULL DEFAULT 'trade_documents_only'
+      CHECK(evidence_status = 'trade_documents_only')
+  );
+  CREATE TABLE IF NOT EXISTS warehouse_trade_shipment_lines (
+    id TEXT PRIMARY KEY,
+    shipment_id TEXT NOT NULL REFERENCES warehouse_trade_shipments(id),
+    document_sku TEXT NOT NULL,
+    document_title TEXT NOT NULL,
+    document_size TEXT,
+    barcode TEXT,
+    po_quantity INTEGER NOT NULL,
+    invoice_quantity INTEGER NOT NULL,
+    packing_quantity INTEGER,
+    shopify_variant_id TEXT,
+    match_method TEXT NOT NULL CHECK(match_method IN ('exact_sku','unmatched')),
+    UNIQUE(shipment_id, document_sku)
+  );
+  CREATE INDEX IF NOT EXISTS idx_wtrade_lines_variant ON warehouse_trade_shipment_lines(shopify_variant_id);
+  CREATE INDEX IF NOT EXISTS idx_wtrade_lines_barcode ON warehouse_trade_shipment_lines(barcode);
+  CREATE TABLE IF NOT EXISTS warehouse_trade_access_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_user_id TEXT NOT NULL,
+    warehouse_id TEXT NOT NULL,
+    barcode TEXT NOT NULL,
+    accessed_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // Ownership belongs to the immutable warehouse ID, not a display name. The
@@ -256,6 +301,8 @@ function addColumn(table, column, sql) {
 }
 
 addColumn('warehouse_locations', 'low_stock_threshold', 'INTEGER NOT NULL DEFAULT 10');
+addColumn('warehouse_inventory', 'inbound_shipment_id', 'TEXT');
+addColumn('warehouse_inventory', 'inbound_box_id', 'TEXT');
 addColumn('warehouse_pick_tasks', 'layout_id', 'TEXT REFERENCES warehouse_layouts(id) ON DELETE SET NULL');
 if (hasTable('warehouse_pick_tasks')) {
   db.exec(`

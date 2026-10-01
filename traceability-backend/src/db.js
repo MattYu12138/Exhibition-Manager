@@ -23,6 +23,21 @@ function initSchema(database) {
       production_origin_en TEXT,
       gots_verification_url TEXT,
       is_published INTEGER NOT NULL DEFAULT 0,
+      manufacture_lot_evidence_ref TEXT,
+      fibre_evidence_ref TEXT,
+      origin_evidence_ref TEXT,
+      supplier_scope_certificate_ref TEXT,
+      transaction_certificate_ref TEXT,
+      approved_label_release_ref TEXT,
+      buyer_eligibility_evidence_ref TEXT,
+      barcode_lot_mapping_ref TEXT,
+      on_product_label_checked INTEGER NOT NULL DEFAULT 0,
+      evidence_reviewed_at TEXT,
+      evidence_reviewed_by TEXT,
+      reviewed_barcode TEXT,
+      reviewed_sku TEXT,
+      reviewed_product_title TEXT,
+      reviewed_variant_title TEXT,
       created_by TEXT,
       updated_by TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -53,7 +68,42 @@ function initSchema(database) {
       ON traceability_query_log(barcode);
     CREATE INDEX IF NOT EXISTS idx_trace_query_time
       ON traceability_query_log(queried_at);
+
+    CREATE TABLE IF NOT EXISTS traceability_audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      traceability_record_id TEXT,
+      action TEXT NOT NULL,
+      actor_user_id TEXT,
+      changes_json TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
+  const evidenceColumns = {
+    manufacture_lot_evidence_ref: 'TEXT', fibre_evidence_ref: 'TEXT', origin_evidence_ref: 'TEXT',
+    supplier_scope_certificate_ref: 'TEXT', transaction_certificate_ref: 'TEXT',
+    approved_label_release_ref: 'TEXT', on_product_label_checked: 'INTEGER NOT NULL DEFAULT 0',
+    buyer_eligibility_evidence_ref: 'TEXT', barcode_lot_mapping_ref: 'TEXT',
+    evidence_reviewed_at: 'TEXT', evidence_reviewed_by: 'TEXT',
+    reviewed_barcode: 'TEXT', reviewed_sku: 'TEXT',
+    reviewed_product_title: 'TEXT', reviewed_variant_title: 'TEXT',
+  };
+  database.transaction(() => {
+    const present = new Set(database.pragma('table_info(traceability_records)').map(row => row.name));
+    for (const [name, type] of Object.entries(evidenceColumns)) {
+      if (!present.has(name)) database.exec(`ALTER TABLE traceability_records ADD COLUMN ${name} ${type}`);
+    }
+    const missing = `is_published = 1 AND (
+      evidence_reviewed_at IS NULL OR TRIM(COALESCE(transaction_certificate_ref, '')) = ''
+      OR TRIM(COALESCE(supplier_scope_certificate_ref, '')) = ''
+      OR TRIM(COALESCE(approved_label_release_ref, '')) = ''
+      OR TRIM(COALESCE(buyer_eligibility_evidence_ref, '')) = ''
+      OR TRIM(COALESCE(barcode_lot_mapping_ref, '')) = ''
+      OR TRIM(COALESCE(reviewed_barcode, '')) = '')`;
+    database.prepare(`INSERT INTO traceability_audit_log (traceability_record_id, action, changes_json)
+      SELECT id, 'safety_unpublish', '{"reason":"missing evidence-reviewed publication"}'
+      FROM traceability_records WHERE ${missing}`).run();
+    database.prepare(`UPDATE traceability_records SET is_published = 0 WHERE ${missing}`).run();
+  }).immediate();
 }
 
 function getDb() {

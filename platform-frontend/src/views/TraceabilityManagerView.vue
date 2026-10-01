@@ -161,7 +161,12 @@
 
         <div class="form-grid">
           <el-form-item :label="t('traceability.batchNumber')" prop="batch_no"><el-input v-model="form.batch_no" /></el-form-item>
-          <el-form-item :label="t('traceability.certification')"><el-input v-model="form.certification_standard" /></el-form-item>
+          <el-form-item :label="t('traceability.certification')">
+            <el-select v-model="form.certification_standard" clearable placeholder="Select only the approved finished-product grade" style="width: 100%">
+              <el-option label="GOTS organic" value="GOTS organic" />
+              <el-option label="GOTS made with organic" value="GOTS made with organic" />
+            </el-select>
+          </el-form-item>
           <el-form-item :label="t('traceability.fibreComposition')" prop="fiber_composition_en"><el-input v-model="form.fiber_composition_en" /></el-form-item>
           <el-form-item :label="t('traceability.certifyingBody')"><el-input v-model="form.certifying_body" /></el-form-item>
           <el-form-item :label="t('traceability.licenceNumber')"><el-input v-model="form.licence_no" /></el-form-item>
@@ -169,9 +174,25 @@
         </div>
         <el-form-item :label="t('traceability.verificationUrl')"><el-input v-model="form.gots_verification_url" /></el-form-item>
         <el-form-item :label="t('traceability.traceCode')"><el-input v-model="form.trace_code" /></el-form-item>
+        <div class="evidence-review">
+          <h3>GOTS evidence references · unverified draft</h3>
+          <p>A PO, invoice, packing list or bill of lading is not a manufacturing lot, Scope Certificate, Transaction Certificate or approved label. Keep originals for your auditor; publish only after checking each actual document and product label.</p>
+          <div class="form-grid">
+            <el-form-item label="Factory/finished-product lot evidence"><el-input v-model="form.manufacture_lot_evidence_ref" /></el-form-item>
+            <el-form-item label="Finished-product fibre composition evidence"><el-input v-model="form.fibre_evidence_ref" /></el-form-item>
+            <el-form-item label="Production origin evidence"><el-input v-model="form.origin_evidence_ref" /></el-form-item>
+            <el-form-item label="Supplier Scope Certificate (SC) reference"><el-input v-model="form.supplier_scope_certificate_ref" /></el-form-item>
+            <el-form-item label="This shipment's Transaction Certificate (TC) reference"><el-input v-model="form.transaction_certificate_ref" /></el-form-item>
+            <el-form-item label="Certifier-approved label release reference"><el-input v-model="form.approved_label_release_ref" /></el-form-item>
+            <el-form-item label="Buyer role / SC or retail exemption evidence"><el-input v-model="form.buyer_eligibility_evidence_ref" /></el-form-item>
+            <el-form-item label="Product barcode → physical production lot mapping"><el-input v-model="form.barcode_lot_mapping_ref" /></el-form-item>
+          </div>
+          <el-checkbox v-model="form.on_product_label_checked">I checked the actual product label against the certifier-approved artwork, grade, certifier and certification number.</el-checkbox>
+          <p class="form-hint">These references index evidence; staff entry is not independent certification. Missing evidence can be saved as a draft but not published.</p>
+        </div>
         <div class="switch-row">
           <label><span>{{ t('traceability.defaultBatch') }}</span><el-switch v-model="form.is_default" /></label>
-          <label><span>{{ t('traceability.publishStatus') }}</span><el-switch v-model="form.is_published" /></label>
+          <label><span>{{ t('traceability.publishStatus') }} — locked pending independent verification</span><el-switch v-model="form.is_published" disabled /></label>
         </div>
         <p class="form-hint">{{ t('traceability.requiredHint') }}</p>
       </el-form>
@@ -219,19 +240,21 @@ const blankForm = () => ({
   batch_no: '',
   trace_code: '',
   is_default: true,
-  fiber_composition_en: t('traceability.defaultFibre'),
-  certification_standard: 'GOTS organic',
+  fiber_composition_en: '',
+  certification_standard: '',
   certifying_body: '',
   licence_no: '',
-  production_origin_en: t('traceability.defaultOrigin'),
+  production_origin_en: '',
+  manufacture_lot_evidence_ref: '', fibre_evidence_ref: '', origin_evidence_ref: '',
+  supplier_scope_certificate_ref: '', transaction_certificate_ref: '',
+  approved_label_release_ref: '', on_product_label_checked: false,
+  buyer_eligibility_evidence_ref: '', barcode_lot_mapping_ref: '',
   gots_verification_url: 'https://global-standards.org/suppliers/certified-suppliers',
   is_published: false,
 })
 const form = reactive(blankForm())
 const rules = computed(() => ({
   product_variant_id: [{ required: true, message: t('traceability.selectProduct'), trigger: 'change' }],
-  batch_no: [{ required: true, message: t('traceability.batchNumber'), trigger: 'blur' }],
-  fiber_composition_en: [{ required: true, message: t('traceability.fibreComposition'), trigger: 'blur' }],
 }))
 
 function variantLabel(option) {
@@ -325,12 +348,21 @@ function openEdit(row) {
     trace_code: row.trace_code || '',
     is_default: Boolean(row.is_default),
     fiber_composition_en: row.fiber_composition_en || '',
-    certification_standard: row.certification_standard || 'GOTS organic',
+    certification_standard: row.certification_standard || '',
     certifying_body: row.certifying_body || '',
     licence_no: row.licence_no || '',
     production_origin_en: row.production_origin_en || '',
     gots_verification_url: row.gots_verification_url || '',
-    is_published: Boolean(row.is_published),
+    is_published: false,
+    manufacture_lot_evidence_ref: row.manufacture_lot_evidence_ref || '',
+    fibre_evidence_ref: row.fibre_evidence_ref || '',
+    origin_evidence_ref: row.origin_evidence_ref || '',
+    supplier_scope_certificate_ref: row.supplier_scope_certificate_ref || '',
+    transaction_certificate_ref: row.transaction_certificate_ref || '',
+    approved_label_release_ref: row.approved_label_release_ref || '',
+    buyer_eligibility_evidence_ref: row.buyer_eligibility_evidence_ref || '',
+    barcode_lot_mapping_ref: row.barcode_lot_mapping_ref || '',
+    on_product_label_checked: Boolean(row.on_product_label_checked),
   })
   dialogVisible.value = true
 }
@@ -420,6 +452,11 @@ onUnmounted(() => { locale.value = previousLocale })
 .rank-row strong { font-size: 11px; }.rank-row small { color: #8a8f88; font-size: 10px; }.rank-row b { color: #61795d; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
 .form-hint { margin: 4px 0 0; color: #969b94; font-size: 11px; }
+.evidence-review { background: #f9f6ef; border: 1px solid #e8dfd1; border-radius: 12px; padding: 18px; margin: 12px 0 18px; }
+.evidence-review h3 { font-size: 15px; margin: 0 0 8px; color: #51412f; }
+.evidence-review > p { font-size: 12px; line-height: 1.6; color: #6b6255; margin: 0 0 13px; }
+.evidence-review .el-checkbox { height: auto; white-space: normal; align-items: flex-start; }
+.evidence-review :deep(.el-checkbox__label) { line-height: 1.5; white-space: normal; }
 .switch-row { display: flex; gap: 28px; padding: 5px 0 14px; }
 .switch-row label { display: flex; align-items: center; gap: 10px; color: #596057; font-size: 13px; }
 .variant-option { display: flex; flex-direction: column; line-height: 1.25; }

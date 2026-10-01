@@ -20,6 +20,8 @@ test('legacy task migration assigns only a unique real warehouse and preserves a
     CREATE TABLE warehouse_locations (id TEXT PRIMARY KEY, layout_id TEXT, code TEXT,
       label TEXT, zone TEXT, row_no INTEGER, col_no INTEGER, module_id TEXT, grid_x INTEGER,
       grid_y INTEGER, qr_token TEXT, is_active INTEGER, note TEXT, created_at DATETIME, updated_at DATETIME);
+    CREATE TABLE warehouse_inventory (id TEXT PRIMARY KEY, location_id TEXT,
+      shopify_variant_id TEXT, stock_type TEXT, exhibition_id TEXT, quantity INTEGER);
     CREATE TABLE warehouse_pick_tasks (id TEXT PRIMARY KEY, task_type TEXT DEFAULT 'order',
       exhibition_id TEXT, status TEXT DEFAULT 'pending');
     CREATE TABLE warehouse_pick_lines (id TEXT PRIMARY KEY, task_id TEXT, shopify_variant_id TEXT, location_id TEXT);
@@ -48,6 +50,8 @@ test('legacy task migration assigns only a unique real warehouse and preserves a
     assert.deepEqual(replenish, { 'one-inbound': 'W2', 'mixed-inbound': null, 'empty-inbound': null });
     assert.equal(migrated.prepare('SELECT COUNT(*) AS count FROM warehouse_pick_lines').get().count, 7);
     assert.equal(migrated.prepare('SELECT COUNT(*) AS count FROM warehouse_replenishment_lines').get().count, 3);
+    const columns = migrated.prepare('PRAGMA table_info(warehouse_inventory)').all().map(row => row.name);
+    assert.ok(columns.includes('inbound_shipment_id') && columns.includes('inbound_box_id'));
   } finally {
     migrated?.close();
     fs.rmSync(tmp, { recursive: true, force: true });

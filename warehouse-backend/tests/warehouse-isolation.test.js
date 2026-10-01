@@ -136,6 +136,17 @@ test('layouts, stock, picking and replenishment stay isolated by warehouse ID', 
     })).status, 404, 'internal transfers cannot cross warehouses');
     assert.equal((await call('GET', '/locations', one)).body.data[0].total_qty, 5);
     assert.equal((await call('GET', '/locations', two)).body.data[0].total_qty, 6);
+    db.prepare(`INSERT INTO warehouse_trade_shipments
+      (id, po_ref, invoice_ref, packing_ref, bol_ref, source_checksums, declared_units)
+      VALUES ('S-TEST', 'PO-TEST', 'INV-TEST', 'PL-TEST', 'BOL-TEST', '{}', 2)`).run();
+    db.prepare(`INSERT INTO warehouse_trade_shipment_lines
+      (id, shipment_id, document_sku, document_title, barcode, po_quantity, invoice_quantity,
+       packing_quantity, shopify_variant_id, match_method)
+      VALUES ('L-EXACT', 'S-TEST', 'V1-000', 'Test romper', '01234567', 1, 1, 1, 'V1', 'exact_sku')`).run();
+    db.prepare(`INSERT INTO warehouse_trade_shipment_lines
+      (id, shipment_id, document_sku, document_title, barcode, po_quantity, invoice_quantity,
+       packing_quantity, shopify_variant_id, match_method)
+      VALUES ('L-CANDIDATE', 'S-TEST', 'NEW-SKU', 'Other style', '01234567', 1, 1, 1, NULL, 'unmatched')`).run();
     const stockedPdfResponse = await download([loc1], one);
     assert.equal(stockedPdfResponse.status, 200);
     const stockedPdf = Buffer.from(await stockedPdfResponse.arrayBuffer());
@@ -164,6 +175,23 @@ test('layouts, stock, picking and replenishment stay isolated by warehouse ID', 
     assert.equal(barcodeInOne.body.data.matches.length, 2, 'show duplicates but never mistake an archived variant for active stock');
     assert.equal(barcodeInOne.body.data.matches.find(item => item.shopify_variant_id === 'V1').total_quantity, 5);
     assert.equal(barcodeInOne.body.data.matches.find(item => item.shopify_variant_id === 'V1').locations.length, 2);
+    const lineEvidence = barcodeInOne.body.data.matches.find(item => item.shopify_variant_id === 'V1');
+    assert.equal(lineEvidence.trade_documents.length, 2);
+    assert.equal(lineEvidence.trade_documents.find(doc => doc.document_sku === 'V1-000').relation, 'catalogue_sku_candidate');
+    assert.equal(lineEvidence.trade_documents.find(doc => doc.document_sku === 'NEW-SKU').relation, 'barcode_candidate');
+    assert.equal(lineEvidence.stock_source_status, 'trade_shipment_to_stock_unverified');
+    assert.equal(barcodeInOne.body.data.matches.find(item => item.shopify_variant_id === 'V2').trade_documents[0].relation, 'barcode_candidate');
+    assert.ok(!JSON.stringify(lineEvidence).includes('source_checksums'), 'never expose raw evidence file hashes to barcode viewers');
+    const viewerResponse = await fetch(`http://127.0.0.1:${port}/api/products/barcode/01234567`, {
+      headers: { 'X-Test-Viewer': 'yes', 'X-Warehouse-Id': one },
+    });
+    const viewerBody = await viewerResponse.json();
+    assert.equal(viewerResponse.status, 200);
+    assert.equal(viewerBody.data.evidence_access, false);
+    assert.deepEqual(viewerBody.data.matches[0].trade_documents, []);
+    assert.ok(!JSON.stringify(viewerBody).includes('PO-TEST'));
+    assert.ok(db.prepare('SELECT COUNT(*) n FROM warehouse_trade_access_log').get().n >= 2,
+      'admin evidence lookups should have an auditable read trail');
     assert.equal(barcodeInOne.body.data.matches.find(item => item.shopify_variant_id === 'V2').total_quantity, 0,
       'show a catalogue match even when no warehouse inventory has been entered');
     assert.equal(barcodeInTwo.body.data.layout_id, two);
