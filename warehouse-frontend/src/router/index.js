@@ -79,6 +79,23 @@ const router = createRouter({
   history: createWebHistory(),
   routes,
 })
+
+// A user can keep the app open while a new deploy replaces fingerprinted
+// route chunks. Reload once to obtain the fresh HTML manifest instead of
+// leaving the router-view blank. The session guard prevents a reload loop if
+// there is a genuine unrelated module error.
+const staleChunkReloadKey = 'warehouse_stale_chunk_reloaded'
+router.onError((error) => {
+  const message = String(error?.message || error)
+  const staleChunk = /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Unable to preload CSS/i.test(message)
+  if (staleChunk && !sessionStorage.getItem(staleChunkReloadKey)) {
+    sessionStorage.setItem(staleChunkReloadKey, '1')
+    window.location.reload()
+    return
+  }
+  console.error('[router] navigation error', error)
+})
+
 function updateTitle(route) {
   document.title = `${i18n.global.t(route.meta.titleKey || 'common.appName')} - Warehouse Manager`
 }
@@ -124,4 +141,5 @@ router.beforeEach(async (to) => {
   }
   return true
 })
+router.afterEach(() => sessionStorage.removeItem(staleChunkReloadKey))
 export default router
