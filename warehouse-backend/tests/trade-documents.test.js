@@ -94,22 +94,29 @@ test('importer parses five original source files, is idempotent, rejects tamperi
     assert.equal(JSON.parse(spawnSync('python3', [importer, ...sources, '--reported-arrival', '2026-08-20'], {
       env: { ...process.env, DB_PATH: filename, IMPORT_ACTOR: 'user-reported' }, encoding: 'utf8',
     }).stdout).status, 'unchanged');
-    const assignGroup = (bill = 'SL0202302260M', label = '第一批') => spawnSync('python3', [batchLabeler,
+    const assignGroup = (bill = 'SL0202302260M', label = 'ITG-01', correction = false) => spawnSync('python3', [batchLabeler,
       '--shipment-id', 'TRADE-UNA260001', '--po', 'LIC260001', '--invoice', 'UNA260001',
-      '--bill', bill, '--label', label, '--actor', 'warehouse-owner',
+      '--bill', bill, '--label', label, '--actor', 'warehouse-owner', ...(correction ? ['--correct-existing'] : []),
     ], { env: { ...process.env, DB_PATH: filename }, encoding: 'utf8' });
     assert.equal(verify.prepare('SELECT internal_batch_label FROM warehouse_trade_shipments').get().internal_batch_label, null);
     assert.notEqual(assignGroup('WRONG-BILL').status, 0, 'must not label a different bill');
     assert.equal(assignGroup().status, 0);
     assert.equal(assignGroup().stdout.trim(), 'unchanged', 'rerun must not add another audit event');
-    assert.notEqual(assignGroup('SL0202302260M', '真实生产批次').status, 0,
-      'existing internal label cannot be silently rewritten as a manufacturing lot');
+    assert.notEqual(assignGroup('SL0202302260M', 'ITG-02').status, 0,
+      'existing internal label cannot be silently rewritten');
     assert.deepEqual(verify.prepare(`SELECT internal_batch_label, internal_batch_source_kind
       FROM warehouse_trade_shipments`).get(), {
-      internal_batch_label: '第一批', internal_batch_source_kind: 'user_instruction_provisional',
+      internal_batch_label: 'ITG-01', internal_batch_source_kind: 'user_instruction_provisional',
     });
     assert.equal(verify.prepare(`SELECT COUNT(*) n FROM warehouse_trade_metadata_audit_log
       WHERE field_name = 'internal_batch_label' AND source_kind = 'user_instruction_provisional'`).get().n, 1);
+    assert.equal(assignGroup('SL0202302260M', 'ITG-02', true).stdout.trim(), 'corrected_internal_group_only');
+    assert.equal(verify.prepare('SELECT internal_batch_label FROM warehouse_trade_shipments').get().internal_batch_label, 'ITG-02');
+    assert.deepEqual(verify.prepare(`SELECT previous_value, new_value, source_kind
+      FROM warehouse_trade_metadata_audit_log WHERE field_name = 'internal_batch_label'
+      ORDER BY id DESC LIMIT 1`).get(), {
+      previous_value: 'ITG-01', new_value: 'ITG-02', source_kind: 'user_instruction_label_correction',
+    });
     assert.equal(verify.prepare('SELECT COUNT(*) n FROM warehouse_trade_shipment_lines').get().n, 125,
       'a group label cannot modify the 125 original trade-document product lines');
     verify.close();

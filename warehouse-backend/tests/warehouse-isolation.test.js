@@ -151,7 +151,7 @@ test('layouts, stock, picking and replenishment stay isolated by warehouse ID', 
        internal_batch_label, internal_batch_source_kind)
       VALUES ('S-TEST', 'PO-TEST', 'INV-TEST', 'PL-TEST', 'BOL-TEST', ?, 2,
         '2026-07-30', '2026-08-20', 'MSC ODESSA V 29S', 'XHCU5641810',
-        1039, 1038.8, 'DDU', '第一批', 'user_instruction_provisional')`).run(checksums);
+        1039, 1038.8, 'DDU', 'ITG-01', 'user_instruction_provisional')`).run(checksums);
     db.prepare(`INSERT INTO warehouse_trade_shipment_lines
       (id, shipment_id, document_sku, document_title, barcode, po_quantity, invoice_quantity,
        packing_quantity, shopify_variant_id, match_method)
@@ -200,7 +200,7 @@ test('layouts, stock, picking and replenishment stay isolated by warehouse ID', 
     assert.equal(shipment.packing_gross_weight_kg, 1038.8);
     assert.equal(shipment.bol_gross_weight_kg, 1039);
     assert.equal(shipment.delivery_term, 'DDU');
-    assert.equal(shipment.internal_batch_label, '第一批');
+    assert.equal(shipment.internal_batch_label, 'ITG-01');
     assert.equal(shipment.internal_batch_source_kind, 'user_instruction_provisional');
     assert.equal(shipment.source_documents.length, 5);
     assert.deepEqual(shipment.source_documents.map(doc => doc.kind), [
@@ -219,7 +219,7 @@ test('layouts, stock, picking and replenishment stay isolated by warehouse ID', 
     assert.equal(viewerBody.data.evidence_access, false);
     assert.deepEqual(viewerBody.data.matches[0].trade_documents, []);
     assert.ok(!JSON.stringify(viewerBody).includes('PO-TEST'));
-    assert.ok(!JSON.stringify(viewerBody).includes('第一批'), 'internal group cannot be sent to non-admins');
+    assert.ok(!JSON.stringify(viewerBody).includes('ITG-01'), 'internal group cannot be sent to non-admins');
     assert.ok(!JSON.stringify(viewerBody).includes('bill_of_lading.pdf'));
     const billUrl = `/products/barcode/01234567/documents/S-TEST/bill_of_lading`;
     const originalDownload = await fetch(`http://127.0.0.1:${port}/api${billUrl}`, {

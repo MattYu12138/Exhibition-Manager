@@ -4,7 +4,7 @@
 Example (after backing up the database):
   DB_PATH=/data/lic/database/LIC_DB.db python3 assignInternalBatchLabel.py \
       --shipment-id TRADE-UNA260001 --po LIC260001 --invoice UNA260001 \
-      --bill SL0202302260M --label 第一批 --actor warehouse-owner
+      --bill SL0202302260M --label ITG-01 --actor warehouse-owner
 
 Only private Warehouse shipment metadata changes. No stock quantities, product
 batch_no, certification or public Traceability records are modified.
@@ -14,7 +14,7 @@ import os
 import sqlite3
 
 
-def assign(db_path, shipment_id, po, invoice, bill, label, actor):
+def assign(db_path, shipment_id, po, invoice, bill, label, actor, correct_existing=False):
     label = label.strip()
     actor = actor.strip()
     if not label or len(label) > 100 or not actor or len(actor) > 120:
@@ -38,8 +38,21 @@ def assign(db_path, shipment_id, po, invoice, bill, label, actor):
         if current == label:
             connection.commit()
             return 'unchanged'
-        if current is not None:
+        if current is not None and not correct_existing:
             raise ValueError('Existing group label differs; explicit reviewed correction is required')
+        if current is not None and correct_existing:
+            updated = connection.execute('''UPDATE warehouse_trade_shipments
+                SET internal_batch_label = ?, internal_batch_source_kind = 'user_instruction_provisional',
+                    internal_batch_recorded_by = ?, internal_batch_recorded_at = datetime('now')
+                WHERE id = ? AND internal_batch_label = ?''', (label, actor, shipment_id, current))
+            if updated.rowcount != 1:
+                raise ValueError('Shipment group could not be corrected safely')
+            connection.execute('''INSERT INTO warehouse_trade_metadata_audit_log
+                (shipment_id, field_name, previous_value, new_value, actor, source_kind)
+                VALUES (?, 'internal_batch_label', ?, ?, ?, 'user_instruction_label_correction')''',
+                               (shipment_id, current, label, actor))
+            connection.commit()
+            return 'corrected_internal_group_only'
         updated = connection.execute('''UPDATE warehouse_trade_shipments
             SET internal_batch_label = ?, internal_batch_source_kind = 'user_instruction_provisional',
                 internal_batch_recorded_by = ?, internal_batch_recorded_at = datetime('now')
@@ -67,6 +80,8 @@ if __name__ == '__main__':
     parser.add_argument('--bill', required=True)
     parser.add_argument('--label', required=True)
     parser.add_argument('--actor', required=True)
+    parser.add_argument('--correct-existing', action='store_true',
+                        help='Record an explicit audited correction to a pre-existing internal label')
     args = parser.parse_args()
     print(assign(os.environ['DB_PATH'], args.shipment_id, args.po, args.invoice,
-                 args.bill, args.label, args.actor))
+                 args.bill, args.label, args.actor, args.correct_existing))

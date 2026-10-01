@@ -108,9 +108,9 @@
                   <div><dt>{{ $t('barcodeLookup.shipper') }}</dt><dd>{{ line.supplier_name || '—' }}</dd></div>
                   <div><dt>{{ $t('barcodeLookup.onBoardDate') }}</dt><dd>{{ line.shipped_at || '—' }}</dd></div>
                   <div><dt>{{ $t('barcodeLookup.reportedArrival') }}</dt><dd>{{ line.reported_arrival_at || '—' }} <small>{{ $t(line.reported_arrival_at ? 'barcodeLookup.arrivalUnverified' : 'barcodeLookup.noArrivalProof') }}</small></dd></div>
-                  <div><dt>{{ $t('barcodeLookup.internalGroup') }}</dt><dd>{{ line.internal_batch_label || '—' }} <small>{{ $t('barcodeLookup.internalGroupNotice') }}</small></dd></div>
+                  <div><dt>{{ $t('barcodeLookup.internalGroup') }}</dt><dd>{{ line.internal_batch_label || '—' }}</dd></div>
                   <div><dt>{{ $t('barcodeLookup.intendedVessel') }}</dt><dd>{{ line.intended_vessel_voyage || '—' }}</dd></div>
-                  <div><dt>{{ $t('barcodeLookup.carrier') }}</dt><dd>— <small>{{ $t('barcodeLookup.carrierUnverified') }}</small></dd></div>
+                  <div><dt>{{ $t('barcodeLookup.carrier') }}</dt><dd>—</dd></div>
                   <div><dt>{{ $t('barcodeLookup.container') }}</dt><dd>{{ line.container_no || '—' }}</dd></div>
                   <div><dt>{{ $t('barcodeLookup.route') }}</dt><dd>{{ line.port_of_loading || '—' }} → {{ line.port_of_discharge || '—' }}</dd></div>
                   <div><dt>{{ $t('barcodeLookup.shipmentTotals') }}</dt><dd>{{ line.declared_cartons ?? '—' }} {{ $t('barcodeLookup.cartons') }} · {{ line.declared_units ?? '—' }} {{ $t('common.piece') }} <small>{{ $t('barcodeLookup.totalNotThisSku') }}</small></dd></div>
