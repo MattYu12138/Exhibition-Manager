@@ -3,6 +3,9 @@ import { useAuthStore } from '@/stores/auth'
 import axios from 'axios'
 import { watch } from 'vue'
 import i18n from '@/i18n'
+// Barcode lookup is a core mobile workflow. Keep it in the entry bundle so an
+// already-open mobile browser never needs a separately cached route chunk.
+import BarcodeLookup from '@/views/BarcodeLookup.vue'
 const routes = [
   {
     path: '/login',
@@ -41,7 +44,7 @@ const routes = [
   {
     path: '/barcode',
     name: 'BarcodeLookup',
-    component: () => import('@/views/BarcodeLookup.vue'),
+    component: BarcodeLookup,
     meta: { titleKey: 'pageTitle.barcodeLookup' },
   },
   {
