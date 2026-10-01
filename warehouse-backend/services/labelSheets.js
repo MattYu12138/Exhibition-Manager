@@ -73,30 +73,43 @@ async function createJ8168Labels(locations, frontendUrl, layoutId) {
           ? String(page.location.code) : String(page.location.id);
         const titleSize = shelfCode.length > 19 ? 18 : shelfCode.length > 10 ? 24 : 30;
         doc.font('Helvetica-Bold').fontSize(titleSize).fillColor('#172d3e')
-          .text(shelfCode, x + 12 * MM, y + 11 * MM, {
-            width: LABEL_WIDTH - 24 * MM, height: 17 * MM, align: 'left',
+          .text(shelfCode, x + 13 * MM, y + 11 * MM, {
+            width: 110 * MM, height: 17 * MM, align: 'left',
             ellipsis: true, lineBreak: false,
           });
-        doc.font('Helvetica').fontSize(9).fillColor('#51606b')
-          .text(String(layoutId), x + 13 * MM, y + 29 * MM, {
-            width: 55 * MM, align: 'left', lineBreak: false,
+        doc.font('Helvetica-Bold').fontSize(9).fillColor('#9c8265')
+          .text('LUMMI IN COLOUR', x + 126 * MM, y + 17 * MM, {
+            width: 61 * MM, align: 'right', lineBreak: false,
           });
-        doc.image(qrImages.get(page.location.id), x + 13 * MM, y + 46 * MM, {
+        doc.font('Helvetica').fontSize(9).fillColor('#51606b')
+          .text(`WAREHOUSE  /  ${String(layoutId)}`, x + 14 * MM, y + 29 * MM, {
+            width: 80 * MM, align: 'left', lineBreak: false,
+          });
+        doc.moveTo(x + 13 * MM, y + 36 * MM).lineTo(x + 187 * MM, y + 36 * MM)
+          .strokeColor('#b59d7f').lineWidth(1.1).stroke();
+        doc.roundedRect(x + 78 * MM, y + 41 * MM, 110 * MM, 94 * MM, 3 * MM)
+          .fill('#f8f6f1');
+        doc.image(qrImages.get(page.location.id), x + 14 * MM, y + 49 * MM, {
           width: QR_SIZE, height: QR_SIZE,
         });
-        doc.font('Helvetica').fontSize(10).fillColor('#172d3e')
-          .text('SCAN SHELF', x + 13 * MM, y + 103 * MM, {
+        doc.font('Helvetica-Bold').fontSize(9).fillColor('#314650')
+          .text('SCAN SHELF', x + 14 * MM, y + 107 * MM, {
             width: QR_SIZE, align: 'center', lineBreak: false,
           });
-        // Vertical rule keeps the location QR visually distinct from product barcodes.
-        doc.moveTo(x + 74 * MM, y + 35 * MM).lineTo(x + 74 * MM, y + 130 * MM)
-          .strokeColor('#c5d0d5').lineWidth(0.6).stroke();
-        const right = x + 80 * MM;
-        const rightWidth = 108 * MM;
+        doc.font('Helvetica').fontSize(8).fillColor('#75838b')
+          .text('LOCATION LABEL', x + 14 * MM, y + 127 * MM, {
+            width: QR_SIZE, align: 'center', lineBreak: false,
+          });
+        const right = x + 84 * MM;
+        const rightWidth = 98 * MM;
+        doc.font('Helvetica-Bold').fontSize(8).fillColor('#907656')
+          .text('PRODUCT DETAILS', right, y + 44 * MM, {
+            width: rightWidth, lineBreak: false,
+          });
         page.products.forEach((product, slot) => {
-          const rowY = y + (slot ? 84 : 38) * MM;
-          if (slot) doc.moveTo(right, y + 80 * MM).lineTo(right + rightWidth, y + 80 * MM)
-            .strokeColor('#dbe2e5').lineWidth(0.5).stroke();
+          const rowY = y + (page.products.length === 1 ? 67 : slot ? 92 : 50) * MM;
+          if (slot) doc.moveTo(right, y + 90 * MM).lineTo(right + rightWidth, y + 90 * MM)
+            .strokeColor('#d8d0c4').lineWidth(0.6).stroke();
           // A full two-line product title has space reserved before the SKU line.
           doc.font('Helvetica-Bold').fontSize(11.5).fillColor('#142936')
             .text(String(product.product_title || 'Unnamed product'), right, rowY, {
@@ -108,11 +121,20 @@ async function createJ8168Labels(locations, frontendUrl, layoutId) {
           const code = String(product.barcode ?? '').trim();
           if (barcodeImages.has(code)) {
             const barcodeY = rowY + 22 * MM;
-            doc.image(barcodeImages.get(code), right + 2 * MM, barcodeY, {
-              fit: [65 * MM, 13 * MM], align: 'left', valign: 'center',
-            });
+            const image = barcodeImages.get(code);
+            // PNG IHDR carries the real graphic dimensions. Scale and centre
+            // the symbol and its digits as one unit; a fixed 68 mm text box
+            // would put the number off to the right of a narrower symbol.
+            const pixelWidth = image.readUInt32BE(16);
+            const pixelHeight = image.readUInt32BE(20);
+            const scale = Math.min(70 * MM / pixelWidth, 11 * MM / pixelHeight);
+            const graphicWidth = pixelWidth * scale;
+            const graphicHeight = pixelHeight * scale;
+            const barcodeX = right + (rightWidth - graphicWidth) / 2;
+            doc.image(image, barcodeX, barcodeY, { width: graphicWidth, height: graphicHeight });
             doc.font('Helvetica').fontSize(10.5).fillColor('#142936')
-              .text(code, right, rowY + 36 * MM, { width: 68 * MM, align: 'center', lineBreak: false });
+              .text(code, barcodeX, barcodeY + graphicHeight + 1.2 * MM,
+                { width: graphicWidth, align: 'center', lineBreak: false });
           } else {
             doc.font('Helvetica').fontSize(10).fillColor('#904934')
               .text('8-DIGIT BARCODE NOT RECORDED', right, rowY + 28 * MM,
@@ -121,13 +143,13 @@ async function createJ8168Labels(locations, frontendUrl, layoutId) {
         });
         if (page.products.length === 0) {
           doc.font('Helvetica').fontSize(13).fillColor('#546671')
-            .text('No stocked products on this shelf', right, y + 57 * MM,
+            .text('No stocked products on this shelf', right, y + 72 * MM,
               { width: rightWidth, align: 'left' });
         }
         if (page.parts > 1) {
-          doc.font('Helvetica').fontSize(9).fillColor('#51606b')
-            .text(`${page.part} / ${page.parts}`, x + LABEL_WIDTH - 27 * MM, y + 130 * MM,
-              { width: 15 * MM, align: 'right', lineBreak: false });
+          doc.font('Helvetica-Bold').fontSize(9).fillColor('#7c674e')
+            .text(`${page.part} / ${page.parts}`, right + rightWidth - 19 * MM, y + 44 * MM,
+              { width: 19 * MM, align: 'right', lineBreak: false });
         }
       });
       doc.end();
