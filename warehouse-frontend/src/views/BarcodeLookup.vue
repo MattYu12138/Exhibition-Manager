@@ -85,12 +85,24 @@
                     {{ $t(line.relation === 'catalogue_sku_candidate' ? 'barcodeLookup.exactSku' : 'barcodeLookup.barcodeCandidate') }}
                   </el-tag>
                 </div>
-                <span>{{ $t('barcodeLookup.docs', { po: line.po_ref, invoice: line.invoice_ref, bol: line.bol_ref || '—' }) }}</span>
-                <span>{{ $t('barcodeLookup.documentQuantity', { qty: line.invoice_quantity }) }} · {{ line.supplier_name }} · {{ line.shipped_at }}</span>
+                <div class="document-refs">{{ $t('barcodeLookup.docs', { po: line.po_ref, invoice: line.invoice_ref, packing: line.packing_ref, bol: line.bol_ref || '—' }) }}</div>
+                <dl class="shipment-facts">
+                  <div><dt>{{ $t('barcodeLookup.documentQuantity') }}</dt><dd>{{ line.po_quantity }} / {{ line.invoice_quantity }} / {{ line.packing_quantity }} {{ $t('common.piece') }} <small>{{ $t('barcodeLookup.quantitySources') }}</small></dd></div>
+                  <div><dt>{{ $t('barcodeLookup.shipper') }}</dt><dd>{{ line.supplier_name || '—' }}</dd></div>
+                  <div><dt>{{ $t('barcodeLookup.onBoardDate') }}</dt><dd>{{ line.shipped_at || '—' }}</dd></div>
+                  <div><dt>{{ $t('barcodeLookup.reportedArrival') }}</dt><dd>{{ line.reported_arrival_at || '—' }} <small>{{ $t(line.reported_arrival_at ? 'barcodeLookup.arrivalUnverified' : 'barcodeLookup.noArrivalProof') }}</small></dd></div>
+                  <div><dt>{{ $t('barcodeLookup.intendedVessel') }}</dt><dd>{{ line.intended_vessel_voyage || '—' }}</dd></div>
+                  <div><dt>{{ $t('barcodeLookup.carrier') }}</dt><dd>{{ $t('barcodeLookup.carrierUnverified') }}</dd></div>
+                  <div><dt>{{ $t('barcodeLookup.container') }}</dt><dd>{{ line.container_no || '—' }}</dd></div>
+                  <div><dt>{{ $t('barcodeLookup.route') }}</dt><dd>{{ line.port_of_loading || '—' }} → {{ line.port_of_discharge || '—' }}</dd></div>
+                  <div><dt>{{ $t('barcodeLookup.shipmentTotals') }}</dt><dd>{{ line.declared_cartons ?? '—' }} {{ $t('barcodeLookup.cartons') }} · {{ line.declared_units ?? '—' }} {{ $t('common.piece') }} <small>{{ $t('barcodeLookup.totalNotThisSku') }}</small></dd></div>
+                  <div><dt>{{ $t('barcodeLookup.measurements') }}</dt><dd>{{ $t('barcodeLookup.weightCompare', { bill: line.bol_gross_weight_kg ?? '—', packing: line.packing_gross_weight_kg ?? '—' }) }} · {{ line.bol_measurement_cbm ?? '—' }} m³ <small>{{ $t('barcodeLookup.weightNote') }}</small></dd></div>
+                  <div><dt>{{ $t('barcodeLookup.deliveryTerm') }}</dt><dd>{{ line.delivery_term || '—' }}</dd></div>
+                </dl>
               </div>
             </div>
             <p v-else class="evidence-empty">{{ $t('barcodeLookup.noTradeDocuments') }}</p>
-            <p class="receipt-status">{{ $t('barcodeLookup.receiptMissing') }}</p>
+            <p v-if="match.trade_documents?.length" class="receipt-status">{{ $t('barcodeLookup.receiptMissing') }}</p>
           </section>
         </div>
       </article>
@@ -230,7 +242,13 @@ onMounted(() => barcodeInput.value?.focus?.())
 .evidence-list { display: grid; gap: 8px; margin: 12px 0; }
 .evidence-row { background: #f8f7f3; border: 1px solid #ebe6dc; padding: 11px 13px; border-radius: 10px; display: grid; gap: 4px; font-size: 12px; color: #676b63; }
 .evidence-row-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; color: #373b37; }
-.receipt-status { font-weight: 600; }
+.document-refs { color: #60544b; line-height: 1.6; }
+.shipment-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; margin: 6px 0 0; }
+.shipment-facts > div { padding: 9px 0; border-top: 1px solid #e8e4dd; min-width: 0; }
+.shipment-facts dt { color: #8c8175; font-size: 11px; font-weight: 600; }
+.shipment-facts dd { margin: 3px 0 0; color: #353733; font-size: 13px; overflow-wrap: anywhere; line-height: 1.45; }
+.shipment-facts small { display: block; color: #947456; font-size: 11px; line-height: 1.45; }
+.receipt-status { margin-top: 13px; background: #fff8e9; border: 1px solid #efdcbc; border-radius: 8px; padding: 10px 12px; font-weight: 600; }
 @media (max-width: 640px) {
   .barcode-page { padding: 6px 0 34px; }
   .page-heading { display: block; margin-bottom: 18px; }
@@ -244,5 +262,6 @@ onMounted(() => barcodeInput.value?.focus?.())
   .product-heading { display: block; }
   .product-heading .el-tag { margin-top: 9px; }
   .product-meta { gap: 6px; flex-direction: column; padding: 12px 0; }
+  .shipment-facts { grid-template-columns: 1fr; }
 }
 </style>

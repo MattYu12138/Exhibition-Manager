@@ -23,9 +23,12 @@ for i in range(125):
     po.active.cell(14+i,10,barcode)
     row=23+i; invoice.active.cell(row,2,sku);invoice.active.cell(row,9,'Product '+str(i));invoice.active.cell(row,11,qty)
     row=15+i; pack.active.cell(row,3,sku);pack.active.cell(row,7,qty);pack.active.cell(row,8,qty)
+pack.active['H141']=12060; pack.active['I141']=102; pack.active['L141']=957.2; pack.active['M141']=1038.8
 for workbook,name in ((po,'enriched.xlsx'),(raw,'original.xlsx'),(invoice,'invoice.xlsx'),(pack,'packing.xlsx')):workbook.save(base/name)
 pdf=canvas.Canvas(str(base/'bill.pdf'))
 pdf.drawString(30,700,'SL0202302260M 2026/07/30 NANSHA MELBOURNE 1039 7.48 102')
+pdf.drawString(30,680,'INTENDED VESSEL & VOY TERM MSC ODESSA V 29S DDU')
+pdf.drawString(30,660,'CONTAINER NO.: XHCU5641810')
 pdf.save()
 `;
 
@@ -56,6 +59,11 @@ test('importer parses five original source files, is idempotent, rejects tamperi
     assert.equal(JSON.parse(first.stdout).catalogue_sku_candidates, 1);
     assert.equal(JSON.parse(run().stdout).status, 'unchanged');
     const verify = new Database(filename);
+    assert.deepEqual(verify.prepare(`SELECT intended_vessel_voyage, container_no, delivery_term,
+      shipped_at, reported_arrival_at FROM warehouse_trade_shipments`).get(), {
+      intended_vessel_voyage: 'MSC ODESSA V 29S', container_no: 'XHCU5641810',
+      delivery_term: 'DDU', shipped_at: '2026-07-30', reported_arrival_at: null,
+    });
     assert.equal(verify.prepare('SELECT count(*) n FROM warehouse_trade_shipment_lines').get().n, 125);
     assert.deepEqual(verify.prepare(`SELECT document_sku, match_method, shopify_variant_id
       FROM warehouse_trade_shipment_lines ORDER BY id LIMIT 2`).all(), [
@@ -64,6 +72,27 @@ test('importer parses five original source files, is idempotent, rejects tamperi
     ]);
     assert.equal(verify.prepare('SELECT importer_version FROM warehouse_trade_shipments').get().importer_version,
       'source-verified-v1');
+    // An existing record indexed under the older schema is enriched only
+    // from the five unchanged originals. A user's arrival statement is kept
+    // distinct from the B/L's on-board date and is audit logged.
+    verify.exec(`UPDATE warehouse_trade_shipments SET intended_vessel_voyage = NULL,
+      container_no = NULL, delivery_term = NULL, bol_gross_weight_kg = NULL,
+      bol_measurement_cbm = NULL`);
+    const reported = spawnSync('python3', [importer, ...sources, '--reported-arrival', '2026-08-20'], {
+      env: { ...process.env, DB_PATH: filename, IMPORT_ACTOR: 'user-reported' }, encoding: 'utf8',
+    });
+    assert.equal(reported.status, 0, reported.stderr);
+    assert.equal(JSON.parse(reported.stdout).status, 'document_details_indexed');
+    assert.deepEqual(verify.prepare(`SELECT shipped_at, intended_vessel_voyage,
+      reported_arrival_at, arrival_reported_by FROM warehouse_trade_shipments`).get(), {
+      shipped_at: '2026-07-30', intended_vessel_voyage: 'MSC ODESSA V 29S',
+      reported_arrival_at: '2026-08-20', arrival_reported_by: 'user-reported',
+    });
+    assert.equal(verify.prepare(`SELECT count(*) n FROM warehouse_trade_metadata_audit_log
+      WHERE source_kind = 'user_reported_unverified'`).get().n, 1);
+    assert.equal(JSON.parse(spawnSync('python3', [importer, ...sources, '--reported-arrival', '2026-08-20'], {
+      env: { ...process.env, DB_PATH: filename, IMPORT_ACTOR: 'user-reported' }, encoding: 'utf8',
+    }).stdout).status, 'unchanged');
     verify.close();
     const tamper = spawnSync('python3', ['-c', `from openpyxl import load_workbook; import sys
 w=load_workbook(sys.argv[1]); w.active['K23']=95; w.save(sys.argv[1])`, sources[1]], { encoding:'utf8' });

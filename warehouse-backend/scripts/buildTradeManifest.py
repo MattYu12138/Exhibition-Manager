@@ -50,6 +50,10 @@ def build(paths):
     for marker in ('SL0202302260M', '2026/07/30', 'NANSHA', 'MELBOURNE', '1039', '7.48', '102'):
         if marker not in bill_text:
             raise ValueError(f'Bill of lading missing expected shipment fact: {marker}')
+    vessel = re.search(r'INTENDED VESSEL\s*&\s*VOY\s+TERM\s+([A-Z0-9 ]+?)\s+(DDU|DDP|FOB|CIF)\b', bill_text)
+    container = re.search(r'\bNO\.?:\s*(XHCU\d{7})\b', bill_text)
+    if not vessel or not container or vessel.group(1).strip() != 'MSC ODESSA V 29S':
+        raise ValueError('Bill of lading vessel or container differs from the original document')
     for label, sheet, marker in (
         ('original PO', original, 'LIC260001'), ('invoice', invoice, 'UNA260001'),
         ('packing list', pack, 'UNA260001'),
@@ -57,6 +61,10 @@ def build(paths):
         header = ' '.join(str(cell.value or '') for row in sheet.iter_rows(max_row=22) for cell in row)
         if marker not in header.upper():
             raise ValueError(f'{label} does not display reference {marker}')
+    if (pack['H141'].value != 12060 or pack['I141'].value != 102
+            or abs(float(pack['L141'].value or 0) - 957.2) > 0.01
+            or abs(float(pack['M141'].value or 0) - 1038.8) > 0.01):
+        raise ValueError('Packing-list totals differ from the supplied original')
     ordered = []
     po_by_sku = unique_lines(po, 1, 14, 6, 2)
     invoice_by_sku = unique_lines(invoice, 2, 23, 11, 9)
@@ -107,6 +115,10 @@ def build(paths):
         'supplier_name': 'WUHAN U & MEE CO., LTD', 'shipped_at': '2026-07-30',
         'port_of_loading': 'Nansha, China', 'port_of_discharge': 'Melbourne, Australia',
         'declared_cartons': 102, 'declared_units': 12060,
+        'intended_vessel_voyage': vessel.group(1).strip(), 'container_no': container.group(1),
+        'delivery_term': vessel.group(2), 'bol_gross_weight_kg': 1039,
+        'bol_measurement_cbm': 7.48, 'packing_net_weight_kg': float(pack['L141'].value),
+        'packing_gross_weight_kg': float(pack['M141'].value),
         'source_checksums': hashes, 'lines': ordered,
         'disclaimer': 'Commercial and shipping documents only; no verified production lot, SC, TC, label approval or stock receipt link.',
     }

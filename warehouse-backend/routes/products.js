@@ -102,8 +102,12 @@ router.get('/barcode/:barcode', requireLogin, (req, res) => {
           tl.po_quantity, tl.invoice_quantity, tl.packing_quantity,
           tl.match_method, tl.shopify_variant_id,
           s.po_ref, s.invoice_ref, s.packing_ref, s.bol_ref,
-          s.supplier_name, s.shipped_at, s.port_of_loading,
-          s.port_of_discharge, s.declared_cartons, s.declared_units
+          s.supplier_name, s.shipped_at, s.reported_arrival_at,
+          s.intended_vessel_voyage, s.container_no, s.delivery_term,
+          s.bol_gross_weight_kg, s.bol_measurement_cbm,
+          s.packing_net_weight_kg, s.packing_gross_weight_kg,
+          s.port_of_loading, s.port_of_discharge,
+          s.declared_cartons, s.declared_units
         FROM warehouse_trade_shipment_lines tl
         JOIN warehouse_trade_shipments s ON s.id = tl.shipment_id
         WHERE tl.shopify_variant_id = ? OR tl.barcode = ?

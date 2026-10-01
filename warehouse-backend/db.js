@@ -255,6 +255,16 @@ db.exec(`
     port_of_discharge TEXT,
     declared_cartons INTEGER,
     declared_units INTEGER,
+    intended_vessel_voyage TEXT,
+    container_no TEXT,
+    bol_gross_weight_kg REAL,
+    bol_measurement_cbm REAL,
+    packing_net_weight_kg REAL,
+    packing_gross_weight_kg REAL,
+    delivery_term TEXT,
+    reported_arrival_at TEXT,
+    arrival_reported_by TEXT,
+    arrival_reported_at TEXT,
     source_checksums TEXT NOT NULL,
     imported_by TEXT NOT NULL DEFAULT 'unknown',
     importer_version TEXT NOT NULL DEFAULT 'unknown',
@@ -285,6 +295,16 @@ db.exec(`
     barcode TEXT NOT NULL,
     accessed_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  CREATE TABLE IF NOT EXISTS warehouse_trade_metadata_audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    shipment_id TEXT NOT NULL,
+    field_name TEXT NOT NULL,
+    previous_value TEXT,
+    new_value TEXT,
+    actor TEXT NOT NULL,
+    source_kind TEXT NOT NULL,
+    changed_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 // Ownership belongs to the immutable warehouse ID, not a display name. The
@@ -303,6 +323,15 @@ function addColumn(table, column, sql) {
 addColumn('warehouse_locations', 'low_stock_threshold', 'INTEGER NOT NULL DEFAULT 10');
 addColumn('warehouse_inventory', 'inbound_shipment_id', 'TEXT');
 addColumn('warehouse_inventory', 'inbound_box_id', 'TEXT');
+// Trade documents were indexed before these extra B/L fields were parsed.
+// Existing shipment rows stay unchanged until the original source documents
+// are re-opened and their checksums checked by the private importer.
+for (const [field, sql] of Object.entries({
+  intended_vessel_voyage: 'TEXT', container_no: 'TEXT',
+  bol_gross_weight_kg: 'REAL', bol_measurement_cbm: 'REAL', delivery_term: 'TEXT',
+  packing_net_weight_kg: 'REAL', packing_gross_weight_kg: 'REAL',
+  reported_arrival_at: 'TEXT', arrival_reported_by: 'TEXT', arrival_reported_at: 'TEXT',
+})) addColumn('warehouse_trade_shipments', field, sql);
 addColumn('warehouse_pick_tasks', 'layout_id', 'TEXT REFERENCES warehouse_layouts(id) ON DELETE SET NULL');
 if (hasTable('warehouse_pick_tasks')) {
   db.exec(`

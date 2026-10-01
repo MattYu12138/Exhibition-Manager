@@ -137,8 +137,12 @@ test('layouts, stock, picking and replenishment stay isolated by warehouse ID', 
     assert.equal((await call('GET', '/locations', one)).body.data[0].total_qty, 5);
     assert.equal((await call('GET', '/locations', two)).body.data[0].total_qty, 6);
     db.prepare(`INSERT INTO warehouse_trade_shipments
-      (id, po_ref, invoice_ref, packing_ref, bol_ref, source_checksums, declared_units)
-      VALUES ('S-TEST', 'PO-TEST', 'INV-TEST', 'PL-TEST', 'BOL-TEST', '{}', 2)`).run();
+      (id, po_ref, invoice_ref, packing_ref, bol_ref, source_checksums, declared_units,
+       shipped_at, reported_arrival_at, intended_vessel_voyage, container_no,
+       bol_gross_weight_kg, packing_gross_weight_kg, delivery_term)
+      VALUES ('S-TEST', 'PO-TEST', 'INV-TEST', 'PL-TEST', 'BOL-TEST', '{}', 2,
+        '2026-07-30', '2026-08-20', 'MSC ODESSA V 29S', 'XHCU5641810',
+        1039, 1038.8, 'DDU')`).run();
     db.prepare(`INSERT INTO warehouse_trade_shipment_lines
       (id, shipment_id, document_sku, document_title, barcode, po_quantity, invoice_quantity,
        packing_quantity, shopify_variant_id, match_method)
@@ -179,6 +183,14 @@ test('layouts, stock, picking and replenishment stay isolated by warehouse ID', 
     assert.equal(lineEvidence.trade_documents.length, 2);
     assert.equal(lineEvidence.trade_documents.find(doc => doc.document_sku === 'V1-000').relation, 'catalogue_sku_candidate');
     assert.equal(lineEvidence.trade_documents.find(doc => doc.document_sku === 'NEW-SKU').relation, 'barcode_candidate');
+    const shipment = lineEvidence.trade_documents.find(doc => doc.document_sku === 'V1-000');
+    assert.equal(shipment.shipped_at, '2026-07-30');
+    assert.equal(shipment.reported_arrival_at, '2026-08-20');
+    assert.equal(shipment.intended_vessel_voyage, 'MSC ODESSA V 29S');
+    assert.equal(shipment.container_no, 'XHCU5641810');
+    assert.equal(shipment.packing_gross_weight_kg, 1038.8);
+    assert.equal(shipment.bol_gross_weight_kg, 1039);
+    assert.equal(shipment.delivery_term, 'DDU');
     assert.equal(lineEvidence.stock_source_status, 'trade_shipment_to_stock_unverified');
     assert.equal(barcodeInOne.body.data.matches.find(item => item.shopify_variant_id === 'V2').trade_documents[0].relation, 'barcode_candidate');
     assert.ok(!JSON.stringify(lineEvidence).includes('source_checksums'), 'never expose raw evidence file hashes to barcode viewers');
